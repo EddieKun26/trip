@@ -13,6 +13,14 @@ function redisConfig() {
   };
 }
 
+function decodeMemberName(value) {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return "";
+  }
+}
+
 async function redisCommand(command) {
   const { url, token } = redisConfig();
   if (!url || !token) throw new Error("SHARED_DATABASE_NOT_CONFIGURED");
@@ -67,7 +75,7 @@ export default async function tripHandler(request, response) {
 
     if (request.method === "PUT") {
       const memberId = String(request.headers["x-trip-member-id"] || "").trim().slice(0, 80);
-      const memberName = String(request.headers["x-trip-member-name"] || "").trim().slice(0, 10);
+      const memberName = decodeMemberName(request.headers["x-trip-member-name"]).trim().slice(0, 10);
       if (!memberId || !memberName) {
         return sendJson(response, 403, { error: "MEMBER_REQUIRED" });
       }

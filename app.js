@@ -398,7 +398,7 @@ async function saveSharedTrip() {
       headers: {
         "Content-Type": "application/json",
         "X-Trip-Member-Id": currentMemberId(),
-        "X-Trip-Member-Name": state.profile.nickname,
+        "X-Trip-Member-Name": encodeURIComponent(state.profile.nickname),
       },
       body: JSON.stringify(sharedTripPayload()),
     });
