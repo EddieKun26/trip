@@ -151,8 +151,18 @@ if (!localStorage.getItem(cleanupMigrationKey)) {
 }
 
 const savedCustomPlaces = JSON.parse(localStorage.getItem("tokyo-custom-places") || "[]");
-const savedProfile = JSON.parse(localStorage.getItem("tokyo-profile-v1") || "null");
+const rawSavedProfile = JSON.parse(localStorage.getItem("tokyo-profile-v1") || "null");
+const savedProfile = rawSavedProfile
+  ? {
+      ...rawSavedProfile,
+      id:
+        rawSavedProfile.id && rawSavedProfile.id !== "me"
+          ? rawSavedProfile.id
+          : `member-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+    }
+  : null;
 const savedDeletedPlaces = JSON.parse(localStorage.getItem("tokyo-deleted-places-v1") || "[]");
+const savedAccessMode = sessionStorage.getItem("tokyo-access-mode-v1");
 
 const state = {
   activeTab: "overview",
@@ -179,6 +189,9 @@ const state = {
   ],
   deletedPlaces: savedDeletedPlaces,
   profile: savedProfile,
+  isGuest: savedAccessMode === "guest" && !savedProfile,
+  members: savedProfile ? { [savedProfile.id]: savedProfile.nickname } : {},
+  sharedRevision: 0,
   votes: JSON.parse(
     localStorage.getItem("tokyo-votes-v2") || JSON.stringify(defaultVotes),
   ),
@@ -189,6 +202,11 @@ const app = document.querySelector("#app");
 const sheetRoot = document.querySelector("#sheet-root");
 const toastRoot = document.querySelector("#toast-root");
 let pendingPlaceImports = [];
+let sharedSaveTimer = 0;
+let sharedSyncBusy = false;
+let mapRenderToken = 0;
+let activeLeafletMap = null;
+let googleMapsLoader = null;
 
 function escapeHtml(value = "") {
   return String(value)
@@ -199,7 +217,15 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#039;");
 }
 
-function persist() {
+function canEdit() {
+  return Boolean(state.profile) && !state.isGuest;
+}
+
+function currentMemberId() {
+  return state.profile?.id || "";
+}
+
+function persist({ sync = true } = {}) {
   localStorage.setItem("tokyo-votes-v2", JSON.stringify(state.votes));
   if (state.profile) {
     localStorage.setItem("tokyo-profile-v1", JSON.stringify(state.profile));
@@ -210,12 +236,23 @@ function persist() {
     "tokyo-custom-places",
     JSON.stringify(state.places.filter((place) => place.isCustom)),
   );
+  if (sync && canEdit()) {
+    window.clearTimeout(sharedSaveTimer);
+    sharedSaveTimer = window.setTimeout(saveSharedTrip, 120);
+  }
 }
 
 function members() {
-  return [
-    { id: "me", name: state.profile?.nickname || "我", tone: "coral" },
-  ];
+  const palette = ["coral", "teal", "ochre"];
+  const records = Object.entries(state.members || {}).map(([id, name], index) => ({
+    id,
+    name,
+    tone: palette[index % palette.length],
+  }));
+  if (state.profile && !records.some((member) => member.id === state.profile.id)) {
+    records.push({ id: state.profile.id, name: state.profile.nickname, tone: "coral" });
+  }
+  return records;
 }
 
 function memberName(id) {
@@ -244,12 +281,14 @@ function voterSummary(name) {
 }
 
 function toggleMyVote(name) {
+  if (!canEdit()) return false;
+  const memberId = currentMemberId();
   const voters = new Set(placeVoters(name));
-  if (voters.has("me")) voters.delete("me");
-  else voters.add("me");
+  if (voters.has(memberId)) voters.delete(memberId);
+  else voters.add(memberId);
   state.votes[name] = [...voters];
   persist();
-  return voters.has("me");
+  return voters.has(memberId);
 }
 
 function avatarMarkup(memberId, compact = false) {
@@ -273,6 +312,7 @@ function placeScheduleLabel(name) {
 }
 
 function deletePlace(name) {
+  if (!canEdit()) return false;
   const place = state.places.find((item) => item.name === name);
   if (!place) return false;
   state.places = state.places.filter((item) => item.name !== name);
@@ -288,6 +328,7 @@ function deletePlace(name) {
 }
 
 function deleteItineraryItem(date, name) {
+  if (!canEdit()) return false;
   const items = state.itinerary[date] || [];
   const nextItems = items.filter((item) => item.name !== name);
   if (nextItems.length === items.length) return false;
@@ -297,6 +338,7 @@ function deleteItineraryItem(date, name) {
 }
 
 function reorderItineraryItem(date, sourceName, targetName) {
+  if (!canEdit()) return false;
   const items = state.itinerary[date] || [];
   const sourceIndex = items.findIndex((item) => item.name === sourceName);
   const targetIndex = items.findIndex((item) => item.name === targetName);
@@ -308,6 +350,7 @@ function reorderItineraryItem(date, sourceName, targetName) {
 }
 
 function moveItineraryItem(date, name, direction) {
+  if (!canEdit()) return false;
   const items = state.itinerary[date] || [];
   const index = items.findIndex((item) => item.name === name);
   const nextIndex = direction === "up" ? index - 1 : index + 1;
@@ -323,6 +366,74 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => {
     toastRoot.innerHTML = "";
   }, 2200);
+}
+
+function sharedTripPayload() {
+  return {
+    places: state.places,
+    votes: state.votes,
+    itinerary: state.itinerary,
+    members: state.members,
+  };
+}
+
+function applySharedTrip(payload) {
+  if (!payload || !Array.isArray(payload.places)) return false;
+  state.places = payload.places;
+  state.votes = payload.votes && typeof payload.votes === "object" ? payload.votes : {};
+  state.itinerary = payload.itinerary && typeof payload.itinerary === "object" ? payload.itinerary : {};
+  state.members = payload.members && typeof payload.members === "object" ? payload.members : {};
+  if (state.profile) state.members[state.profile.id] = state.profile.nickname;
+  state.sharedRevision = Number(payload.revision) || state.sharedRevision;
+  return true;
+}
+
+async function saveSharedTrip() {
+  if (!canEdit() || sharedSyncBusy) return;
+  sharedSyncBusy = true;
+  try {
+    state.members[currentMemberId()] = state.profile.nickname;
+    const response = await fetch("/api/trip", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trip-Member-Id": currentMemberId(),
+        "X-Trip-Member-Name": state.profile.nickname,
+      },
+      body: JSON.stringify(sharedTripPayload()),
+    });
+    if (!response.ok) throw new Error("SAVE_FAILED");
+    const payload = await response.json();
+    state.sharedRevision = Number(payload.revision) || state.sharedRevision;
+  } catch {
+    showToast("共用資料暫時無法同步，稍後會再試");
+  } finally {
+    sharedSyncBusy = false;
+  }
+}
+
+async function loadSharedTrip({ quiet = false } = {}) {
+  if (sharedSyncBusy) return;
+  try {
+    const response = await fetch("/api/trip", { cache: "no-store" });
+    if (response.status === 404) {
+      if (canEdit()) saveSharedTrip();
+      return;
+    }
+    if (!response.ok) throw new Error("LOAD_FAILED");
+    const payload = await response.json();
+    if ((Number(payload.revision) || 0) < state.sharedRevision) return;
+    if (applySharedTrip(payload)) {
+      persist({ sync: false });
+      render({ preserveScroll: true });
+    }
+  } catch {
+    if (!quiet) showToast("目前顯示離線資料");
+  }
+}
+
+function guestOnlyMessage() {
+  showToast("訪客只能閱覽；登入暱稱後即可參與規劃");
 }
 
 function setTab(tab) {
@@ -345,14 +456,15 @@ function overviewScreen() {
 
   return `
     <section class="screen">
+      ${state.isGuest ? `<div class="guest-banner"><span><strong>訪客模式</strong>僅供閱覽</span><button type="button" data-edit-profile>登入參與規劃</button></div>` : ""}
       <header class="title-row">
         <div>
           <h1>東京 7 日</h1>
           <p class="subtitle">9/20–9/26</p>
         </div>
         <button class="profile-button" type="button" data-edit-profile aria-label="編輯旅行暱稱">
-          ${avatarMarkup("me")}
-          <span><small>這趟旅程的我</small><strong>${escapeHtml(state.profile?.nickname || "設定暱稱")}</strong></span>
+          ${state.isGuest ? `<span class="member-avatar guest">訪</span>` : avatarMarkup(currentMemberId())}
+          <span><small>${state.isGuest ? "目前身分" : "這趟旅程的我"}</small><strong>${escapeHtml(state.isGuest ? "訪客" : state.profile?.nickname || "設定暱稱")}</strong></span>
         </button>
       </header>
 
@@ -394,18 +506,18 @@ function placesScreen() {
         .filter((place) => place.area === area)
         .map((place) => {
           const voters = placeVoters(place.name);
-          const active = voters.includes("me");
+          const active = voters.includes(currentMemberId());
           return `
-            <div class="swipe-row">
-              <button class="swipe-delete" type="button" data-request-delete-place="${escapeHtml(place.name)}" aria-label="刪除${escapeHtml(place.name)}">刪除</button>
-              <article class="place-row swipe-surface" data-swipe-item="place:${escapeHtml(place.name)}">
+            <div class="swipe-row ${canEdit() ? "" : "readonly"}">
+              ${canEdit() ? `<button class="swipe-delete" type="button" data-request-delete-place="${escapeHtml(place.name)}" aria-label="刪除${escapeHtml(place.name)}">刪除</button>` : ""}
+              <article class="place-row swipe-surface" ${canEdit() ? `data-swipe-item="place:${escapeHtml(place.name)}"` : ""}>
                 <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(place.name)}">${escapeHtml(place.mark)}</button>
                 <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(place.name)}">
                   <strong>${escapeHtml(place.name)}</strong>
                   <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
                   <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
                 </button>
-                <button class="reaction-button ${active ? "active" : ""}" type="button" data-vote="${escapeHtml(place.name)}" aria-label="${active ? "取消我的最想去" : "標記我最想去"}">
+                <button class="reaction-button ${active ? "active" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"} aria-label="${canEdit() ? (active ? "取消我的最想去" : "標記我最想去") : "訪客無法投票"}">
                   <span aria-hidden="true">${active ? "★" : "☆"}</span>
                   <b>${voters.length}</b>
                 </button>
@@ -425,13 +537,11 @@ function placesScreen() {
     <section class="screen">
       <header class="title-row">
         <div><h1>收藏地點</h1><p class="meta">${state.places.length} 個地點</p></div>
-        <button class="round-button" type="button" data-add-place aria-label="新增地點">＋</button>
+        ${canEdit() ? `<button class="round-button" type="button" data-add-place aria-label="新增地點">＋</button>` : `<span class="readonly-badge">訪客唯讀</span>`}
       </header>
       ${placesSegment("list")}
       ${groups || `<div class="empty-state"><div><b>還沒有收藏地點</b><span>新增第一個想一起討論的景點。</span></div></div>`}
-      <div class="list-footer">
-        <button class="primary-button" type="button" data-add-place>＋　新增地點</button>
-      </div>
+      ${canEdit() ? `<div class="list-footer"><button class="primary-button" type="button" data-add-place>＋　新增地點</button></div>` : ""}
     </section>`;
 }
 
@@ -476,7 +586,7 @@ function matchesMapFilters(place) {
   if (state.mapCategory !== "all" && place.category !== state.mapCategory) return false;
   const voters = placeVoters(place.name);
   if (state.mapPreference === "group" && voters.length < 2) return false;
-  if (state.mapPreference === "mine" && !voters.includes("me")) return false;
+  if (state.mapPreference === "mine" && !voters.includes(currentMemberId())) return false;
   if (state.mapPreference === "none" && voters.length > 0) return false;
   return true;
 }
@@ -517,12 +627,6 @@ function mapScreen() {
         longitude: projectedPlaces.reduce((sum, place) => sum + place.longitude, 0) / projectedPlaces.length,
       }
     : { latitude: 35.6762, longitude: 139.6503 };
-  const mapQuery = `${mapCenter.latitude},${mapCenter.longitude}`;
-  const mapPlaceStrip = projectedPlaces
-    .map(
-      (place) => `<button type="button" data-open-place="${escapeHtml(place.name)}" aria-label="查看${escapeHtml(place.name)}"><b style="--pin-color:${mapPinColor(placeMapStatus(place))}">${escapeHtml(place.mark)}</b><span>${escapeHtml(place.name)}</span><small>★ ${placeVoters(place.name).length}</small></button>`,
-    )
-    .join("");
 
   const categoryOptions = [
     `<option value="all">所有類型</option>`,
@@ -541,7 +645,7 @@ function mapScreen() {
     <section class="screen map-screen">
       <div class="map-toolbar">
         <div><h2 style="margin:0">${state.mapView === "planning" ? "規劃地圖" : `${state.selectedDate} 當日地圖`}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
-        <span class="coordinate-badge" title="Google Maps 互動地圖">Google Maps</span>
+        <span class="coordinate-badge" title="可單指拖曳的互動地圖">互動地圖</span>
       </div>
       <div style="margin-top:14px">${placesSegment("map")}</div>
       <div class="map-purpose-tabs" aria-label="地圖用途">
@@ -562,11 +666,8 @@ function mapScreen() {
         <span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span class="muted"><i class="lodging"></i>住宿未設定</span>
       </div>
       <div class="map-canvas" data-map-host>
-        <div class="google-map" aria-label="Google 地圖，可用手指拖曳與縮放">
-          <iframe title="Google Maps 互動地圖" src="https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}&z=11&output=embed" loading="eager" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
-        </div>
-        ${mapPlaceStrip ? `<div class="map-fallback-strip" aria-label="地圖景點">${mapPlaceStrip}</div>` : ""}
-        <div class="map-gesture-note">拖曳移動 · 雙指縮放</div>
+        <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
+        <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
         ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
         ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "這一天尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
       </div>
@@ -580,6 +681,140 @@ function mapPinColor(status) {
     lodging: "#50805e",
     candidate: "#777975",
   }[status] || "#777975";
+}
+
+function markerHtml(place) {
+  return `<button class="google-place-pin" type="button" style="--pin-color:${mapPinColor(placeMapStatus(place))}" aria-label="${escapeHtml(place.name)}，${placeVoters(place.name).length} 人推薦"><span>${escapeHtml(place.mark)}</span><b>★ ${placeVoters(place.name).length}</b></button>`;
+}
+
+async function getGoogleMapsBrowserKey() {
+  try {
+    const response = await fetch("/api/maps-browser-config");
+    if (!response.ok) return "";
+    const payload = await response.json();
+    return String(payload.key || "");
+  } catch {
+    return "";
+  }
+}
+
+function loadGoogleMapsScript(key) {
+  if (window.google?.maps) return Promise.resolve();
+  if (googleMapsLoader) return googleMapsLoader;
+  googleMapsLoader = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.append(script);
+  });
+  return googleMapsLoader;
+}
+
+function renderGoogleInteractiveMap(host, places) {
+  host.innerHTML = "";
+  const center = places.length
+    ? {
+        lat: places.reduce((sum, place) => sum + place.latitude, 0) / places.length,
+        lng: places.reduce((sum, place) => sum + place.longitude, 0) / places.length,
+      }
+    : { lat: 35.6762, lng: 139.6503 };
+  const map = new google.maps.Map(host, {
+    center,
+    zoom: places.length === 1 ? 14 : 11,
+    gestureHandling: "greedy",
+    mapTypeControl: false,
+    fullscreenControl: false,
+    streetViewControl: false,
+  });
+  const bounds = new google.maps.LatLngBounds();
+  places.forEach((place) => {
+    const position = { lat: place.latitude, lng: place.longitude };
+    bounds.extend(position);
+    const marker = new google.maps.Marker({
+      map,
+      position,
+      title: place.name,
+      label: {
+        text: `${place.mark} ${placeVoters(place.name).length}`,
+        color: "#ffffff",
+        fontSize: "12px",
+        fontWeight: "800",
+      },
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: mapPinColor(placeMapStatus(place)),
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 3,
+        scale: 20,
+      },
+    });
+    marker.addListener("click", () => openPlaceSheet(place.name));
+  });
+  if (places.length > 1) map.fitBounds(bounds, 42);
+}
+
+function renderLeafletInteractiveMap(host, places) {
+  if (!window.L) throw new Error("LEAFLET_NOT_AVAILABLE");
+  activeLeafletMap?.remove();
+  host.innerHTML = "";
+  activeLeafletMap = L.map(host, {
+    dragging: true,
+    touchZoom: true,
+    scrollWheelZoom: true,
+    tap: true,
+    zoomControl: true,
+  });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap",
+  }).addTo(activeLeafletMap);
+  const bounds = [];
+  places.forEach((place) => {
+    const point = [place.latitude, place.longitude];
+    bounds.push(point);
+    const icon = L.divIcon({
+      className: "trip-div-icon",
+      html: markerHtml(place),
+      iconSize: [48, 48],
+      iconAnchor: [24, 46],
+    });
+    L.marker(point, { icon, title: place.name })
+      .addTo(activeLeafletMap)
+      .on("click", () => openPlaceSheet(place.name));
+  });
+  if (bounds.length > 1) activeLeafletMap.fitBounds(bounds, { padding: [42, 42] });
+  else activeLeafletMap.setView(bounds[0] || [35.6762, 139.6503], bounds.length ? 14 : 11);
+}
+
+async function initializeInteractiveMap() {
+  const token = ++mapRenderToken;
+  const host = document.querySelector("#interactive-map");
+  if (!host) return;
+  const places = filteredMapPlaces().filter(
+    (place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude),
+  );
+  const browserKey = await getGoogleMapsBrowserKey();
+  if (token !== mapRenderToken || !document.body.contains(host)) return;
+  if (browserKey) {
+    try {
+      await loadGoogleMapsScript(browserKey);
+      if (token === mapRenderToken && document.body.contains(host)) {
+        renderGoogleInteractiveMap(host, places);
+        return;
+      }
+    } catch {
+      // Fall through to the keyless interactive map.
+    }
+  }
+  try {
+    renderLeafletInteractiveMap(host, places);
+  } catch {
+    const center = places[0] || { latitude: 35.6762, longitude: 139.6503 };
+    host.innerHTML = `<iframe title="Google Maps 互動地圖" src="https://www.google.com/maps?q=${center.latitude},${center.longitude}&z=11&output=embed" loading="eager" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>`;
+  }
 }
 
 function itineraryScreen() {
@@ -597,23 +832,23 @@ function itineraryScreen() {
     .map((item, index) => {
       const place = state.places.find((candidate) => candidate.name === item.name);
       return `
-        <div class="swipe-row timeline-swipe-row">
-          <button class="swipe-delete" type="button" data-request-delete-itinerary="${escapeHtml(item.name)}" data-delete-date="${state.selectedDate}" aria-label="從${state.selectedDate}刪除${escapeHtml(item.name)}">刪除</button>
-          <article class="timeline-item swipe-surface" data-item-name="${escapeHtml(item.name)}" data-swipe-item="itinerary:${state.selectedDate}:${escapeHtml(item.name)}">
-            <button class="time-button" type="button" data-edit-time="${escapeHtml(item.name)}">${escapeHtml(item.time)}</button>
+        <div class="swipe-row timeline-swipe-row ${canEdit() ? "" : "readonly"}">
+          ${canEdit() ? `<button class="swipe-delete" type="button" data-request-delete-itinerary="${escapeHtml(item.name)}" data-delete-date="${state.selectedDate}" aria-label="從${state.selectedDate}刪除${escapeHtml(item.name)}">刪除</button>` : ""}
+          <article class="timeline-item swipe-surface" data-item-name="${escapeHtml(item.name)}" ${canEdit() ? `data-swipe-item="itinerary:${state.selectedDate}:${escapeHtml(item.name)}"` : ""}>
+            <button class="time-button" type="button" ${canEdit() ? `data-edit-time="${escapeHtml(item.name)}"` : "disabled"}>${escapeHtml(item.time)}</button>
             <button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
               <strong>${escapeHtml(item.name)}</strong>
               <span class="opening-line"><b>營業</b>${formatOpeningHours(place?.openingHours)}</span>
               <span class="phone-line"><b>電話</b>${escapeHtml(place?.phone || "待 Google Maps 同步")}</span>
             </button>
-            <button
+            ${canEdit() ? `<button
               class="drag-handle"
               type="button"
               draggable="true"
               data-drag-name="${escapeHtml(item.name)}"
               data-reorder-menu="${escapeHtml(item.name)}"
               aria-label="調整${escapeHtml(item.name)}順序，目前第 ${index + 1} 個"
-            >☰</button>
+            >☰</button>` : ""}
           </article>
         </div>`;
     })
@@ -639,7 +874,7 @@ function itineraryScreen() {
           ? `<div class="timeline">${rows}</div>`
           : `<div class="empty-state"><div><b>這天還沒有地點</b><span>從地圖選取同區景點，加入這一天。</span></div></div>`
       }
-      <button class="outline-button" type="button" data-go-tab="places">＋　加入地點</button>
+      ${canEdit() ? `<button class="outline-button" type="button" data-go-tab="places">＋　加入地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
       <div class="boundary-card">
         <div class="boundary-row"><span>🛬</span><strong>9/20 14:45 抵達成田</strong></div>
         <div class="boundary-row"><span>🛫</span><strong>9/26 17:50 成田起飛</strong></div>
@@ -653,13 +888,20 @@ function render({ preserveScroll = false } = {}) {
   if (state.activeTab === "places") app.innerHTML = placesScreen();
   if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
+  if (state.activeTab === "places" && state.placesMode === "map") {
+    window.requestAnimationFrame(initializeInteractiveMap);
+  } else {
+    mapRenderToken += 1;
+    activeLeafletMap?.remove();
+    activeLeafletMap = null;
+  }
 }
 
 function openPlaceSheet(name) {
   const place = state.places.find((item) => item.name === name);
   if (!place) return;
   const voters = placeVoters(place.name);
-  const hasMyVote = voters.includes("me");
+  const hasMyVote = voters.includes(currentMemberId());
   const voterChips = voters.length
     ? voters
         .map(
@@ -671,21 +913,32 @@ function openPlaceSheet(name) {
         )
         .join("")
     : `<span class="meta">還沒有人標記，成為第一個吧</span>`;
-  const gallery = (place.galleryLabels || ["地點照片", "環境照片", "附近街景"])
-    .map(
-      (label, index) => `
-        <div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch}">
-          <span>${escapeHtml(label)}</span>
-        </div>`,
-    )
-    .join("");
+  const gallery = place.photos?.length
+    ? place.photos
+        .slice(0, 3)
+        .map(
+          (photo, index) => `
+            <figure class="gallery-card gallery-${index + 1} real-photo">
+              <img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" />
+              <figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption>
+            </figure>`,
+        )
+        .join("")
+    : (place.galleryLabels || ["正在取得 Google Maps 照片", "環境照片", "附近街景"])
+        .map(
+          (label, index) => `
+            <div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch}">
+              <span>${escapeHtml(label)}</span>
+            </div>`,
+        )
+        .join("");
   const highlights = (place.highlights || [])
     .map((highlight) => `<span class="highlight-tag">${escapeHtml(highlight)}</span>`)
     .join("");
 
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
-      <section class="modal-sheet place-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="place-title">
+      <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(place.name)}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
           <div><p class="section-kicker">${escapeHtml(place.area)}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
@@ -693,7 +946,7 @@ function openPlaceSheet(name) {
         <p class="place-byline">${escapeHtml(place.fullName)} · ${escapeHtml(place.category)}</p>
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
-          <span>照片版位預覽</span>
+          <span>${place.photos?.length ? "Google Maps 景點照片" : "正在同步 Google Maps 照片"}</span>
           <button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">到 Google Maps 看照片 ↗</button>
         </div>
         <p class="place-description">${escapeHtml(place.description)}</p>
@@ -718,7 +971,7 @@ function openPlaceSheet(name) {
             <small>行程安排</small>
             <strong class="${placeAssignments(place.name).length ? "scheduled" : ""}">${escapeHtml(placeScheduleLabel(place.name))}</strong>
           </div>
-          <button class="secondary-button" type="button" data-add-place-date="${escapeHtml(place.name)}">＋ 加入某一天</button>
+          ${canEdit() ? `<button class="secondary-button" type="button" data-add-place-date="${escapeHtml(place.name)}">＋ 加入某一天</button>` : `<span class="readonly-badge">訪客唯讀</span>`}
         </section>
         <section class="vote-panel" aria-label="最想去投票">
           <div class="section-row">
@@ -733,11 +986,45 @@ function openPlaceSheet(name) {
             : `<p class="meta">此自訂地點尚未取得座標</p>`
         }
         <div class="modal-actions">
-          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" data-vote="${escapeHtml(place.name)}">${hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去"}</button>
+          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">開啟 Google Maps</button>
         </div>
       </section>
     </div>`;
+  ensurePlaceDetails(place);
+}
+
+async function ensurePlaceDetails(place) {
+  if (!place || place.photosLoaded || place.detailsLoading) return;
+  place.detailsLoading = true;
+  try {
+    const response = await fetch("/api/places", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ places: [{ sourceUrl: place.sourceUrl, hintName: place.name }] }),
+    });
+    if (!response.ok) return;
+    const resolved = (await response.json()).places?.[0];
+    if (!resolved || resolved.error) return;
+    Object.assign(place, {
+      fullName: resolved.name || place.fullName,
+      area: resolved.area || place.area,
+      category: resolved.category || place.category,
+      latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
+      longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
+      sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
+      openingHours: resolved.openingHours || place.openingHours,
+      phone: resolved.phone || place.phone,
+      photos: resolved.photos || place.photos || [],
+      photosLoaded: true,
+    });
+    persist();
+    if (document.querySelector(`[data-detail-place="${CSS.escape(place.name)}"]`)) openPlaceSheet(place.name);
+  } catch {
+    // The existing text details remain available when Google Places is temporarily unavailable.
+  } finally {
+    place.detailsLoading = false;
+  }
 }
 
 function openProfileSheet(required = false) {
@@ -747,15 +1034,15 @@ function openProfileSheet(required = false) {
       <form class="modal-sheet profile-sheet" id="profile-form" data-required="${required ? "true" : "false"}">
         <div class="profile-mark">旅</div>
         <p class="section-kicker">一起規劃東京</p>
-        <h2>${required ? "先取一個旅行暱稱" : "編輯我的暱稱"}</h2>
+        <h2>${required || state.isGuest ? "取一個旅行暱稱" : "編輯我的暱稱"}</h2>
         <p>不用真名，請自行輸入容易辨識的名稱。標記推薦時會使用暱稱的第一個字作為代號。</p>
         <div class="field">
           <label for="profile-nickname">我的暱稱</label>
           <input id="profile-nickname" name="nickname" value="${escapeHtml(current)}" maxlength="10" required autocomplete="nickname" placeholder="輸入你的旅行暱稱" />
           <span class="field-note">最多 10 個字，第一個字會顯示在推薦標記上</span>
         </div>
-        <div class="modal-actions ${required ? "single-action" : ""}">
-          ${required ? "" : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}
+        <div class="modal-actions ${required ? "profile-entry-actions" : ""}">
+          ${required ? `<button class="secondary-button" type="button" data-enter-guest>不登入，以訪客瀏覽</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}
           <button class="primary-button" type="submit">儲存並開始</button>
         </div>
       </form>
@@ -883,7 +1170,7 @@ function parseGoogleMapsList(value) {
             "這是從 Google Maps 清單匯入的地點，串接 Places API 後會自動補齊更多介紹。",
           highlights: known?.highlights || ["Google Maps 匯入"],
           galleryLabels: known?.galleryLabels || ["地點照片", "環境照片", "附近街景"],
-          addedBy: "me",
+          addedBy: currentMemberId(),
           addedByName: state.profile?.nickname || "我",
           isCustom: true,
           recognition: known ? "complete" : canImport ? "partial" : "unresolved",
@@ -938,6 +1225,7 @@ async function enrichPlaceImportsFromApi(entries) {
         longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
         openingHours: resolved.openingHours || place.openingHours,
         phone: resolved.phone || place.phone,
+        photos: resolved.photos || place.photos || [],
         mark: resolved.name.slice(0, 1),
         description: `${resolved.name}位於${resolved.area || "東京"}，由 Google Places 自動補齊地點資料。`,
         highlights: [resolved.category || "Google Maps 匯入", resolved.area || "東京"],
@@ -1070,6 +1358,17 @@ let previewRailDrag = null;
 let suppressPreviewCardClick = false;
 
 document.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
+
+  if (event.target.closest("[data-enter-guest]")) {
+    state.isGuest = true;
+    state.profile = null;
+    sessionStorage.setItem("tokyo-access-mode-v1", "guest");
+    closeSheet();
+    render();
+    return showToast("已用訪客身分進入；所有內容皆可閱覽");
+  }
+
   if (suppressPreviewCardClick && event.target.closest(".preview-rail")) {
     event.preventDefault();
     return;
@@ -1110,6 +1409,7 @@ document.addEventListener("click", async (event) => {
 
   const vote = event.target.closest("[data-vote]");
   if (vote) {
+    if (!canEdit()) return guestOnlyMessage();
     const name = vote.dataset.vote;
     const detailWasOpen = Boolean(event.target.closest(".place-detail-sheet"));
     const active = toggleMyVote(name);
@@ -1122,6 +1422,7 @@ document.addEventListener("click", async (event) => {
 
   const requestPlaceDelete = event.target.closest("[data-request-delete-place]");
   if (requestPlaceDelete) {
+    if (!canEdit()) return guestOnlyMessage();
     return openDeleteConfirmation({
       kind: "place",
       name: requestPlaceDelete.dataset.requestDeletePlace,
@@ -1130,6 +1431,7 @@ document.addEventListener("click", async (event) => {
 
   const requestItineraryDelete = event.target.closest("[data-request-delete-itinerary]");
   if (requestItineraryDelete) {
+    if (!canEdit()) return guestOnlyMessage();
     return openDeleteConfirmation({
       kind: "itinerary",
       name: requestItineraryDelete.dataset.requestDeleteItinerary,
@@ -1139,6 +1441,7 @@ document.addEventListener("click", async (event) => {
 
   const confirmDelete = event.target.closest("[data-confirm-delete]");
   if (confirmDelete) {
+    if (!canEdit()) return guestOnlyMessage();
     const kind = confirmDelete.dataset.confirmDelete;
     const name = confirmDelete.dataset.deleteName;
     const deleted =
@@ -1168,12 +1471,12 @@ document.addEventListener("click", async (event) => {
   }
 
   const addArea = event.target.closest("[data-add-area-day]");
-  if (addArea) return openDateSheet(addArea.dataset.addAreaDay);
+  if (addArea) return canEdit() ? openDateSheet(addArea.dataset.addAreaDay) : guestOnlyMessage();
 
   const addPlaceDate = event.target.closest("[data-add-place-date]");
-  if (addPlaceDate) return openAddPlaceDateSheet(addPlaceDate.dataset.addPlaceDate);
+  if (addPlaceDate) return canEdit() ? openAddPlaceDateSheet(addPlaceDate.dataset.addPlaceDate) : guestOnlyMessage();
 
-  if (event.target.closest("[data-add-place]")) return openAddPlaceSheet();
+  if (event.target.closest("[data-add-place]")) return canEdit() ? openAddPlaceSheet() : guestOnlyMessage();
 
   const analyzePlaces = event.target.closest("[data-analyze-places]");
   if (analyzePlaces) {
@@ -1225,12 +1528,14 @@ document.addEventListener("click", async (event) => {
 
   const reorderMenu = event.target.closest("[data-reorder-menu]");
   if (reorderMenu) {
+    if (!canEdit()) return guestOnlyMessage();
     if (suppressReorderClick) return;
     return openReorderSheet(reorderMenu.dataset.reorderMenu);
   }
 
   const moveItem = event.target.closest("[data-move-item]");
   if (moveItem) {
+    if (!canEdit()) return guestOnlyMessage();
     const moved = moveItineraryItem(
       state.selectedDate,
       moveItem.dataset.moveName,
@@ -1243,6 +1548,7 @@ document.addEventListener("click", async (event) => {
 
   const time = event.target.closest("[data-edit-time]");
   if (time) {
+    if (!canEdit()) return guestOnlyMessage();
     const current = time.textContent.trim();
     const next = window.prompt("輸入時間（HH:MM）", current);
     if (!next || !/^([01]\d|2[0-3]):[0-5]\d$/.test(next)) {
@@ -1257,6 +1563,7 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("dragstart", (event) => {
+  if (!canEdit()) return event.preventDefault();
   const handle = event.target.closest("[data-drag-name]");
   if (!handle) return;
   event.dataTransfer.effectAllowed = "move";
@@ -1284,6 +1591,7 @@ document.addEventListener("dragend", () => {
 });
 
 document.addEventListener("pointerdown", (event) => {
+  if (!canEdit()) return;
   const surface = event.target.closest("[data-swipe-item]");
   if (!surface || event.target.closest("[data-drag-name]")) return;
 
@@ -1404,7 +1712,7 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("pointerdown", (event) => {
   const handle = event.target.closest("[data-drag-name]");
-  if (!handle || event.pointerType === "mouse") return;
+  if (!canEdit() || !handle || event.pointerType === "mouse") return;
   pointerDrag = {
     name: handle.dataset.dragName,
     pointerId: event.pointerId,
@@ -1456,7 +1764,11 @@ document.addEventListener("submit", (event) => {
     const form = new FormData(event.target);
     const nickname = String(form.get("nickname") || "").trim().slice(0, 10);
     if (!nickname) return;
-    state.profile = { id: "me", nickname };
+    const id = state.profile?.id || `member-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+    state.profile = { id, nickname };
+    state.isGuest = false;
+    state.members[id] = nickname;
+    sessionStorage.setItem("tokyo-access-mode-v1", "member");
     persist();
     closeSheet();
     render();
@@ -1465,6 +1777,7 @@ document.addEventListener("submit", (event) => {
 
   if (event.target.id === "add-place-day-form") {
     event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
     const form = new FormData(event.target);
     const date = form.get("date");
     const name = event.target.dataset.placeName;
@@ -1484,6 +1797,7 @@ document.addEventListener("submit", (event) => {
 
   if (event.target.id === "import-places-form") {
     event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
     const form = new FormData(event.target);
     const parsed = pendingPlaceImports.length
       ? pendingPlaceImports
@@ -1510,6 +1824,7 @@ document.addEventListener("submit", (event) => {
 
   if (event.target.id === "add-area-form") {
     event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
     const form = new FormData(event.target);
     const date = form.get("date");
     const area = event.target.dataset.area;
@@ -1530,6 +1845,10 @@ document.addEventListener("submit", (event) => {
   }
 });
 
+persist({ sync: false });
 render();
-if (!state.profile) openProfileSheet(true);
-
+if (!state.profile && !state.isGuest) openProfileSheet(true);
+loadSharedTrip();
+window.setInterval(() => {
+  if (!document.hidden) loadSharedTrip({ quiet: true });
+}, 15000);

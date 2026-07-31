@@ -79,6 +79,7 @@ async function searchPlace({ apiKey, textQuery, requestUrl }) {
         "places.googleMapsUri",
         "places.regularOpeningHours",
         "places.nationalPhoneNumber",
+        "places.photos",
       ].join(","),
     },
     body: JSON.stringify({
@@ -115,6 +116,10 @@ async function searchPlace({ apiKey, textQuery, requestUrl }) {
     googleMapsUrl: place.googleMapsUri || requestUrl,
     openingHours: place.regularOpeningHours?.weekdayDescriptions?.join("；") || "營業時間未提供",
     phone: place.nationalPhoneNumber || "電話未提供",
+    photos: (place.photos || []).slice(0, 3).map((photo) => ({
+      name: photo.name,
+      attribution: photo.authorAttributions?.[0]?.displayName || "Google Maps 使用者",
+    })),
   };
 }
 
@@ -157,4 +162,3 @@ export default async function placesHandler(request, response) {
 
   return sendJson(response, 200, { places });
 };
-
