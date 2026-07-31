@@ -152,7 +152,7 @@ if (!localStorage.getItem(cleanupMigrationKey)) {
 
 const savedCustomPlaces = JSON.parse(localStorage.getItem("tokyo-custom-places") || "[]");
 const rawSavedProfile = JSON.parse(localStorage.getItem("tokyo-profile-v1") || "null");
-const savedProfile = rawSavedProfile
+const savedProfile = rawSavedProfile?.authVersion === 2
   ? {
       ...rawSavedProfile,
       id:
@@ -397,11 +397,17 @@ async function saveSharedTrip() {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        "X-Trip-Member-Id": currentMemberId(),
-        "X-Trip-Member-Name": encodeURIComponent(state.profile.nickname),
       },
       body: JSON.stringify(sharedTripPayload()),
     });
+    if (response.status === 401) {
+      state.profile = null;
+      localStorage.removeItem("tokyo-profile-v1");
+      sessionStorage.removeItem("tokyo-access-mode-v1");
+      render({ preserveScroll: true });
+      openProfileSheet(true);
+      return showToast("登入已過期，請重新輸入暱稱與 PIN");
+    }
     if (!response.ok) throw new Error("SAVE_FAILED");
     const payload = await response.json();
     state.sharedRevision = Number(payload.revision) || state.sharedRevision;
@@ -410,6 +416,17 @@ async function saveSharedTrip() {
   } finally {
     sharedSyncBusy = false;
   }
+}
+
+async function authenticateMember(nickname, pin) {
+  const response = await fetch("/api/member", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nickname, pin }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "LOGIN_FAILED");
+  return payload.member;
 }
 
 async function loadSharedTrip({ quiet = false } = {}) {
@@ -1040,6 +1057,11 @@ function openProfileSheet(required = false) {
           <label for="profile-nickname">我的暱稱</label>
           <input id="profile-nickname" name="nickname" value="${escapeHtml(current)}" maxlength="10" required autocomplete="nickname" placeholder="輸入你的旅行暱稱" />
           <span class="field-note">最多 10 個字，第一個字會顯示在推薦標記上</span>
+        </div>
+        <div class="field">
+          <label for="profile-pin">4 位數 PIN</label>
+          <input id="profile-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required autocomplete="current-password" placeholder="輸入 4 位數字" />
+          <span class="field-note">首次使用會建立 PIN；換手機時用相同暱稱與 PIN 取回身分</span>
         </div>
         <div class="modal-actions ${required ? "profile-entry-actions" : ""}">
           ${required ? `<button class="secondary-button" type="button" data-enter-guest>不登入，以訪客瀏覽</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}
@@ -1758,16 +1780,32 @@ document.addEventListener("pointerup", (event) => {
   }
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   if (event.target.id === "profile-form") {
     event.preventDefault();
     const form = new FormData(event.target);
     const nickname = String(form.get("nickname") || "").trim().slice(0, 10);
-    if (!nickname) return;
-    const id = state.profile?.id || `member-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
-    state.profile = { id, nickname };
+    const pin = String(form.get("pin") || "").trim();
+    if (!nickname || !/^\d{4}$/.test(pin)) return showToast("請輸入 4 位數字 PIN");
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = "驗證中…";
+    let member;
+    try {
+      member = await authenticateMember(nickname, pin);
+    } catch (error) {
+      submitButton.disabled = false;
+      submitButton.textContent = "儲存並開始";
+      const messages = {
+        INVALID_PIN: "PIN 不正確，請再試一次",
+        TOO_MANY_ATTEMPTS: "嘗試次數過多，請稍後再試",
+      };
+      return showToast(messages[error.message] || "目前無法登入，請稍後再試");
+    }
+    const { id } = member;
+    state.profile = member;
     state.isGuest = false;
-    state.members[id] = nickname;
+    state.members[id] = member.nickname;
     sessionStorage.setItem("tokyo-access-mode-v1", "member");
     persist();
     closeSheet();

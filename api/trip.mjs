@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 const TRIP_KEY = "tokyo-family-trip:v1";
+const SESSION_PREFIX = "tokyo-family-trip:session:";
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -11,14 +14,6 @@ function redisConfig() {
     url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
     token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN,
   };
-}
-
-function decodeMemberName(value) {
-  try {
-    return decodeURIComponent(String(value || ""));
-  } catch {
-    return "";
-  }
 }
 
 async function redisCommand(command) {
@@ -36,6 +31,26 @@ async function redisCommand(command) {
   const payload = await result.json();
   if (payload.error) throw new Error("DATABASE_COMMAND_FAILED");
   return payload.result;
+}
+
+function cookieValue(request, name) {
+  const cookies = String(request.headers.cookie || "").split(";");
+  const match = cookies.find((cookie) => cookie.trim().startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.trim().slice(name.length + 1)) : "";
+}
+
+async function authenticatedMember(request) {
+  const token = cookieValue(request, "tokyo_trip_session");
+  if (!token) return null;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const raw = await redisCommand(["GET", `${SESSION_PREFIX}${tokenHash}`]);
+  if (!raw) return null;
+  try {
+    const member = JSON.parse(raw);
+    return member?.id && member?.nickname ? member : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readTrip() {
@@ -74,13 +89,15 @@ export default async function tripHandler(request, response) {
     }
 
     if (request.method === "PUT") {
-      const memberId = String(request.headers["x-trip-member-id"] || "").trim().slice(0, 80);
-      const memberName = decodeMemberName(request.headers["x-trip-member-name"]).trim().slice(0, 10);
-      if (!memberId || !memberName) {
-        return sendJson(response, 403, { error: "MEMBER_REQUIRED" });
-      }
+      const member = await authenticatedMember(request);
+      if (!member) return sendJson(response, 401, { error: "AUTH_REQUIRED" });
       const previous = await readTrip();
-      const trip = cleanTrip(request.body, memberId, memberName, (previous?.revision || 0) + 1);
+      const trip = cleanTrip(
+        request.body,
+        member.id,
+        member.nickname,
+        (previous?.revision || 0) + 1,
+      );
       await redisCommand(["SET", TRIP_KEY, JSON.stringify(trip)]);
       return sendJson(response, 200, trip);
     }
