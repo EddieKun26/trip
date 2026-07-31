@@ -19,7 +19,7 @@
 建議把 `travel-app/prototype` 當成網頁專案根目錄。這個資料夾已包含：
 
 - `index.html`、`app.js`、`styles.css`：網頁 App。
-- `api/places.js`：安全呼叫 Google Places 的伺服器端函式。
+- `api/places.mjs`：安全呼叫 Google Places 的伺服器端函式。
 - `vercel.json`：Vercel 部署設定。
 - `.env.example`：環境變數名稱範例，不包含真實金鑰。
 - `.gitignore`：避免把本機金鑰與 Vercel 設定提交到 Git。
@@ -66,3 +66,4 @@
 建議先讓家人用網頁版測試收藏、推薦、批次匯入、地圖和每日行程。功能穩定後，再把相同資料模型與 API 搬到 SwiftUI，透過 TestFlight 給家人測試。屆時 API 金鑰仍應留在伺服器端，iPhone App 只呼叫自己的 API。
 
 正式公開前還需要加入登入、資料庫、API 頻率限制與多人即時同步；目前這個版本適合少量家人測試。
+

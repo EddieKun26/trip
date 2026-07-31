@@ -70,35 +70,9 @@ button {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E");
 }
 
-.status-bar {
-  position: absolute;
-  z-index: 20;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 24px 0;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.dynamic-island {
-  position: absolute;
-  left: 50%;
-  top: 10px;
-  width: 112px;
-  height: 30px;
-  border-radius: 99px;
-  background: #080808;
-  transform: translateX(-50%);
-}
-
 .app {
   position: absolute;
-  inset: 52px 0 78px;
+  inset: 0 0 78px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -700,24 +674,128 @@ h2 {
   min-height: 480px;
   margin: 0 -22px;
   overflow: hidden;
-  background:
-    linear-gradient(25deg, transparent 48%, rgba(77, 119, 122, 0.16) 49%, transparent 50%),
-    linear-gradient(155deg, transparent 48%, rgba(77, 119, 122, 0.12) 49%, transparent 50%),
-    repeating-linear-gradient(12deg, transparent 0 31px, rgba(81, 85, 81, 0.11) 32px 33px),
-    repeating-linear-gradient(100deg, transparent 0 42px, rgba(81, 85, 81, 0.09) 43px 44px),
-    #edf0e9;
+  background: #e8e6e1;
 }
 
 .map-canvas::after {
-  content: "";
+  content: none;
+}
+
+.google-map,
+.google-map iframe {
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  border: 0;
+}
+
+.google-map {
   position: absolute;
-  right: -80px;
-  bottom: -50px;
-  width: 230px;
-  height: 300px;
-  border-radius: 54% 0 0;
-  background: rgba(106, 164, 171, 0.18);
-  transform: rotate(-10deg);
+  inset: 0;
+  touch-action: pan-x pan-y;
+}
+
+.map-gesture-note {
+  position: absolute;
+  z-index: 6;
+  right: 10px;
+  top: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgba(255, 250, 242, 0.94);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.google-place-pin {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 3px solid white;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--pin-color, #777975);
+  color: white;
+  box-shadow: 0 5px 14px rgba(45, 35, 29, 0.3);
+  cursor: pointer;
+  transform: translateY(-8px) rotate(-2deg);
+}
+
+.google-place-pin span {
+  font-family: "Songti TC", serif;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.google-place-pin b {
+  position: absolute;
+  right: -17px;
+  top: -12px;
+  min-width: 30px;
+  padding: 3px 5px;
+  border: 2px solid white;
+  border-radius: 9px;
+  background: #fff0eb;
+  color: var(--accent);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.map-fallback-strip {
+  position: absolute;
+  z-index: 7;
+  left: 8px;
+  right: 8px;
+  bottom: 12px;
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 5px;
+  scrollbar-width: none;
+}
+
+.map-fallback-strip button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid rgba(222, 213, 200, 0.92);
+  border-radius: 13px;
+  background: rgba(255, 250, 242, 0.95);
+  box-shadow: 0 4px 12px rgba(45, 35, 29, 0.16);
+  cursor: pointer;
+}
+
+.map-fallback-strip b {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--pin-color, var(--mineral));
+  color: white;
+}
+
+.map-fallback-strip span {
+  max-width: 110px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-fallback-strip small {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .map-label {
@@ -1101,6 +1179,17 @@ h2 {
   font-size: 10px;
   line-height: 1.35;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-place-details .opening-line {
+  overflow: visible;
+  white-space: normal;
+}
+
+.timeline-place-details .phone-line {
+  overflow: visible;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1575,7 +1664,7 @@ h2 {
 
 .place-contact-grid {
   display: grid;
-  grid-template-columns: 1.45fr 0.85fr;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -1607,6 +1696,15 @@ h2 {
 .place-contact-item a {
   color: var(--mineral);
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.last-entry-time {
+  display: inline-block;
+  margin-top: 2px;
+  color: var(--accent);
 }
 
 .import-places-sheet {
@@ -1860,3 +1958,4 @@ h2 {
     animation-duration: 0.01ms !important;
   }
 }
+

@@ -75,7 +75,7 @@ const fallbackPlaces = [
 
 const placeDetails = {
   "銀座八芳": {
-    addedBy: "me",
+    addedByName: "璋",
     openingHours: "每日 11:30–22:00（最晚入店 20:00）",
     phone: "03-6264-6825",
     description: "位在銀座的海鮮自助餐候選。適合排在銀座逛街日的晚餐，先和家人確認食量、預算與是否需要預約。",
@@ -83,7 +83,7 @@ const placeDetails = {
     galleryLabels: ["海鮮餐檯", "用餐空間", "店面位置"],
   },
   "銀座金魚美術館": {
-    addedBy: "sister",
+    addedByName: "璋",
     openingHours: "每日 10:00–19:00（最晚入場 18:00）",
     phone: "03-3528-6721",
     description: "銀座三越內的室內藝術展覽，以金魚缸、燈光與裝置構成沉浸式空間。下雨天也容易安排，並能和銀座購物排在同一段行程。",
@@ -91,7 +91,7 @@ const placeDetails = {
     galleryLabels: ["光影展區", "金魚裝置", "展場入口"],
   },
   "Rukuma Tokyo": {
-    addedBy: "brother",
+    addedByName: "璋",
     openingHours: "週一至週六 17:00–23:00；週日休息",
     phone: "03-3464-8929",
     description: "惠比壽、代官山一帶的內臟燒肉候選。適合喜歡燒肉與特色部位的成員，安排前可先確認同行者的飲食接受度。",
@@ -99,7 +99,7 @@ const placeDetails = {
     galleryLabels: ["燒肉料理", "桌席氛圍", "店面外觀"],
   },
   "Peter Luger 東京": {
-    addedBy: "me",
+    addedByName: "璋",
     openingHours: "每日 11:00–15:00、17:00–23:00",
     phone: "03-6277-4336",
     description: "惠比壽的牛排館候選，適合當作旅程中的一頓重點晚餐。建議和同區景點一起排，並預留較完整的用餐時間。",
@@ -107,7 +107,7 @@ const placeDetails = {
     galleryLabels: ["招牌牛排", "餐廳空間", "建築外觀"],
   },
   "牛たんの檸檬": {
-    addedBy: "brother",
+    addedByName: "璋",
     openingHours: "每日 11:30–15:00、17:00–23:00",
     phone: "03-6279-3997",
     description: "西新宿的日式牛舌餐廳候選，可接在新宿購物或散步之後。菜色方向明確，適合拿來做午餐或晚餐的共同票選。",
@@ -115,7 +115,7 @@ const placeDetails = {
     galleryLabels: ["牛舌定食", "店內座位", "街邊入口"],
   },
   "燒肉 Aburu。": {
-    addedBy: "sister",
+    addedByName: "璋",
     openingHours: "每日 11:30–14:30、17:00–23:00",
     phone: "03-3918-9929",
     description: "大塚站附近的日式燒肉候選。和銀座、新宿相比位置較北，是否排入行程可以搭配地圖距離與當天動線一起決定。",
@@ -124,14 +124,7 @@ const placeDetails = {
   },
 };
 
-const defaultVotes = {
-  "銀座八芳": ["me", "brother"],
-  "銀座金魚美術館": ["me", "brother", "sister"],
-  "Rukuma Tokyo": ["brother"],
-  "Peter Luger 東京": ["me", "brother"],
-  "牛たんの檸檬": ["me", "brother", "sister"],
-  "燒肉 Aburu。": ["sister"],
-};
+const defaultVotes = {};
 
 const dateMeta = [
   ["9/20", "週日"],
@@ -142,6 +135,20 @@ const dateMeta = [
   ["9/25", "週五"],
   ["9/26", "週六"],
 ];
+
+const cleanupMigrationKey = "tokyo-clean-test-data-v4";
+if (!localStorage.getItem(cleanupMigrationKey)) {
+  const previousProfile = JSON.parse(localStorage.getItem("tokyo-profile-v1") || "null");
+  if (previousProfile?.nickname === "測試") localStorage.removeItem("tokyo-profile-v1");
+  localStorage.setItem("tokyo-votes-v2", "{}");
+  localStorage.setItem("tokyo-itinerary", "{}");
+  const previousCustomPlaces = JSON.parse(localStorage.getItem("tokyo-custom-places") || "[]");
+  localStorage.setItem(
+    "tokyo-custom-places",
+    JSON.stringify(previousCustomPlaces.map((place) => ({ ...place, addedByName: "璋" }))),
+  );
+  localStorage.setItem(cleanupMigrationKey, "done");
+}
 
 const savedCustomPlaces = JSON.parse(localStorage.getItem("tokyo-custom-places") || "[]");
 const savedProfile = JSON.parse(localStorage.getItem("tokyo-profile-v1") || "null");
@@ -166,7 +173,7 @@ const state = {
       galleryLabels: ["地點照片", "環境照片", "附近街景"],
       openingHours: "待 Google Maps 同步",
       phone: "待 Google Maps 同步",
-      addedBy: "me",
+      addedByName: "璋",
       ...place,
     })),
   ],
@@ -175,15 +182,7 @@ const state = {
   votes: JSON.parse(
     localStorage.getItem("tokyo-votes-v2") || JSON.stringify(defaultVotes),
   ),
-  itinerary: JSON.parse(
-    localStorage.getItem("tokyo-itinerary") ||
-      JSON.stringify({
-        "9/22": [
-          { name: "銀座金魚美術館", time: "11:00" },
-          { name: "銀座八芳", time: "18:00" },
-        ],
-      }),
-  ),
+  itinerary: JSON.parse(localStorage.getItem("tokyo-itinerary") || "{}"),
 };
 
 const app = document.querySelector("#app");
@@ -216,13 +215,22 @@ function persist() {
 function members() {
   return [
     { id: "me", name: state.profile?.nickname || "我", tone: "coral" },
-    { id: "brother", name: "弟弟", tone: "teal" },
-    { id: "sister", name: "妹妹", tone: "ochre" },
   ];
 }
 
 function memberName(id) {
   return members().find((member) => member.id === id)?.name || "旅伴";
+}
+
+function placeCreatorName(place) {
+  return place.addedByName || memberName(place.addedBy);
+}
+
+function formatOpeningHours(value = "") {
+  return escapeHtml(value || "待 Google Maps 同步").replace(
+    /([（(][^）)]*最晚[^）)]*[）)])/g,
+    '<br><span class="last-entry-time">$1</span>',
+  );
 }
 
 function placeVoters(name) {
@@ -394,7 +402,7 @@ function placesScreen() {
                 <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(place.name)}">${escapeHtml(place.mark)}</button>
                 <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(place.name)}">
                   <strong>${escapeHtml(place.name)}</strong>
-                  <span>${escapeHtml(place.category)} · ${escapeHtml(memberName(place.addedBy))}新增</span>
+                  <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
                   <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
                 </button>
                 <button class="reaction-button ${active ? "active" : ""}" type="button" data-vote="${escapeHtml(place.name)}" aria-label="${active ? "取消我的最想去" : "標記我最想去"}">
@@ -489,40 +497,30 @@ function spreadOverlappingPins(places) {
   });
 }
 
-function mapScreen() {
+function filteredMapPlaces() {
   const allProjectedPlaces = projectPlaces(state.places);
-  const unlocatedCount = state.places.length - allProjectedPlaces.length;
   const dayItems = state.itinerary[state.selectedDate] || [];
   const dayNames = new Set(dayItems.map((item) => item.name));
-  const projectedPlaces = allProjectedPlaces.filter((place) => {
+  return allProjectedPlaces.filter((place) => {
     if (state.mapView === "day" && !dayNames.has(place.name)) return false;
     return matchesMapFilters(place);
   });
-  const pinPlaces = spreadOverlappingPins(projectedPlaces);
-  const categories = [...new Set(state.places.map((place) => place.category))].sort();
-  const areaLabels = [...new Set(projectedPlaces.map((place) => place.area))]
-    .map((area) => {
-      const areaPlaces = projectedPlaces.filter((place) => place.area === area);
-      const x = areaPlaces.reduce((total, place) => total + place.x, 0) / areaPlaces.length;
-      const y = areaPlaces.reduce((total, place) => total + place.y, 0) / areaPlaces.length;
-      return `<span class="map-label" style="left:${x}%;top:${y}%">${escapeHtml(area)}</span>`;
-    })
-    .join("");
+}
 
-  const pins = pinPlaces
+function mapScreen() {
+  const projectedPlaces = filteredMapPlaces();
+  const unlocatedCount = state.places.length - projectPlaces(state.places).length;
+  const categories = [...new Set(state.places.map((place) => place.category))].sort();
+  const mapCenter = projectedPlaces.length
+    ? {
+        latitude: projectedPlaces.reduce((sum, place) => sum + place.latitude, 0) / projectedPlaces.length,
+        longitude: projectedPlaces.reduce((sum, place) => sum + place.longitude, 0) / projectedPlaces.length,
+      }
+    : { latitude: 35.6762, longitude: 139.6503 };
+  const mapQuery = `${mapCenter.latitude},${mapCenter.longitude}`;
+  const mapPlaceStrip = projectedPlaces
     .map(
-      (place) => {
-        const status = placeMapStatus(place);
-        const order = dayItems.findIndex((item) => item.name === place.name) + 1;
-        return `
-        <button class="pin status-${status} ${state.selectedMapPlace === place.name ? "selected" : ""}" style="left:${place.displayX}%;top:${place.displayY}%" type="button" data-select-map-place="${escapeHtml(place.name)}" aria-label="${escapeHtml(place.name)}${state.mapView === "day" ? `，第 ${order} 站` : `，${placeVoters(place.name).length} 人推薦`}">
-          ${
-            state.mapView === "day"
-              ? `<span class="pin-order">${order}</span><b class="pin-place-badge">${escapeHtml(place.mark)}</b>`
-              : `<span class="pin-mark">${escapeHtml(place.mark)}</span><b class="pin-score" aria-label="${placeVoters(place.name).length} 人推薦">★ ${placeVoters(place.name).length}</b>`
-          }
-        </button>`;
-      },
+      (place) => `<button type="button" data-open-place="${escapeHtml(place.name)}" aria-label="查看${escapeHtml(place.name)}"><b style="--pin-color:${mapPinColor(placeMapStatus(place))}">${escapeHtml(place.mark)}</b><span>${escapeHtml(place.name)}</span><small>★ ${placeVoters(place.name).length}</small></button>`,
     )
     .join("");
 
@@ -543,7 +541,7 @@ function mapScreen() {
     <section class="screen map-screen">
       <div class="map-toolbar">
         <div><h2 style="margin:0">${state.mapView === "planning" ? "規劃地圖" : `${state.selectedDate} 當日地圖`}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
-        <span class="coordinate-badge" title="圖釘由真實經緯度換算">◎ 真實座標</span>
+        <span class="coordinate-badge" title="Google Maps 互動地圖">Google Maps</span>
       </div>
       <div style="margin-top:14px">${placesSegment("map")}</div>
       <div class="map-purpose-tabs" aria-label="地圖用途">
@@ -563,13 +561,25 @@ function mapScreen() {
       <div class="map-legend" aria-label="圖釘狀態">
         <span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span class="muted"><i class="lodging"></i>住宿未設定</span>
       </div>
-      <div class="map-canvas">
-        ${pins}
-        ${areaLabels}
-        <div class="map-coordinate-note">真實座標 · 相對比例${unlocatedCount ? ` · ${unlocatedCount} 個待定位` : ""}</div>
+      <div class="map-canvas" data-map-host>
+        <div class="google-map" aria-label="Google 地圖，可用手指拖曳與縮放">
+          <iframe title="Google Maps 互動地圖" src="https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}&z=11&output=embed" loading="eager" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+        </div>
+        ${mapPlaceStrip ? `<div class="map-fallback-strip" aria-label="地圖景點">${mapPlaceStrip}</div>` : ""}
+        <div class="map-gesture-note">拖曳移動 · 雙指縮放</div>
+        ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
         ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "這一天尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
       </div>
     </section>`;
+}
+
+function mapPinColor(status) {
+  return {
+    favorite: "#78558b",
+    scheduled: "#3f7193",
+    lodging: "#50805e",
+    candidate: "#777975",
+  }[status] || "#777975";
 }
 
 function itineraryScreen() {
@@ -593,8 +603,8 @@ function itineraryScreen() {
             <button class="time-button" type="button" data-edit-time="${escapeHtml(item.name)}">${escapeHtml(item.time)}</button>
             <button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
               <strong>${escapeHtml(item.name)}</strong>
-              <span><b>營業</b>${escapeHtml(place?.openingHours || "待 Google Maps 同步")}</span>
-              <span><b>電話</b>${escapeHtml(place?.phone || "待 Google Maps 同步")}</span>
+              <span class="opening-line"><b>營業</b>${formatOpeningHours(place?.openingHours)}</span>
+              <span class="phone-line"><b>電話</b>${escapeHtml(place?.phone || "待 Google Maps 同步")}</span>
             </button>
             <button
               class="drag-handle"
@@ -691,7 +701,7 @@ function openPlaceSheet(name) {
         <section class="place-contact-grid" aria-label="營業資訊">
           <div class="place-contact-item">
             <small>營業時間</small>
-            <strong>${escapeHtml(place.openingHours || "待 Google Maps 同步")}</strong>
+            <strong>${formatOpeningHours(place.openingHours)}</strong>
             <span>Google Maps 參考，出發前請再次確認</span>
           </div>
           <div class="place-contact-item">
@@ -719,7 +729,7 @@ function openPlaceSheet(name) {
         </section>
         ${
           Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
-            ? `<p class="meta detail-coordinate">由 ${escapeHtml(memberName(place.addedBy))}新增 · 座標 ${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}</p>`
+            ? `<p class="meta detail-coordinate">由 ${escapeHtml(placeCreatorName(place))}新增 · 座標 ${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}</p>`
             : `<p class="meta">此自訂地點尚未取得座標</p>`
         }
         <div class="modal-actions">
@@ -874,6 +884,7 @@ function parseGoogleMapsList(value) {
           highlights: known?.highlights || ["Google Maps 匯入"],
           galleryLabels: known?.galleryLabels || ["地點照片", "環境照片", "附近街景"],
           addedBy: "me",
+          addedByName: state.profile?.nickname || "我",
           isCustom: true,
           recognition: known ? "complete" : canImport ? "partial" : "unresolved",
           isExisting,
@@ -1521,3 +1532,4 @@ document.addEventListener("submit", (event) => {
 
 render();
 if (!state.profile) openProfileSheet(true);
+
