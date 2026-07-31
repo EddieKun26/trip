@@ -1,0 +1,162 @@
+{
+  "trip": {
+    "name": "東京家庭旅行",
+    "startDate": "2026-09-20",
+    "endDate": "2026-09-26",
+    "lodgingStatus": "outOfScope",
+    "transport": {
+      "outbound": {
+        "originAirport": "KHH",
+        "destinationAirport": "NRT",
+        "date": "2026-09-20",
+        "departureLocalTime": "09:55",
+        "arrivalLocalTime": "14:45",
+        "flightTimeStatus": "confirmed",
+        "flightNumber": null,
+        "terminal": null
+      },
+      "inbound": {
+        "originAirport": "NRT",
+        "destinationAirport": "KHH",
+        "date": "2026-09-26",
+        "departureLocalTime": "17:50",
+        "arrivalLocalTime": "21:00",
+        "flightTimeStatus": "confirmed",
+        "flightNumber": null,
+        "terminal": null
+      }
+    }
+  },
+  "members": [
+    {
+      "id": "me",
+      "nickname": "由首次登入者設定"
+    },
+    {
+      "id": "brother",
+      "nickname": "弟弟"
+    },
+    {
+      "id": "sister",
+      "nickname": "妹妹"
+    }
+  ],
+  "prototypeVotes": {
+    "銀座八芳": ["me", "brother"],
+    "銀座金魚美術館": ["me", "brother", "sister"],
+    "Rukuma Tokyo": ["brother"],
+    "Peter Luger 東京": ["me", "brother"],
+    "牛たんの檸檬": ["me", "brother", "sister"],
+    "燒肉 Aburu。": ["sister"]
+  },
+  "places": [
+    {
+      "name": "Seafood Buffet Dining Ginza Happo",
+      "localName": "海鮮ブッフェダイニング 銀座八芳",
+      "category": "自助餐餐廳",
+      "area": "銀座",
+      "addressHint": "東京都中央區銀座 8-6-10 B1",
+      "sourceUrl": "https://maps.app.goo.gl/7FqMqBjB1ijqiLiu7?g_st=il",
+      "location": {
+        "latitude": 35.6672123,
+        "longitude": 139.7618203,
+        "openLocationCode": "8Q7XMQ86+VP"
+      },
+      "ratingObserved": 4.3,
+      "bookingRecommended": true,
+      "addedBy": "me",
+      "status": "candidate"
+    },
+    {
+      "name": "Gyu Tongue Lemon Shinjuku",
+      "localName": "新宿焼肉 牛たんの檸檬 総本店",
+      "category": "日式牛舌餐廳",
+      "area": "西新宿",
+      "addressHint": "東京都新宿區西新宿 7-16-12 YSビル B1F",
+      "sourceUrl": "https://maps.app.goo.gl/KqviBAv6oTAKRL87A?g_st=il",
+      "location": {
+        "latitude": 35.6961875,
+        "longitude": 139.6979375,
+        "openLocationCode": "8Q7XMMWX+F5"
+      },
+      "ratingObserved": 4.7,
+      "bookingRecommended": true,
+      "addedBy": "brother",
+      "status": "candidate"
+    },
+    {
+      "name": "Rukuma Tokyo",
+      "localName": "ホルモン焼婁熊東京",
+      "category": "內臟燒肉餐廳",
+      "area": "惠比壽西／代官山",
+      "addressHint": "東京都澀谷區惠比壽西 2-3-5 石井ビル B1F",
+      "sourceUrl": "https://maps.app.goo.gl/xYymfmHyxhMMpfoH7?g_st=il",
+      "location": {
+        "latitude": 35.6500625,
+        "longitude": 139.7079375,
+        "openLocationCode": "8Q7XMP25+25"
+      },
+      "ratingObserved": 4.4,
+      "bookingRecommended": true,
+      "addedBy": "brother",
+      "status": "candidate"
+    },
+    {
+      "name": "Peter Luger 牛排館 東京",
+      "localName": "ピーター・ルーガー・ステーキハウス東京",
+      "category": "牛排館",
+      "area": "惠比壽",
+      "addressHint": "東京都澀谷區惠比壽 4-19-19",
+      "sourceUrl": "https://maps.app.goo.gl/Y9M5UG8qCav99iLC9?g_st=il",
+      "location": {
+        "latitude": 35.6438125,
+        "longitude": 139.7139375,
+        "openLocationCode": "8Q7XJPV7+GH"
+      },
+      "ratingObserved": 4.4,
+      "priceHint": "超過 ¥10,000",
+      "bookingRecommended": true,
+      "addedBy": "me",
+      "status": "candidate"
+    },
+    {
+      "name": "ART AQUARIUM MUSEUM 銀座金魚美術館",
+      "localName": "アートアクアリウム美術館 銀座",
+      "category": "藝術博物館",
+      "area": "銀座",
+      "addressHint": "東京都中央區銀座 4-6-16 銀座三越新館 9F",
+      "sourceUrl": "https://maps.app.goo.gl/5Yy3bqLLxRTvQgQE8?g_st=il",
+      "location": {
+        "latitude": 35.6708125,
+        "longitude": 139.7660625,
+        "openLocationCode": "8Q7XMQC8+8C"
+      },
+      "ratingObserved": 4.1,
+      "bookingRecommended": false,
+      "addedBy": "sister",
+      "status": "candidate"
+    },
+    {
+      "name": "燒肉 Aburu。大塚店",
+      "localName": "焼肉 あぶる。大塚店",
+      "category": "日式燒肉餐廳",
+      "area": "大塚",
+      "addressHint": "東京都豐島區北大塚 2-7-8",
+      "sourceUrl": "https://maps.app.goo.gl/nettdiCwZwVDaUYh8?g_st=il",
+      "location": {
+        "latitude": 35.7331252,
+        "longitude": 139.7272977,
+        "openLocationCode": "8Q7XPPMG+7W"
+      },
+      "ratingObserved": 4.2,
+      "bookingRecommended": true,
+      "addedBy": "sister",
+      "status": "candidate"
+    }
+  ],
+  "notes": [
+    "評分是 2026-07-31 解析分享頁時觀察到的值，正式 App 應透過 Google Places API 即時取得。",
+    "正式資料模型應保存 Google Place ID；地址、評分、照片與評論需依 Google Maps Platform 政策取得與顯示。",
+    "目前經緯度取自 Google Maps 頁面座標或頁面顯示的 Open Location Code 中心點；正式產品應改由 Places API 回傳並保存 Place ID。"
+  ]
+}

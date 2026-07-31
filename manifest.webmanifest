@@ -1,0 +1,10 @@
+{
+  "name": "東京 7 日",
+  "short_name": "東京 7 日",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f1e8",
+  "theme_color": "#c8452d",
+  "lang": "zh-Hant",
+  "icons": []
+}
