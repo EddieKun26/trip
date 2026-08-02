@@ -1,6 +1,6 @@
 {
-  "name": "東京 7 日",
-  "short_name": "東京 7 日",
+  "name": "旅伴｜多人旅遊規劃",
+  "short_name": "旅伴",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f6f1e8",
@@ -8,4 +8,3 @@
   "lang": "zh-Hant",
   "icons": []
 }
-

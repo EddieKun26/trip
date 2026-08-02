@@ -1974,6 +1974,174 @@ h2 {
   }
 }
 
+.trip-title-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.trip-title-button h1 {
+  margin: 0;
+}
+
+.trip-title-button span {
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.trip-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.78);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.trip-context span { font-weight: 800; }
+.trip-context small { color: var(--muted); }
+.guest-trip-context { cursor: default; }
+
+.place-kind-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin: 10px 0 12px;
+}
+
+.place-kind-tabs button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.place-kind-tabs button.active {
+  border-color: var(--mineral);
+  background: var(--mineral);
+  color: white;
+}
+
+.editable-flight {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.flight-travelers {
+  grid-column: 1 / -1;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.flight-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--muted);
+}
+
+.flight-empty button,
+.text-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.trip-switch-list {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.trip-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.trip-switch-row span { display: grid; gap: 3px; }
+.trip-switch-row small { color: var(--muted); }
+.trip-switch-row b { color: var(--mineral); font-size: 12px; }
+.trip-switch-row.active { border-color: var(--mineral); background: #edf2ee; }
+
+.invite-code-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #eee7dc;
+}
+
+.invite-code-card span,
+.invite-code-card small { color: var(--muted); font-size: 12px; }
+.invite-code-card strong { letter-spacing: .16em; font-size: 22px; }
+.stacked-actions { grid-template-columns: 1fr; }
+
+.empty-trips-screen { display: grid; align-content: start; }
+.empty-trip-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-top: 36px;
+  padding: 28px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 24px;
+  text-align: center;
+}
+.empty-trip-card > span { color: var(--accent); font-size: 42px; }
+.empty-trip-card h2, .empty-trip-card p { margin: 0; }
+.empty-trip-card p { color: var(--muted); }
+
+.field-grid,
+.flight-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.flight-form-grid { grid-template-columns: minmax(0, 1fr) 92px; }
+.hours-line { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 6px; padding: 2px 0; }
+.hours-line > b { color: var(--mineral); font-size: 11px; }
+.hours-line > span { min-width: 0; }
+.hours-line .last-entry-time { display: block; margin-top: 1px; color: var(--muted); font-size: 10px; }
+.boundary-row small { display: block; color: var(--muted); font-size: 10px; }
+
 @media (max-width: 520px) {
   .stage {
     padding: 0;
@@ -1993,6 +2161,22 @@ h2 {
     min-height: 0;
     overflow: hidden;
     padding: 10px 14px 0;
+  }
+
+  .map-screen .trip-context {
+    min-height: 34px;
+    margin-bottom: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .map-screen .place-kind-tabs {
+    margin: 4px 0;
+  }
+
+  .map-screen .place-kind-tabs button {
+    min-height: 30px;
+    font-size: 10px;
   }
 
   .map-screen .map-toolbar h2 {

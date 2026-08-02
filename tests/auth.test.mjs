@@ -3,6 +3,7 @@ import test from "node:test";
 
 import memberHandler from "../api/member.mjs";
 import tripHandler from "../api/trip.mjs";
+import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
 process.env.KV_REST_API_URL = "https://redis.test";
@@ -54,6 +55,7 @@ function responseMock() {
 }
 
 test("four-digit PIN restores one member across devices and protects writes", async () => {
+  store.clear();
   store.set(
     "tokyo-family-trip:v1",
     JSON.stringify({ places: [], votes: {}, itinerary: {}, members: { "member-old": "弟弟" }, revision: 1 }),
@@ -109,6 +111,11 @@ test("four-digit PIN restores one member across devices and protects writes", as
   assert.equal(authorizedWrite.statusCode, 200);
   assert.equal(authorizedWrite.payload.members["member-old"], "弟弟");
 
+  const publicRead = responseMock();
+  await tripHandler({ method: "GET", headers: {}, url: "/api/trip?id=tokyo-family-2026" }, publicRead);
+  assert.equal(publicRead.statusCode, 200);
+  assert.equal(publicRead.payload.inviteCode, undefined);
+
   const guestWrite = responseMock();
   await tripHandler(
     { method: "PUT", headers: {}, body: { places: [], votes: {}, itinerary: {}, members: {} } },
@@ -116,4 +123,45 @@ test("four-digit PIN restores one member across devices and protects writes", as
   );
   assert.equal(guestWrite.statusCode, 401);
   assert.equal(guestWrite.payload.error, "AUTH_REQUIRED");
+});
+
+test("members see only their own trips until they join with an invite code", async () => {
+  store.clear();
+  const login = async (nickname, pin, ip) => {
+    const response = responseMock();
+    await memberHandler({ method: "POST", body: { nickname, pin }, headers: { "x-forwarded-for": ip } }, response);
+    assert.equal(response.statusCode, 200);
+    return response.headers["set-cookie"].split(";")[0];
+  };
+  const request = async (cookie, body) => {
+    const response = responseMock();
+    await tripsHandler({ method: body ? "POST" : "GET", body, headers: { cookie } }, response);
+    return response;
+  };
+
+  const mingCookie = await login("小明", "1111", "203.0.113.21");
+  const meiCookie = await login("小美", "2222", "203.0.113.22");
+  const tokyo = await request(mingCookie, { action: "create", destination: "東京", title: "小明東京旅行", startDate: "2026-09-20", endDate: "2026-09-26" });
+  const seoul = await request(meiCookie, { action: "create", destination: "首爾", title: "小美首爾旅行", startDate: "2026-10-01", endDate: "2026-10-05" });
+  assert.equal(tokyo.statusCode, 201);
+  assert.equal(seoul.statusCode, 201);
+
+  const mingBeforeJoin = await request(mingCookie);
+  const meiBeforeJoin = await request(meiCookie);
+  assert.deepEqual(mingBeforeJoin.payload.trips.map((trip) => trip.title), ["小明東京旅行"]);
+  assert.deepEqual(meiBeforeJoin.payload.trips.map((trip) => trip.title), ["小美首爾旅行"]);
+
+  const blockedPrivateTrip = responseMock();
+  await tripHandler({ method: "GET", headers: { cookie: meiCookie }, url: `/api/trip?id=${tokyo.payload.trip.id}` }, blockedPrivateTrip);
+  assert.equal(blockedPrivateTrip.statusCode, 403);
+
+  const joined = await request(meiCookie, { action: "join", inviteCode: tokyo.payload.trip.inviteCode });
+  assert.equal(joined.statusCode, 200);
+  const meiAfterJoin = await request(meiCookie);
+  assert.deepEqual(meiAfterJoin.payload.trips.map((trip) => trip.title), ["小美首爾旅行", "小明東京旅行"]);
+  const joinedPrivateTrip = responseMock();
+  await tripHandler({ method: "GET", headers: { cookie: meiCookie }, url: `/api/trip?id=${tokyo.payload.trip.id}` }, joinedPrivateTrip);
+  assert.equal(joinedPrivateTrip.statusCode, 200);
+  const mingAfterJoin = await request(mingCookie);
+  assert.deepEqual(mingAfterJoin.payload.trips.map((trip) => trip.title), ["小明東京旅行"]);
 });
