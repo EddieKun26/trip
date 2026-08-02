@@ -85,9 +85,21 @@ async function legacyTripFor(member) {
   const key = `${TRIP_PREFIX}${DEFAULT_TRIP_ID}`;
   const migrated = await readJson(key);
   if (migrated) {
+    let changed = false;
+    let previousInviteCode = "";
     if (migrated.publicRead !== false) {
       migrated.publicRead = false;
-      await redisCommand(["SET", key, JSON.stringify(migrated)]);
+      changed = true;
+    }
+    if (!migrated.inviteCode || migrated.inviteCode === "TOKYO6") {
+      previousInviteCode = migrated.inviteCode || "";
+      migrated.inviteCode = inviteCode();
+      changed = true;
+    }
+    if (changed) await redisCommand(["SET", key, JSON.stringify(migrated)]);
+    if (previousInviteCode) {
+      await redisCommand(["SET", `${INVITE_PREFIX}${migrated.inviteCode}`, migrated.id]);
+      await redisCommand(["DEL", `${INVITE_PREFIX}${previousInviteCode}`]);
     }
     return migrated;
   }
@@ -99,7 +111,7 @@ async function legacyTripFor(member) {
     destination: "東京",
     startDate: "2026-09-20",
     endDate: "2026-09-26",
-    inviteCode: "TOKYO6",
+    inviteCode: inviteCode(),
     publicRead: false,
     ownerId: Object.keys(legacy.members || {})[0] || member.id,
     flights: [

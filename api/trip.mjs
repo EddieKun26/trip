@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
 const DEFAULT_TRIP_ID = "tokyo-family-2026";
@@ -41,6 +41,10 @@ async function readJson(key) {
   } catch {
     return null;
   }
+}
+
+function inviteCode() {
+  return randomBytes(5).toString("base64url").replace(/[-_0OIl]/g, "A").slice(0, 6).toUpperCase();
 }
 
 function cookieValue(request, name) {
@@ -101,9 +105,21 @@ async function ensureLegacyTrip() {
   const key = `${TRIP_PREFIX}${DEFAULT_TRIP_ID}`;
   const existing = await readJson(key);
   if (existing) {
+    let changed = false;
+    let previousInviteCode = "";
     if (existing.publicRead !== false) {
       existing.publicRead = false;
-      await redisCommand(["SET", key, JSON.stringify(existing)]);
+      changed = true;
+    }
+    if (!existing.inviteCode || existing.inviteCode === "TOKYO6") {
+      previousInviteCode = existing.inviteCode || "";
+      existing.inviteCode = inviteCode();
+      changed = true;
+    }
+    if (changed) await redisCommand(["SET", key, JSON.stringify(existing)]);
+    if (previousInviteCode) {
+      await redisCommand(["SET", `${INVITE_PREFIX}${existing.inviteCode}`, existing.id]);
+      await redisCommand(["DEL", `${INVITE_PREFIX}${previousInviteCode}`]);
     }
     return existing;
   }
@@ -115,7 +131,7 @@ async function ensureLegacyTrip() {
     destination: "東京",
     startDate: "2026-09-20",
     endDate: "2026-09-26",
-    inviteCode: "TOKYO6",
+    inviteCode: inviteCode(),
     publicRead: false,
     ownerId: Object.keys(legacy.members || {})[0] || "",
     flights: defaultFlights(),
