@@ -87,6 +87,83 @@ button {
   padding: 22px 22px 34px;
 }
 
+.overview-screen {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 14px;
+}
+
+.overview-screen .title-row {
+  margin-bottom: 8px;
+}
+
+.overview-screen .trip-title-button h1 {
+  font-size: clamp(30px, 8vw, 38px);
+}
+
+.overview-screen .subtitle {
+  font-size: 19px;
+}
+
+.overview-screen .flight-section {
+  margin-top: 6px;
+}
+
+.overview-screen .section-row h2 {
+  margin-bottom: 8px;
+  font-size: 17px;
+}
+
+.overview-screen .flight-leg {
+  gap: 8px;
+  padding: 9px 12px 22px;
+}
+
+.overview-screen .airport strong {
+  font-size: 17px;
+}
+
+.overview-screen .airport span {
+  font-size: 11px;
+}
+
+.overview-screen .flight-arrow .plane {
+  font-size: 17px;
+}
+
+.overview-screen .flight-travelers {
+  padding-top: 4px;
+  font-size: 9px;
+}
+
+.map-date-disabled {
+  opacity: 0.48;
+}
+
+.overview-screen .saved-preview {
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.overview-screen .preview-rail {
+  grid-auto-columns: 112px;
+  padding-bottom: 5px;
+}
+
+.overview-screen .preview-card {
+  min-height: 82px;
+  padding: 10px;
+}
+
+.overview-screen > .primary-button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  margin-top: 7px;
+}
+
 .screen.map-screen {
   display: flex;
   flex-direction: column;
@@ -1171,15 +1248,42 @@ h2 {
 }
 
 .day-area h2 {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
   margin: 0;
 }
 
+.day-area-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .map-link {
+  flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 99px;
   background: transparent;
-  padding: 10px 13px;
+  padding: 8px 10px;
   cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.timeline,
+.timeline * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .timeline {
@@ -1284,7 +1388,7 @@ h2 {
 }
 
 .timeline-item.dragging {
-  z-index: 8;
+  z-index: 120;
   border-radius: 16px;
   background: var(--paper);
   box-shadow: 0 14px 30px rgba(55, 39, 25, 0.2);
@@ -1293,11 +1397,20 @@ h2 {
 }
 
 .timeline-swipe-row.dragging-row {
+  position: relative;
   z-index: 7;
+  border: 1px dashed rgba(200, 69, 45, 0.58);
+  border-radius: 16px;
+  background: rgba(200, 69, 45, 0.07);
 }
 
 .timeline-swipe-row.dragging-row .swipe-delete {
   visibility: hidden;
+}
+
+body.itinerary-dragging,
+body.itinerary-dragging * {
+  cursor: grabbing !important;
 }
 
 .flight-timeline-item::before {
@@ -1445,6 +1558,122 @@ h2 {
 .modal-sheet p {
   color: var(--muted);
   font-size: 14px;
+}
+
+.wheel-time-field {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wheel-time-field input {
+  width: 100%;
+  min-height: 70px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  color: var(--ink);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.sheet-kind-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin: 12px 0;
+}
+
+.sheet-kind-tabs button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sheet-kind-tabs button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.itinerary-place-options {
+  max-height: 48dvh;
+  overflow-y: auto;
+  border-block: 1px solid var(--line);
+}
+
+.itinerary-place-option {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.itinerary-place-option:last-child {
+  border-bottom: 0;
+}
+
+.itinerary-place-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.itinerary-place-check {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: transparent;
+  font-weight: 900;
+}
+
+.itinerary-place-option input:checked + .itinerary-place-check {
+  border-color: var(--mineral);
+  background: var(--mineral);
+  color: white;
+}
+
+.itinerary-place-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.itinerary-place-copy strong,
+.itinerary-place-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itinerary-place-copy small {
+  color: var(--muted);
+}
+
+.itinerary-place-option > b {
+  max-width: 96px;
+  color: var(--mineral);
+  font-size: 10px;
+  text-align: right;
+}
+
+.itinerary-place-option.already-added {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .place-detail-sheet {

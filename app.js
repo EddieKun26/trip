@@ -193,9 +193,11 @@ const state = {
   selectedArea: "",
   selectedMapPlace: "",
   mapView: "planning",
+  mapDate: "all",
   mapCategory: "all",
   mapPreference: "all",
   selectedDate: "9/22",
+  itineraryPlaceKind: "all",
   places: [
     ...fallbackPlaces
       .filter((place) => !savedDeletedPlaces.includes(place.name))
@@ -364,6 +366,11 @@ function areaDisplayName(area = "", original = "") {
   const chinese = known?.[0] || value;
   const local = String(known?.[1] || original || value).trim();
   return `${chinese}（${local}）`;
+}
+
+function areaChineseName(area = "") {
+  const value = String(area || "行程").trim();
+  return knownAreaLabels[value]?.[0] || value;
 }
 
 function placeVoters(name) {
@@ -612,6 +619,7 @@ async function switchTrip(tripId) {
   state.placeKind = "all";
   state.mapCategory = "all";
   state.mapView = "planning";
+  state.mapDate = "all";
   localStorage.setItem("active-trip-v1", tripId);
   closeSheet();
   await loadSharedTrip({ force: true });
@@ -707,7 +715,7 @@ function overviewScreen() {
     .join("");
 
   return `
-    <section class="screen">
+    <section class="screen overview-screen">
       ${state.isGuest ? `<div class="guest-banner"><span><strong>訪客模式</strong>僅供閱覽</span><button type="button" data-edit-profile>登入參與規劃</button></div>` : ""}
       <header class="title-row">
         <div>
@@ -873,16 +881,45 @@ function filteredMapPlaces() {
   const allProjectedPlaces = projectPlaces(state.places);
   if (state.mapView !== "day") return allProjectedPlaces.filter(matchesMapFilters);
   const placesByName = new Map(allProjectedPlaces.map((place) => [place.name, place]));
-  return (state.itinerary[state.selectedDate] || [])
-    .map((item, itineraryIndex) => ({ item, itineraryIndex, place: item.type === "flight" ? null : placesByName.get(item.name) }))
-    .filter(({ place }) => place)
-    .sort((a, b) => {
-      const aTime = /^\d{2}:\d{2}$/.test(a.item.time || "") ? a.item.time : "99:99";
-      const bTime = /^\d{2}:\d{2}$/.test(b.item.time || "") ? b.item.time : "99:99";
-      return aTime.localeCompare(bTime) || a.itineraryIndex - b.itineraryIndex;
-    })
-    .map(({ place }, index) => ({ ...place, dayOrder: index + 1 }))
-    .filter(matchesMapFilters);
+  const dates = state.mapDate === "all" ? dateMeta.map(([date]) => date) : [state.mapDate];
+  return dates.flatMap((date, dayIndex) =>
+    (state.itinerary[date] || [])
+      .map((item, itineraryIndex) => ({ item, itineraryIndex, place: item.type === "flight" ? null : placesByName.get(item.name) }))
+      .filter(({ place }) => place)
+      .sort((a, b) => {
+        const aTime = /^\d{2}:\d{2}$/.test(a.item.time || "") ? a.item.time : "99:99";
+        const bTime = /^\d{2}:\d{2}$/.test(b.item.time || "") ? b.item.time : "99:99";
+        return aTime.localeCompare(bTime) || a.itineraryIndex - b.itineraryIndex;
+      })
+      .map(({ place }, index) => ({
+        ...place,
+        dayOrder: index + 1,
+        routeDate: date,
+        routeColor: routeColorForDate(date, dayIndex),
+      }))
+      .filter(matchesMapFilters),
+  );
+}
+
+const dayRouteColors = ["#c8452d", "#3f7193", "#7b5a91", "#4f835f", "#bf7b2b", "#9b4d66", "#567f83"];
+
+function routeColorForDate(date, fallbackIndex = 0) {
+  const index = dateMeta.findIndex(([candidate]) => candidate === date);
+  return dayRouteColors[(index >= 0 ? index : fallbackIndex) % dayRouteColors.length];
+}
+
+function mapRouteGroups(places) {
+  const groups = new Map();
+  places.forEach((place) => {
+    const key = place.routeDate || state.mapDate;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(place);
+  });
+  return [...groups.entries()].map(([date, routePlaces]) => ({
+    date,
+    color: routePlaces[0]?.routeColor || routeColorForDate(date),
+    places: routePlaces,
+  }));
 }
 
 function mapScreen() {
@@ -903,18 +940,25 @@ function mapScreen() {
       (category) => `<option value="${escapeHtml(category)}" ${state.mapCategory === category ? "selected" : ""}>${escapeHtml(category)}</option>`,
     ),
   ].join("");
-  const dateOptions = [
-    `<option value="all" ${state.mapView === "planning" ? "selected" : ""}>所有日期</option>`,
-    ...dateMeta.map(
-      ([date, weekday]) => `<option value="${date}" ${state.mapView === "day" && state.selectedDate === date ? "selected" : ""}>${date} ${weekday}</option>`,
-    ),
-  ].join("");
+  const dateOptions = state.mapView === "planning"
+    ? `<option>規劃地圖不套用日期</option>`
+    : [
+        `<option value="all" ${state.mapDate === "all" ? "selected" : ""}>所有日期</option>`,
+        ...dateMeta.map(
+          ([date, weekday]) => `<option value="${date}" ${state.mapDate === date ? "selected" : ""}>${date} ${weekday}</option>`,
+        ),
+      ].join("");
+  const dayLegend = state.mapDate === "all"
+    ? mapRouteGroups(projectedPlaces).map(({ date, color }) => `<span><i style="background:${color}"></i>${escapeHtml(date)}</span>`).join("") || `<span>尚無已排路線</span>`
+    : `<span class="day-route-legend"><i style="background:${routeColorForDate(state.mapDate)}"></i>數字為時間順序，連線表示下一站</span>`;
+  const mapTitle = state.mapView === "planning"
+    ? "規劃地圖"
+    : state.mapDate === "all" ? "所有日期路線" : `${state.mapDate} 當日地圖`;
 
   return `
     <section class="screen map-screen">
       <div class="map-toolbar">
-        <div><h2 style="margin:0">${state.mapView === "planning" ? "規劃地圖" : `${state.selectedDate} 當日地圖`}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
-        <span class="coordinate-badge" title="可單指拖曳的互動地圖">互動地圖</span>
+        <div><h2 style="margin:0">${mapTitle}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
       </div>
       <div style="margin-top:14px">${placesSegment("map")}</div>
       ${placeKindTabs()}
@@ -923,7 +967,7 @@ function mapScreen() {
         <button class="${state.mapView === "day" ? "active" : ""}" type="button" data-map-view="day"><strong>當日地圖</strong><span>拜訪順序</span></button>
       </div>
       <div class="map-filters" aria-label="地圖篩選">
-        <label><span>日期</span><select data-map-date>${dateOptions}</select></label>
+        <label class="${state.mapView === "planning" ? "map-date-disabled" : ""}"><span>日期</span><select data-map-date ${state.mapView === "planning" ? "disabled" : ""}>${dateOptions}</select></label>
         <label><span>類型</span><select data-map-category>${categoryOptions}</select></label>
         <label><span>想去程度</span><select data-map-preference>
           <option value="all" ${state.mapPreference === "all" ? "selected" : ""}>全部</option>
@@ -933,13 +977,13 @@ function mapScreen() {
         </select></label>
       </div>
       <div class="map-legend" aria-label="圖釘狀態">
-        ${state.mapView === "day" ? `<span class="day-route-legend"><i class="scheduled"></i>數字為時間順序，連線表示下一站</span>` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
+        ${state.mapView === "day" ? dayLegend : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
       </div>
       <div class="map-canvas" data-map-host>
         <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
         <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
         ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
-        ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "這一天尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
+        ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
       </div>
     </section>`;
 }
@@ -955,7 +999,7 @@ function mapPinColor(status) {
 
 function markerHtml(place) {
   if (state.mapView === "day") {
-    return `<button class="google-place-pin day-order-pin" type="button" style="--pin-color:${mapPinColor("scheduled")}" aria-label="第 ${place.dayOrder} 站，${escapeHtml(place.name)}"><span>${place.dayOrder}</span></button>`;
+    return `<button class="google-place-pin day-order-pin" type="button" style="--pin-color:${place.routeColor || mapPinColor("scheduled")}" aria-label="${escapeHtml(place.routeDate || "當日")}第 ${place.dayOrder} 站，${escapeHtml(place.name)}"><span>${place.dayOrder}</span></button>`;
   }
   return `<button class="google-place-pin" type="button" style="--pin-color:${mapPinColor(placeMapStatus(place))}" aria-label="${escapeHtml(place.name)}，${placeVoters(place.name).length} 人推薦"><span>${escapeHtml(place.mark)}</span><b>★ ${placeVoters(place.name).length}</b></button>`;
 }
@@ -1005,14 +1049,16 @@ function renderGoogleInteractiveMap(host, places) {
   map.addListener("dragstart", () => { mapInteractionUntil = Date.now() + 5000; });
   map.addListener("zoom_changed", () => { mapInteractionUntil = Date.now() + 3000; });
   const bounds = new google.maps.LatLngBounds();
-  if (state.mapView === "day" && places.length > 1) {
-    new google.maps.Polyline({
-      map,
-      path: places.map((place) => ({ lat: place.latitude, lng: place.longitude })),
-      geodesic: true,
-      strokeColor: "#3f7193",
-      strokeOpacity: 0.82,
-      strokeWeight: 4,
+  if (state.mapView === "day") {
+    mapRouteGroups(places).filter((group) => group.places.length > 1).forEach((group) => {
+      new google.maps.Polyline({
+        map,
+        path: group.places.map((place) => ({ lat: place.latitude, lng: place.longitude })),
+        geodesic: true,
+        strokeColor: group.color,
+        strokeOpacity: 0.84,
+        strokeWeight: 4,
+      });
     });
   }
   places.forEach((place) => {
@@ -1030,7 +1076,7 @@ function renderGoogleInteractiveMap(host, places) {
       },
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: mapPinColor(placeMapStatus(place)),
+        fillColor: state.mapView === "day" ? place.routeColor : mapPinColor(placeMapStatus(place)),
         fillOpacity: 1,
         strokeColor: "#ffffff",
         strokeWeight: 3,
@@ -1060,12 +1106,14 @@ function renderLeafletInteractiveMap(host, places) {
     attribution: "© OpenStreetMap",
   }).addTo(activeLeafletMap);
   const bounds = [];
-  if (state.mapView === "day" && places.length > 1) {
-    L.polyline(places.map((place) => [place.latitude, place.longitude]), {
-      color: "#3f7193",
-      opacity: 0.82,
-      weight: 4,
-    }).addTo(activeLeafletMap);
+  if (state.mapView === "day") {
+    mapRouteGroups(places).filter((group) => group.places.length > 1).forEach((group) => {
+      L.polyline(group.places.map((place) => [place.latitude, place.longitude]), {
+        color: group.color,
+        opacity: 0.84,
+        weight: 4,
+      }).addTo(activeLeafletMap);
+    });
   }
   places.forEach((place) => {
     const point = [place.latitude, place.longitude];
@@ -1170,7 +1218,7 @@ function itineraryScreen() {
 
   const placeItems = dayItems.filter((item) => item.type !== "flight");
   const area = placeItems.length
-    ? [...new Set(placeItems.map((item) => state.places.find((place) => place.name === item.name)?.area || "行程"))].join("／")
+    ? [...new Set(placeItems.map((item) => areaChineseName(state.places.find((place) => place.name === item.name)?.area || "行程")))].join("／")
     : "尚未安排";
   const dayCountLabel = [placeItems.length ? `${placeItems.length} 個地點` : "", dayItems.length - placeItems.length ? `${dayItems.length - placeItems.length} 個航班` : ""].filter(Boolean).join(" · ");
 
@@ -1182,15 +1230,15 @@ function itineraryScreen() {
       </header>
       <div class="date-strip">${dates}</div>
       <div class="day-area">
-        <h2>⌖ ${escapeHtml(area)}${dayCountLabel ? ` · ${dayCountLabel}` : ""}</h2>
-        ${placeItems.length ? `<button class="map-link" type="button" data-day-map>地圖查看　›</button>` : ""}
+        <h2><span class="day-area-name">⌖ ${escapeHtml(area)}</span>${dayCountLabel ? `<small class="day-count">${escapeHtml(dayCountLabel)}</small>` : ""}</h2>
+        ${placeItems.length ? `<button class="map-link" type="button" data-day-map>地圖查看 ›</button>` : ""}
       </div>
       ${
         dayItems.length
           ? `<div class="timeline">${rows}</div>`
           : `<div class="empty-state"><div><b>這天還沒有地點</b><span>從地圖選取同區景點，加入這一天。</span></div></div>`
       }
-      ${canEdit() ? `<button class="outline-button" type="button" data-go-tab="places">＋　加入地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
+      ${canEdit() ? `<button class="outline-button" type="button" data-open-itinerary-places>＋　加入地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
     </section>`;
 }
 
@@ -1729,6 +1777,78 @@ function openAddPlaceDateSheet(name) {
     </div>`;
 }
 
+function openTimePickerSheet(name) {
+  const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === name);
+  if (!item) return;
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <form class="modal-sheet time-picker-sheet" id="time-picker-form" data-item-name="${escapeHtml(name)}">
+        <div class="section-row"><div><p class="section-kicker">${escapeHtml(state.selectedDate)}</p><h2>調整行程時間</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
+        <p>${escapeHtml(name)}會使用手機原生的滾輪時間選擇器。</p>
+        <label class="wheel-time-field"><span>抵達時間</span><input name="time" type="time" step="300" required value="${escapeHtml(item.time || "11:00")}" /></label>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">套用時間</button></div>
+      </form>
+    </div>`;
+  const picker = document.querySelector('#time-picker-form input[type="time"]');
+  try {
+    if (picker?.showPicker) picker.showPicker();
+    else picker?.focus();
+  } catch {
+    picker?.focus();
+  }
+}
+
+function rememberItineraryPlaceChecks() {
+  document.querySelectorAll('#itinerary-places-form input[name="places"]').forEach((input) => {
+    if (input.checked) itineraryPlaceSelection.add(input.value);
+    else itineraryPlaceSelection.delete(input.value);
+  });
+}
+
+function suggestedItineraryTimes(count) {
+  const usedTimes = (state.itinerary[state.selectedDate] || [])
+    .filter((item) => item.type !== "flight" && /^\d{2}:\d{2}$/.test(item.time || ""))
+    .map((item) => item.time)
+    .sort();
+  const latest = usedTimes.at(-1) || "09:30";
+  const [hour, minute] = latest.split(":").map(Number);
+  const baseMinutes = hour * 60 + minute;
+  return Array.from({ length: count }, (_, index) => {
+    const total = Math.min(23 * 60 + 45, baseMinutes + (index + 1) * 90);
+    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  });
+}
+
+function openItineraryPlacesSheet({ reset = false } = {}) {
+  if (reset) itineraryPlaceSelection = new Set();
+  const currentNames = new Set((state.itinerary[state.selectedDate] || []).filter((item) => item.type !== "flight").map((item) => item.name));
+  const visiblePlaces = state.places.filter((place) => state.itineraryPlaceKind === "all" || place.kind === state.itineraryPlaceKind);
+  const rows = visiblePlaces.map((place) => {
+    const current = currentNames.has(place.name);
+    const otherDates = placeAssignments(place.name).filter((assignment) => assignment.date !== state.selectedDate).map((assignment) => assignment.date);
+    const status = current ? "本日已加入" : otherDates.length ? `另排於 ${otherDates.join("、")}` : "尚未安排";
+    return `
+      <label class="itinerary-place-option ${current ? "already-added" : ""}">
+        <input type="checkbox" name="places" value="${escapeHtml(place.name)}" ${current ? "checked disabled" : itineraryPlaceSelection.has(place.name) ? "checked" : ""} />
+        <span class="itinerary-place-check" aria-hidden="true">✓</span>
+        <span class="itinerary-place-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
+        <b>${escapeHtml(status)}</b>
+      </label>`;
+  }).join("");
+  const kindTabs = [["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"]]
+    .map(([kind, label]) => `<button type="button" class="${state.itineraryPlaceKind === kind ? "active" : ""}" data-itinerary-place-kind="${kind}">${label}</button>`).join("");
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <form class="modal-sheet itinerary-places-sheet" id="itinerary-places-form">
+        <div class="section-row"><div><p class="section-kicker">${escapeHtml(state.selectedDate)}</p><h2>勾選要加入的地點</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
+        <p>不離開行程頁即可加入；右側會標示是否已安排在其他日期。</p>
+        <div class="sheet-kind-tabs">${kindTabs}</div>
+        <div class="itinerary-place-options">${rows || `<div class="import-empty"><strong>此分類沒有收藏地點</strong></div>`}</div>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">加入勾選地點</button></div>
+      </form>
+    </div>`;
+}
+
 function openReorderSheet(key) {
   const items = state.itinerary[state.selectedDate] || [];
   const index = items.findIndex((item) => itineraryItemKey(item) === key);
@@ -1764,6 +1884,7 @@ let swipeDrag = null;
 let suppressSwipeClick = false;
 let previewRailDrag = null;
 let suppressPreviewCardClick = false;
+let itineraryPlaceSelection = new Set();
 
 document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
@@ -1815,6 +1936,19 @@ document.addEventListener("click", async (event) => {
     state.mapView = mapView.dataset.mapView;
     state.selectedMapPlace = "";
     return render();
+  }
+
+  if (event.target.closest("[data-open-itinerary-places]")) {
+    if (!canEdit()) return guestOnlyMessage();
+    state.itineraryPlaceKind = "all";
+    return openItineraryPlacesSheet({ reset: true });
+  }
+
+  const itineraryPlaceKind = event.target.closest("[data-itinerary-place-kind]");
+  if (itineraryPlaceKind) {
+    rememberItineraryPlaceChecks();
+    state.itineraryPlaceKind = itineraryPlaceKind.dataset.itineraryPlaceKind;
+    return openItineraryPlacesSheet();
   }
 
   const mapPlace = event.target.closest("[data-select-map-place]");
@@ -1951,6 +2085,7 @@ document.addEventListener("click", async (event) => {
     state.activeTab = "places";
     state.placesMode = "map";
     state.mapView = "day";
+    state.mapDate = state.selectedDate;
     state.mapCategory = "all";
     state.mapPreference = "all";
     state.selectedMapPlace = "";
@@ -1989,16 +2124,7 @@ document.addEventListener("click", async (event) => {
   const time = event.target.closest("[data-edit-time]");
   if (time) {
     if (!canEdit()) return guestOnlyMessage();
-    const current = time.textContent.trim();
-    const next = window.prompt("輸入時間（HH:MM）", current);
-    if (!next || !/^([01]\d|2[0-3]):[0-5]\d$/.test(next)) {
-      if (next) showToast("請使用 HH:MM 格式");
-      return;
-    }
-    const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === time.dataset.editTime);
-    if (item) item.time = next;
-    persist();
-    return render();
+    return openTimePickerSheet(time.dataset.editTime);
   }
 });
 
@@ -2099,12 +2225,8 @@ document.addEventListener("pointercancel", finishPreviewRailDrag);
 
 document.addEventListener("change", (event) => {
   if (event.target.matches("[data-map-date]")) {
-    if (event.target.value === "all") {
-      state.mapView = "planning";
-    } else {
-      state.mapView = "day";
-      state.selectedDate = event.target.value;
-    }
+    state.mapDate = event.target.value;
+    state.mapView = "day";
     state.selectedMapPlace = "";
     return render({ preserveScroll: true });
   }
@@ -2137,7 +2259,6 @@ document.addEventListener("pointerdown", (event) => {
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
-    offsetY: 0,
     dragging: false,
     handle,
     item,
@@ -2150,12 +2271,30 @@ document.addEventListener("pointermove", (event) => {
   if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
   const deltaY = event.clientY - pointerDrag.startY;
   if (!pointerDrag.dragging && Math.abs(deltaY) > 8) {
+    const rect = pointerDrag.item.getBoundingClientRect();
     pointerDrag.dragging = true;
+    pointerDrag.grabOffsetY = pointerDrag.startY - rect.top;
     pointerDrag.row.classList.add("dragging-row");
+    pointerDrag.row.style.height = `${pointerDrag.row.getBoundingClientRect().height}px`;
     pointerDrag.item.classList.add("dragging");
-    pointerDrag.item.style.pointerEvents = "none";
+    Object.assign(pointerDrag.item.style, {
+      position: "fixed",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      margin: "0",
+      pointerEvents: "none",
+      transform: "translate3d(0,0,0)",
+    });
+    document.body.classList.add("itinerary-dragging");
   }
   if (!pointerDrag.dragging) return;
+
+  pointerDrag.item.style.top = `${event.clientY - pointerDrag.grabOffsetY}px`;
+  const appRect = app.getBoundingClientRect();
+  if (event.clientY < appRect.top + 72) app.scrollTop -= Math.min(14, appRect.top + 72 - event.clientY);
+  else if (event.clientY > appRect.bottom - 72) app.scrollTop += Math.min(14, event.clientY - (appRect.bottom - 72));
 
   const timeline = pointerDrag.row.closest(".timeline");
   const rows = [...timeline.querySelectorAll("[data-itinerary-row]")];
@@ -2165,28 +2304,21 @@ document.addEventListener("pointermove", (event) => {
   if (shouldMove) {
     otherRows.forEach((row) => row.getAnimations?.().forEach((animation) => animation.cancel()));
     const before = new Map(otherRows.map((row) => [row, row.getBoundingClientRect().top]));
-    const oldTop = pointerDrag.row.offsetTop;
     if (nextRow) timeline.insertBefore(pointerDrag.row, nextRow);
     else timeline.append(pointerDrag.row);
-    pointerDrag.offsetY += oldTop - pointerDrag.row.offsetTop;
     otherRows.forEach((row) => {
       const shift = (before.get(row) || 0) - row.getBoundingClientRect().top;
       if (Math.abs(shift) < 1) return;
       row.animate([{ transform: `translateY(${shift}px)` }, { transform: "translateY(0)" }], { duration: 170, easing: "cubic-bezier(.2,.8,.2,1)" });
     });
   }
-  pointerDrag.item.style.transform = `translate3d(0, ${deltaY + pointerDrag.offsetY}px, 0)`;
   event.preventDefault();
 });
 
-function finishItineraryDrag(event) {
+async function finishItineraryDrag(event) {
   if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
   const dragState = pointerDrag;
   pointerDrag = null;
-  dragState.item.classList.remove("dragging");
-  dragState.row.classList.remove("dragging-row");
-  dragState.item.style.removeProperty("pointer-events");
-  dragState.item.style.removeProperty("transform");
   if (!dragState.dragging) return;
   suppressReorderClick = true;
   window.setTimeout(() => {
@@ -2196,6 +2328,18 @@ function finishItineraryDrag(event) {
   const keys = [...dragState.row.closest(".timeline").querySelectorAll("[data-itinerary-row]")].map((row) => row.dataset.itineraryRow);
   state.itinerary[state.selectedDate] = keys.map((key) => itemsByKey.get(key)).filter(Boolean);
   persist();
+  const targetRect = dragState.row.getBoundingClientRect();
+  const currentRect = dragState.item.getBoundingClientRect();
+  const settle = dragState.item.animate([
+    { left: `${currentRect.left}px`, top: `${currentRect.top}px`, transform: "scale(1.02)" },
+    { left: `${targetRect.left}px`, top: `${targetRect.top}px`, transform: "scale(1)" },
+  ], { duration: 150, easing: "cubic-bezier(.2,.85,.25,1)", fill: "forwards" });
+  await settle.finished.catch(() => {});
+  document.body.classList.remove("itinerary-dragging");
+  dragState.item.classList.remove("dragging");
+  dragState.row.classList.remove("dragging-row");
+  dragState.row.style.removeProperty("height");
+  ["position", "left", "top", "width", "height", "margin", "pointer-events", "transform"].forEach((property) => dragState.item.style.removeProperty(property));
   render({ preserveScroll: true });
   showToast("行程順序已更新");
 }
@@ -2204,10 +2348,45 @@ document.addEventListener("pointerup", finishItineraryDrag);
 document.addEventListener("pointercancel", finishItineraryDrag);
 
 document.addEventListener("contextmenu", (event) => {
-  if (event.target.closest("[data-drag-key]")) event.preventDefault();
+  if (event.target.closest(".timeline")) event.preventDefault();
 });
 
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "time-picker-form") {
+    event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
+    const next = String(new FormData(event.target).get("time") || "");
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(next)) return showToast("請選擇有效時間");
+    const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === event.target.dataset.itemName);
+    if (!item) return showToast("找不到這個行程項目");
+    item.time = next;
+    persist();
+    closeSheet();
+    render({ preserveScroll: true });
+    return showToast("行程時間已更新");
+  }
+
+  if (event.target.id === "itinerary-places-form") {
+    event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
+    rememberItineraryPlaceChecks();
+    const existing = state.itinerary[state.selectedDate] || [];
+    const existingNames = new Set(existing.map((item) => item.name));
+    const names = [...itineraryPlaceSelection].filter((name) => !existingNames.has(name));
+    if (!names.length) return showToast("請先勾選尚未加入本日的地點");
+    const times = suggestedItineraryTimes(names.length);
+    const additions = names.map((name, index) => ({ name, time: times[index] }));
+    const returnFlightIndex = existing.findIndex((item) => item.type === "flight" && state.flights.find((flight) => flight.id === item.flightId)?.direction === "回程");
+    state.itinerary[state.selectedDate] = returnFlightIndex < 0
+      ? [...existing, ...additions]
+      : [...existing.slice(0, returnFlightIndex), ...additions, ...existing.slice(returnFlightIndex)];
+    itineraryPlaceSelection = new Set();
+    persist();
+    closeSheet();
+    render({ preserveScroll: true });
+    return showToast(`已加入 ${additions.length} 個地點`);
+  }
+
   if (event.target.id === "profile-form") {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -2326,6 +2505,7 @@ document.addEventListener("submit", async (event) => {
     state.itinerary[date] = [...items, { name, time: items.length ? "15:00" : "11:00" }];
     state.selectedDate = date;
     state.mapView = "day";
+    state.mapDate = date;
     persist();
     closeSheet();
     render();
