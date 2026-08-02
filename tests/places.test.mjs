@@ -23,7 +23,7 @@ function responseMock() {
   };
 }
 
-test("Google Places keeps the Chinese area and local-language original", async () => {
+test("Google Places converts romanized areas to Chinese and keeps the local original", async () => {
   process.env.GOOGLE_MAPS_API_KEY = "test-key";
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
@@ -33,7 +33,7 @@ test("Google Places keeps the Chinese area and local-language original", async (
         places: [{
           id: "test-place-id",
           displayName: { text: "測試景點" },
-          addressComponents: [{ longText: "惠比壽", types: ["neighborhood"] }],
+          addressComponents: [{ longText: "Ginza", types: ["neighborhood"] }],
           primaryTypeDisplayName: { text: "景點" },
           location: { latitude: 35.64, longitude: 139.71 },
           googleMapsUri: "https://www.google.com/maps/place/test",
@@ -41,7 +41,7 @@ test("Google Places keeps the Chinese area and local-language original", async (
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response(JSON.stringify({
-      addressComponents: [{ longText: "恵比寿", types: ["neighborhood"] }],
+      addressComponents: [{ longText: "銀座", types: ["neighborhood"] }],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
 
@@ -52,8 +52,8 @@ test("Google Places keeps the Chinese area and local-language original", async (
   }, response);
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.payload.places[0].area, "惠比壽");
-  assert.equal(response.payload.places[0].areaOriginal, "恵比寿");
+  assert.equal(response.payload.places[0].area, "銀座");
+  assert.equal(response.payload.places[0].areaOriginal, "銀座");
   assert.equal(calls.length, 2);
   assert.match(calls[1].url, /languageCode=ja/);
 });

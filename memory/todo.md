@@ -6,6 +6,7 @@
 - 在 Google Cloud Console 將 `GOOGLE_MAPS_BROWSER_KEY` 限制為正式站與需要的 Vercel 預覽網域，並確認 Maps JavaScript API 已啟用。
 - 取得實際住宿後加入東京旅程；住宿分類與綠色圖標功能已完成。
 - 繼續加入使用者後續提供的景點。
+- 設計景點間「交通段」：交通方式、起訖站、路線／班次、出發抵達時間、耗時及購票提醒。
 
 ## 後續候選
 

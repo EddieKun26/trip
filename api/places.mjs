@@ -64,6 +64,23 @@ function pickArea(addressComponents = []) {
   return "";
 }
 
+const chineseAreaOverrides = new Map([
+  ["銀座", "銀座"],
+  ["恵比寿", "惠比壽"],
+  ["恵比寿西", "惠比壽西"],
+  ["西新宿", "西新宿"],
+  ["北大塚", "北大塚"],
+]);
+
+function chineseAreaName(localized, original) {
+  const local = String(original || localized || "").trim();
+  if (chineseAreaOverrides.has(local)) return chineseAreaOverrides.get(local);
+  if (/[一-龯々ヶ]/.test(local)) {
+    return local.replaceAll("恵", "惠").replaceAll("寿", "壽").replaceAll("渋", "澀").replaceAll("浅", "淺").replaceAll("豊", "豐").replaceAll("黒", "黑").replaceAll("区", "區").replaceAll("横", "橫").replaceAll("浜", "濱");
+  }
+  return String(localized || original || "").trim();
+}
+
 async function originalAreaForPlace(apiKey, placeId, fallback) {
   if (!placeId) return fallback;
   try {
@@ -125,8 +142,9 @@ async function searchPlace({ apiKey, textQuery, requestUrl }) {
   const payload = await googleResponse.json();
   const place = payload.places?.[0];
   if (!place) return { requestUrl, error: "找不到符合的 Google Maps 地點" };
-  const area = pickArea(place.addressComponents);
-  const areaOriginal = await originalAreaForPlace(apiKey, place.id, area);
+  const localizedArea = pickArea(place.addressComponents);
+  const areaOriginal = await originalAreaForPlace(apiKey, place.id, localizedArea);
+  const area = chineseAreaName(localizedArea, areaOriginal);
 
   return {
     requestUrl,
