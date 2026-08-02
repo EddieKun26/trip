@@ -100,7 +100,13 @@ function defaultFlights() {
 async function ensureLegacyTrip() {
   const key = `${TRIP_PREFIX}${DEFAULT_TRIP_ID}`;
   const existing = await readJson(key);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.publicRead !== false) {
+      existing.publicRead = false;
+      await redisCommand(["SET", key, JSON.stringify(existing)]);
+    }
+    return existing;
+  }
   const legacy = await readJson(LEGACY_TRIP_KEY);
   if (!legacy) return null;
   const trip = {
@@ -110,7 +116,7 @@ async function ensureLegacyTrip() {
     startDate: "2026-09-20",
     endDate: "2026-09-26",
     inviteCode: "TOKYO6",
-    publicRead: true,
+    publicRead: false,
     ownerId: Object.keys(legacy.members || {})[0] || "",
     flights: defaultFlights(),
     places: Array.isArray(legacy.places) ? legacy.places : [],

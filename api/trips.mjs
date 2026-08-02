@@ -82,8 +82,15 @@ async function addMemberTrip(memberId, tripId) {
 }
 
 async function legacyTripFor(member) {
-  const migrated = await readJson(`${TRIP_PREFIX}${DEFAULT_TRIP_ID}`);
-  if (migrated) return migrated;
+  const key = `${TRIP_PREFIX}${DEFAULT_TRIP_ID}`;
+  const migrated = await readJson(key);
+  if (migrated) {
+    if (migrated.publicRead !== false) {
+      migrated.publicRead = false;
+      await redisCommand(["SET", key, JSON.stringify(migrated)]);
+    }
+    return migrated;
+  }
   const legacy = await readJson(LEGACY_TRIP_KEY);
   if (!legacy) return null;
   const trip = {
@@ -93,7 +100,7 @@ async function legacyTripFor(member) {
     startDate: "2026-09-20",
     endDate: "2026-09-26",
     inviteCode: "TOKYO6",
-    publicRead: true,
+    publicRead: false,
     ownerId: Object.keys(legacy.members || {})[0] || member.id,
     flights: [
       { id: "flight-khh-nrt", direction: "去程", departureDate: "2026-09-20", departureTime: "09:55", departureCity: "高雄", departureCode: "KHH", arrivalDate: "2026-09-20", arrivalTime: "14:45", arrivalCity: "成田", arrivalCode: "NRT", travelers: "尚未註記" },
@@ -107,9 +114,9 @@ async function legacyTripFor(member) {
     updatedAt: legacy.updatedAt || new Date().toISOString(),
     updatedBy: legacy.updatedBy || "migration",
   };
-  const created = await redisCommand(["SET", `${TRIP_PREFIX}${trip.id}`, JSON.stringify(trip), "NX"]);
+  const created = await redisCommand(["SET", key, JSON.stringify(trip), "NX"]);
   if (created) await redisCommand(["SET", `${INVITE_PREFIX}${trip.inviteCode}`, trip.id]);
-  return created ? trip : readJson(`${TRIP_PREFIX}${trip.id}`);
+  return created ? trip : readJson(key);
 }
 
 function validTripFields(body) {

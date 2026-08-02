@@ -3,7 +3,7 @@
 ## 優先
 
 - 加入忘記 PIN／管理者重設 PIN 流程。
-- 若要使用 Google 品牌底圖，建立獨立且限制 HTTP referrer 的 `GOOGLE_MAPS_BROWSER_KEY`，並啟用 Maps JavaScript API。
+- 在 Google Cloud Console 將 `GOOGLE_MAPS_BROWSER_KEY` 限制為正式站與需要的 Vercel 預覽網域，並確認 Maps JavaScript API 已啟用。
 - 取得實際住宿後加入東京旅程；住宿分類與綠色圖標功能已完成。
 - 繼續加入使用者後續提供的景點。
 

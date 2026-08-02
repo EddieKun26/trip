@@ -126,7 +126,6 @@ const placeDetails = {
 
 const defaultVotes = {};
 
-const DEFAULT_TRIP_ID = "tokyo-family-2026";
 const weekdayNames = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
 function buildDateMeta(startDate, endDate) {
@@ -171,7 +170,7 @@ const savedDeletedPlaces = JSON.parse(localStorage.getItem("tokyo-deleted-places
 const savedAccessMode = sessionStorage.getItem("tokyo-access-mode-v1");
 
 const state = {
-  tripId: localStorage.getItem("active-trip-v1") || DEFAULT_TRIP_ID,
+  tripId: localStorage.getItem("active-trip-v1") || "",
   trips: [],
   tripTitle: "東京 7 日",
   destination: "東京",
@@ -570,14 +569,6 @@ function tripDateLabel(date) {
   return Number.isFinite(parsed.getTime()) ? `${parsed.getMonth() + 1}/${parsed.getDate()}` : date;
 }
 
-function tripContextBar() {
-  if (state.isGuest) return `<div class="trip-context guest-trip-context"><span>${escapeHtml(state.tripTitle)}</span><small>公開閱覽</small></div>`;
-  return `
-    <button class="trip-context" type="button" data-open-trips aria-label="切換旅程">
-      <span>${escapeHtml(state.tripTitle)}</span><small>${escapeHtml(state.destination)} · 切換⌄</small>
-    </button>`;
-}
-
 function emptyTripsScreen() {
   return `
     <section class="screen empty-trips-screen">
@@ -586,6 +577,17 @@ function emptyTripsScreen() {
         <button class="profile-button" type="button" data-edit-profile>${avatarMarkup(currentMemberId())}<span><small>目前身分</small><strong>${escapeHtml(state.profile?.nickname || "旅伴")}</strong></span></button>
       </header>
       <div class="empty-trip-card"><span>＋</span><h2>建立第一個空白旅程</h2><p>設定目的地與日期後，再加入航班、住宿、景點和餐廳。</p><button class="primary-button" type="button" data-create-trip>建立空白旅程</button><button class="secondary-button" type="button" data-join-trip>輸入邀請碼加入</button></div>
+    </section>`;
+}
+
+function emptyGuestScreen() {
+  return `
+    <section class="screen empty-trips-screen">
+      <header class="title-row">
+        <div><h1>旅行規劃</h1><p class="meta">目前沒有可供訪客閱覽的旅程</p></div>
+        <button class="profile-button" type="button" data-edit-profile><span class="member-avatar guest">訪</span><span><small>目前身分</small><strong>訪客</strong></span></button>
+      </header>
+      <div class="empty-trip-card"><span>旅</span><h2>登入後開始規劃</h2><p>使用自己的暱稱與 PIN 登入，即可建立空白旅程，或用邀請碼加入旅伴的旅程。</p><button class="primary-button" type="button" data-edit-profile>登入／建立身分</button></div>
     </section>`;
 }
 
@@ -680,7 +682,6 @@ function placesScreen() {
 
   return `
     <section class="screen">
-      ${tripContextBar()}
       <header class="title-row">
         <div><h1>收藏地點</h1><p class="meta">${visiblePlaces.length} 個${state.placeKind === "all" ? "地點" : kindLabel(state.placeKind)}</p></div>
         ${canEdit() ? `<button class="round-button" type="button" data-add-place aria-label="新增地點">＋</button>` : `<span class="readonly-badge">訪客唯讀</span>`}
@@ -810,7 +811,6 @@ function mapScreen() {
 
   return `
     <section class="screen map-screen">
-      ${tripContextBar()}
       <div class="map-toolbar">
         <div><h2 style="margin:0">${state.mapView === "planning" ? "規劃地圖" : `${state.selectedDate} 當日地圖`}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
         <span class="coordinate-badge" title="可單指拖曳的互動地圖">互動地圖</span>
@@ -1034,7 +1034,6 @@ function itineraryScreen() {
 
   return `
     <section class="screen">
-      ${tripContextBar()}
       <header class="title-row">
         <div><h1>每日行程</h1><p class="meta">先排區域，再調整時間</p></div>
         <button class="icon-button" type="button" aria-label="更多">•••</button>
@@ -1056,10 +1055,10 @@ function itineraryScreen() {
 
 function render({ preserveScroll = false } = {}) {
   const previousScrollTop = app.scrollTop;
-  if (state.profile && !state.isGuest && !state.tripId) app.innerHTML = emptyTripsScreen();
+  if (!state.tripId) app.innerHTML = state.isGuest ? emptyGuestScreen() : emptyTripsScreen();
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
-  if (state.activeTab === "places") app.innerHTML = placesScreen();
-  if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
+  else if (state.activeTab === "places") app.innerHTML = placesScreen();
+  else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
   if (state.activeTab === "places" && state.placesMode === "map") {
     window.requestAnimationFrame(initializeInteractiveMap);
@@ -1628,13 +1627,13 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-enter-guest]")) {
     state.isGuest = true;
     state.profile = null;
-    state.tripId = DEFAULT_TRIP_ID;
+    state.tripId = "";
+    state.trips = [];
     state.sharedRevision = 0;
     sessionStorage.setItem("tokyo-access-mode-v1", "guest");
     closeSheet();
     render();
-    await loadSharedTrip({ force: true });
-    return showToast("已用訪客身分進入；可閱覽公開旅程");
+    return showToast("已用訪客身分進入；登入後可建立或加入旅程");
   }
 
   if (suppressPreviewCardClick && event.target.closest(".preview-rail")) {
@@ -2238,8 +2237,8 @@ if (!state.profile && !state.isGuest) openProfileSheet(true);
 if (state.profile) {
   loadTrips().catch(() => showToast("旅程清單暫時無法載入"));
 } else if (state.isGuest) {
-  state.tripId = DEFAULT_TRIP_ID;
-  loadSharedTrip({ force: true });
+  state.tripId = "";
+  render();
 }
 window.setInterval(() => {
   if (!document.hidden && state.tripId) loadSharedTrip({ quiet: true });

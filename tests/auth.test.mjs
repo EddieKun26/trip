@@ -111,10 +111,10 @@ test("four-digit PIN restores one member across devices and protects writes", as
   assert.equal(authorizedWrite.statusCode, 200);
   assert.equal(authorizedWrite.payload.members["member-old"], "弟弟");
 
-  const publicRead = responseMock();
-  await tripHandler({ method: "GET", headers: {}, url: "/api/trip?id=tokyo-family-2026" }, publicRead);
-  assert.equal(publicRead.statusCode, 200);
-  assert.equal(publicRead.payload.inviteCode, undefined);
+  const privateLegacyRead = responseMock();
+  await tripHandler({ method: "GET", headers: {}, url: "/api/trip?id=tokyo-family-2026" }, privateLegacyRead);
+  assert.equal(privateLegacyRead.statusCode, 401);
+  assert.equal(privateLegacyRead.payload.error, "TRIP_ACCESS_REQUIRED");
 
   const guestWrite = responseMock();
   await tripHandler(
