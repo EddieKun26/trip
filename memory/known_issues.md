@@ -6,6 +6,7 @@
 - Redis 會按旅程 ID 分開，但同一旅程仍以整份資料覆寫；同一旅程的兩人極接近同時修改時可能出現後寫覆蓋先寫。
 - `GOOGLE_MAPS_BROWSER_KEY` 必須在 Google Cloud Console 設定 HTTP referrer 限制；未設定或載入失敗時會回退至 OpenStreetMap。
 - Google Places 暫時失敗時，景點詳情會保留本機摘要與既有營業資訊，不顯示最新照片。
+- Google Places 無法取得當地語言地區名稱時，清單會以現有地區名稱同時作為中文與原文顯示。
 - 使用不同 Vercel 子網域會產生不同 Cookie；家庭成員應統一使用正式網址 `trip-eddie23.vercel.app`。
 - 邀請碼目前沒有自行重設／撤銷介面；需要時由開發者處理。
 - 訪客目前沒有「輸入邀請碼只讀」模式；加入私人旅程前必須先用暱稱與 PIN 登入。

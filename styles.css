@@ -1272,6 +1272,25 @@ h2 {
   box-shadow: 0 8px 20px rgba(55, 39, 25, 0.12);
 }
 
+.flight-timeline-item::before {
+  background: #3f7fa6;
+  box-shadow: 0 0 0 2px #3f7fa6;
+}
+
+.flight-time-button {
+  border-color: rgba(63, 127, 166, 0.3);
+  background: rgba(220, 237, 247, 0.72);
+  color: #285e7e;
+}
+
+.flight-itinerary-details strong {
+  color: #285e7e;
+}
+
+.flight-itinerary-details span {
+  color: var(--muted);
+}
+
 .timeline-swipe-row {
   overflow: visible;
   border-bottom: 1px solid var(--line);

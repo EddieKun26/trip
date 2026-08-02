@@ -64,6 +64,26 @@ function pickArea(addressComponents = []) {
   return "";
 }
 
+async function originalAreaForPlace(apiKey, placeId, fallback) {
+  if (!placeId) return fallback;
+  try {
+    const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
+    url.searchParams.set("languageCode", "ja");
+    url.searchParams.set("regionCode", "JP");
+    const response = await fetch(url, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "addressComponents",
+      },
+    });
+    if (!response.ok) return fallback;
+    const payload = await response.json();
+    return pickArea(payload.addressComponents) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function searchPlace({ apiKey, textQuery, requestUrl }) {
   const googleResponse = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
@@ -71,6 +91,7 @@ async function searchPlace({ apiKey, textQuery, requestUrl }) {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask": [
+        "places.id",
         "places.displayName",
         "places.formattedAddress",
         "places.addressComponents",
@@ -104,11 +125,14 @@ async function searchPlace({ apiKey, textQuery, requestUrl }) {
   const payload = await googleResponse.json();
   const place = payload.places?.[0];
   if (!place) return { requestUrl, error: "找不到符合的 Google Maps 地點" };
+  const area = pickArea(place.addressComponents);
+  const areaOriginal = await originalAreaForPlace(apiKey, place.id, area);
 
   return {
     requestUrl,
     name: place.displayName?.text || textQuery,
-    area: pickArea(place.addressComponents),
+    area,
+    areaOriginal,
     category: place.primaryTypeDisplayName?.text || "景點",
     formattedAddress: place.formattedAddress || "",
     latitude: place.location?.latitude ?? null,

@@ -4,6 +4,7 @@ const fallbackPlaces = [
     fullName: "Seafood Buffet Dining Ginza Happo",
     category: "自助餐餐廳",
     area: "銀座",
+    areaOriginal: "銀座",
     sourceUrl: "https://maps.app.goo.gl/7FqMqBjB1ijqiLiu7?g_st=il",
     swatch: "#7e5c47",
     mark: "八",
@@ -16,6 +17,7 @@ const fallbackPlaces = [
     fullName: "ART AQUARIUM MUSEUM 銀座金魚美術館",
     category: "藝術博物館",
     area: "銀座",
+    areaOriginal: "銀座",
     sourceUrl: "https://maps.app.goo.gl/5Yy3bqLLxRTvQgQE8?g_st=il",
     swatch: "#b34735",
     mark: "魚",
@@ -28,6 +30,7 @@ const fallbackPlaces = [
     fullName: "Rukuma Tokyo",
     category: "內臟燒肉餐廳",
     area: "惠比壽／代官山",
+    areaOriginal: "恵比寿／代官山",
     sourceUrl: "https://maps.app.goo.gl/xYymfmHyxhMMpfoH7?g_st=il",
     swatch: "#526d54",
     mark: "R",
@@ -40,6 +43,7 @@ const fallbackPlaces = [
     fullName: "Peter Luger 牛排館 東京",
     category: "牛排館",
     area: "惠比壽／代官山",
+    areaOriginal: "恵比寿／代官山",
     sourceUrl: "https://maps.app.goo.gl/Y9M5UG8qCav99iLC9?g_st=il",
     swatch: "#865045",
     mark: "P",
@@ -52,6 +56,7 @@ const fallbackPlaces = [
     fullName: "Gyu Tongue Lemon Shinjuku",
     category: "日式牛舌餐廳",
     area: "西新宿",
+    areaOriginal: "西新宿",
     sourceUrl: "https://maps.app.goo.gl/KqviBAv6oTAKRL87A?g_st=il",
     swatch: "#a87545",
     mark: "牛",
@@ -64,6 +69,7 @@ const fallbackPlaces = [
     fullName: "燒肉 Aburu。大塚店",
     category: "日式燒肉餐廳",
     area: "大塚",
+    areaOriginal: "大塚",
     sourceUrl: "https://maps.app.goo.gl/nettdiCwZwVDaUYh8?g_st=il",
     swatch: "#7d3d2d",
     mark: "炙",
@@ -282,32 +288,76 @@ function placeCreatorName(place) {
   return place.addedByName || memberName(place.addedBy);
 }
 
-function formatOpeningHours(value = "") {
+const openingWeekdays = ["一", "二", "三", "四", "五", "六", "日"];
+
+function parseOpeningHours(value = "") {
   const raw = String(value || "待 Google Maps 同步").trim().replaceAll("星期", "週");
-  if (raw.startsWith("待 ")) return escapeHtml(raw);
-  const days = ["一", "二", "三", "四", "五", "六", "日"];
-  const renderLine = (day, hours) => {
-    const match = String(hours).trim().match(/^(.*?)([（(][^）)]*最晚[^）)]*[）)])$/);
-    const main = match ? match[1].trim() : String(hours).trim();
-    const lastEntry = match ? `<small class="last-entry-time">${escapeHtml(match[2])}</small>` : "";
-    return `<span class="hours-line"><b>週${day}</b><span>${escapeHtml(main || "未提供")}${lastEntry}</span></span>`;
-  };
-  const daily = raw.match(/^每日\s*(.+)$/);
-  if (daily) return days.map((day) => renderLine(day, daily[1])).join("");
   const expanded = new Map();
+  const daily = raw.match(/^每日\s*(.+)$/);
+  if (daily) openingWeekdays.forEach((day) => expanded.set(day, daily[1]));
   raw.split(/[；;\n]+/).map((item) => item.trim()).filter(Boolean).forEach((segment) => {
     const range = segment.match(/^週([一二三四五六日])至週([一二三四五六日])[:：]?\s*(.+)$/);
     if (range) {
-      const start = days.indexOf(range[1]);
-      const end = days.indexOf(range[2]);
-      for (let index = start; index <= end; index += 1) expanded.set(days[index], range[3]);
+      const start = openingWeekdays.indexOf(range[1]);
+      const end = openingWeekdays.indexOf(range[2]);
+      for (let index = start; index <= end; index += 1) expanded.set(openingWeekdays[index], range[3]);
       return;
     }
     const single = segment.match(/^週([一二三四五六日])[:：]?\s*(.+)$/);
     if (single) expanded.set(single[1], single[2]);
   });
-  if (expanded.size) return days.filter((day) => expanded.has(day)).map((day) => renderLine(day, expanded.get(day))).join("");
+  return { raw, expanded };
+}
+
+function openingHoursLine(day, hours) {
+  const match = String(hours).trim().match(/^(.*?)([（(][^）)]*最晚[^）)]*[）)])$/);
+  const main = match ? match[1].trim() : String(hours).trim();
+  const lastEntry = match ? `<small class="last-entry-time">${escapeHtml(match[2])}</small>` : "";
+  return `<span class="hours-line"><b>週${day}</b><span>${escapeHtml(main || "未提供")}${lastEntry}</span></span>`;
+}
+
+function formatOpeningHours(value = "") {
+  const { raw, expanded } = parseOpeningHours(value);
+  if (raw.startsWith("待 ")) return escapeHtml(raw);
+  if (expanded.size) return openingWeekdays.filter((day) => expanded.has(day)).map((day) => openingHoursLine(day, expanded.get(day))).join("");
   return escapeHtml(raw).replace(/([（(][^）)]*最晚[^）)]*[）)])/g, '<br><span class="last-entry-time">$1</span>');
+}
+
+function formatOpeningHoursForDay(value = "", weekday = "") {
+  const { raw, expanded } = parseOpeningHours(value);
+  if (raw.startsWith("待 ")) return escapeHtml(raw);
+  const day = String(weekday).replace("星期", "週").replace("週", "");
+  if (openingWeekdays.includes(day) && expanded.size) {
+    return openingHoursLine(day, expanded.get(day) || "休息／未提供");
+  }
+  return escapeHtml(raw).replace(/([（(][^）)]*最晚[^）)]*[）)])/g, '<br><span class="last-entry-time">$1</span>');
+}
+
+const knownAreaLabels = {
+  "銀座": ["銀座", "銀座"],
+  "惠比壽": ["惠比壽", "恵比寿"],
+  "惠比壽／代官山": ["惠比壽／代官山", "恵比寿／代官山"],
+  "恵比寿": ["惠比壽", "恵比寿"],
+  "恵比寿／代官山": ["惠比壽／代官山", "恵比寿／代官山"],
+  "澀谷": ["澀谷", "渋谷"],
+  "渋谷": ["澀谷", "渋谷"],
+  "新宿": ["新宿", "新宿"],
+  "西新宿": ["西新宿", "西新宿"],
+  "大塚": ["大塚", "大塚"],
+  "淺草": ["淺草", "浅草"],
+  "浅草": ["淺草", "浅草"],
+  "池袋": ["池袋", "池袋"],
+  "上野": ["上野", "上野"],
+  "六本木": ["六本木", "六本木"],
+  "秋葉原": ["秋葉原", "秋葉原"],
+};
+
+function areaDisplayName(area = "", original = "") {
+  const value = String(area || "待確認區域").trim();
+  const known = knownAreaLabels[value];
+  const chinese = known?.[0] || value;
+  const local = String(original || known?.[1] || value).trim();
+  return `${chinese}（${local}）`;
 }
 
 function placeVoters(name) {
@@ -351,6 +401,56 @@ function placeScheduleLabel(name) {
   return labels.length > 2 ? `${labels.slice(0, 2).join("、")} 等 ${labels.length} 天` : labels.join("、");
 }
 
+function compactTripDate(isoDate = "") {
+  const match = String(isoDate).match(/^\d{4}-(\d{2})-(\d{2})$/);
+  return match ? `${Number(match[1])}/${Number(match[2])}` : "";
+}
+
+function flightItineraryDate(flight) {
+  if (flight.direction === "去程") return dateMeta[0]?.[0] || compactTripDate(flight.departureDate);
+  if (flight.direction === "回程") return dateMeta.at(-1)?.[0] || compactTripDate(flight.departureDate);
+  const departureDate = compactTripDate(flight.departureDate);
+  return dateMeta.some(([date]) => date === departureDate) ? departureDate : dateMeta[0]?.[0] || departureDate;
+}
+
+function itineraryItemKey(item) {
+  return item?.type === "flight" ? `flight:${item.flightId}` : `place:${item?.name || ""}`;
+}
+
+function itineraryItemLabel(item) {
+  if (item?.type !== "flight") return item?.name || "行程項目";
+  const flight = state.flights.find((candidate) => candidate.id === item.flightId);
+  return flight ? `${flight.direction || "航班"} · ${flight.departureCity} → ${flight.arrivalCity}` : "航班";
+}
+
+function syncFlightItineraryItems() {
+  const flights = new Map(state.flights.map((flight) => [flight.id, flight]));
+  const seen = new Set();
+  Object.keys(state.itinerary).forEach((date) => {
+    state.itinerary[date] = (state.itinerary[date] || []).filter((item) => {
+      if (item?.type !== "flight") return true;
+      const flight = flights.get(item.flightId);
+      if (!flight || seen.has(item.flightId) || flightItineraryDate(flight) !== date) return false;
+      item.time = flight.departureTime || item.time || "--:--";
+      seen.add(item.flightId);
+      return true;
+    });
+  });
+  const additions = new Map();
+  state.flights.forEach((flight) => {
+    if (seen.has(flight.id)) return;
+    const date = flightItineraryDate(flight);
+    if (!date) return;
+    const item = { type: "flight", flightId: flight.id, time: flight.departureTime || "--:--" };
+    additions.set(date, [...(additions.get(date) || []), { flight, item }]);
+  });
+  additions.forEach((entries, date) => {
+    const first = entries.filter(({ flight }) => flight.direction === "去程").map(({ item }) => item);
+    const last = entries.filter(({ flight }) => flight.direction !== "去程").map(({ item }) => item);
+    state.itinerary[date] = [...first, ...(state.itinerary[date] || []), ...last];
+  });
+}
+
 function deletePlace(name) {
   if (!canEdit()) return false;
   const place = state.places.find((item) => item.name === name);
@@ -359,7 +459,7 @@ function deletePlace(name) {
   if (!place.isCustom && !state.deletedPlaces.includes(name)) state.deletedPlaces.push(name);
   delete state.votes[name];
   Object.keys(state.itinerary).forEach((date) => {
-    state.itinerary[date] = (state.itinerary[date] || []).filter((item) => item.name !== name);
+    state.itinerary[date] = (state.itinerary[date] || []).filter((item) => item.type === "flight" || item.name !== name);
   });
   if (!state.places.some((item) => item.area === state.selectedArea)) state.selectedArea = "";
   if (state.selectedMapPlace === name) state.selectedMapPlace = "";
@@ -370,18 +470,18 @@ function deletePlace(name) {
 function deleteItineraryItem(date, name) {
   if (!canEdit()) return false;
   const items = state.itinerary[date] || [];
-  const nextItems = items.filter((item) => item.name !== name);
+  const nextItems = items.filter((item) => item.type === "flight" || item.name !== name);
   if (nextItems.length === items.length) return false;
   state.itinerary[date] = nextItems;
   persist();
   return true;
 }
 
-function reorderItineraryItem(date, sourceName, targetName) {
+function reorderItineraryItem(date, sourceKey, targetKey) {
   if (!canEdit()) return false;
   const items = state.itinerary[date] || [];
-  const sourceIndex = items.findIndex((item) => item.name === sourceName);
-  const targetIndex = items.findIndex((item) => item.name === targetName);
+  const sourceIndex = items.findIndex((item) => itineraryItemKey(item) === sourceKey);
+  const targetIndex = items.findIndex((item) => itineraryItemKey(item) === targetKey);
   if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return false;
   const [movedItem] = items.splice(sourceIndex, 1);
   items.splice(targetIndex, 0, movedItem);
@@ -389,10 +489,10 @@ function reorderItineraryItem(date, sourceName, targetName) {
   return true;
 }
 
-function moveItineraryItem(date, name, direction) {
+function moveItineraryItem(date, key, direction) {
   if (!canEdit()) return false;
   const items = state.itinerary[date] || [];
-  const index = items.findIndex((item) => item.name === name);
+  const index = items.findIndex((item) => itineraryItemKey(item) === key);
   const nextIndex = direction === "up" ? index - 1 : index + 1;
   if (index < 0 || nextIndex < 0 || nextIndex >= items.length) return false;
   [items[index], items[nextIndex]] = [items[nextIndex], items[index]];
@@ -438,6 +538,7 @@ function applySharedTrip(payload) {
   if (state.profile) state.members[state.profile.id] = state.profile.nickname;
   state.sharedRevision = Number(payload.revision) || state.sharedRevision;
   dateMeta = buildDateMeta(state.startDate, state.endDate);
+  syncFlightItineraryItems();
   if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
   return true;
 }
@@ -674,7 +775,7 @@ function placesScreen() {
         .join("");
       return `
         <section class="place-group">
-          <h2 class="group-title">⌖ ${escapeHtml(area)}</h2>
+          <h2 class="group-title">⌖ ${escapeHtml(areaDisplayName(area, visiblePlaces.find((place) => place.area === area && place.areaOriginal)?.areaOriginal))}</h2>
           <div class="place-list">${rows}</div>
         </section>`;
     })
@@ -992,7 +1093,9 @@ async function initializeInteractiveMap() {
 }
 
 function itineraryScreen() {
+  syncFlightItineraryItems();
   const dayItems = state.itinerary[state.selectedDate] || [];
+  const selectedWeekday = dateMeta.find(([date]) => date === state.selectedDate)?.[1] || "";
   const dates = dateMeta
     .map(
       ([date, weekday]) => `
@@ -1004,23 +1107,41 @@ function itineraryScreen() {
 
   const rows = dayItems
     .map((item, index) => {
+      const itemKey = itineraryItemKey(item);
+      if (item.type === "flight") {
+        const flight = state.flights.find((candidate) => candidate.id === item.flightId);
+        if (!flight) return "";
+        const editFlightAttribute = canEdit() ? `data-edit-flight="${escapeHtml(flight.id)}"` : "disabled";
+        return `
+          <div class="timeline-swipe-row flight-itinerary-row">
+            <article class="timeline-item flight-timeline-item" data-item-key="${escapeHtml(itemKey)}">
+              <button class="time-button flight-time-button" type="button" ${editFlightAttribute}>${escapeHtml(flight.departureTime || item.time || "--:--")}</button>
+              <button class="place-copy place-copy-button timeline-place-details flight-itinerary-details" type="button" ${editFlightAttribute}>
+                <strong>✈ ${escapeHtml(flight.direction || "航班")} · ${escapeHtml(flight.departureCity)} → ${escapeHtml(flight.arrivalCity)}</strong>
+                <span>${escapeHtml(flight.departureCode || "---")} ${escapeHtml(flight.departureTime || "--:--")}　→　${escapeHtml(flight.arrivalCode || "---")} ${escapeHtml(flight.arrivalTime || "--:--")}</span>
+                <span>搭乘：${escapeHtml(flight.travelers || "尚未註記")}</span>
+              </button>
+              ${canEdit() ? `<button class="drag-handle" type="button" draggable="true" data-drag-key="${escapeHtml(itemKey)}" data-reorder-menu="${escapeHtml(itemKey)}" aria-label="調整${escapeHtml(itineraryItemLabel(item))}順序，目前第 ${index + 1} 個">☰</button>` : ""}
+            </article>
+          </div>`;
+      }
       const place = state.places.find((candidate) => candidate.name === item.name);
       return `
         <div class="swipe-row timeline-swipe-row ${canEdit() ? "" : "readonly"}">
           ${canEdit() ? `<button class="swipe-delete" type="button" data-request-delete-itinerary="${escapeHtml(item.name)}" data-delete-date="${state.selectedDate}" aria-label="從${state.selectedDate}刪除${escapeHtml(item.name)}">刪除</button>` : ""}
-          <article class="timeline-item swipe-surface" data-item-name="${escapeHtml(item.name)}" ${canEdit() ? `data-swipe-item="itinerary:${state.selectedDate}:${escapeHtml(item.name)}"` : ""}>
+          <article class="timeline-item swipe-surface" data-item-key="${escapeHtml(itemKey)}" ${canEdit() ? `data-swipe-item="itinerary:${state.selectedDate}:${escapeHtml(item.name)}"` : ""}>
             <button class="time-button" type="button" ${canEdit() ? `data-edit-time="${escapeHtml(item.name)}"` : "disabled"}>${escapeHtml(item.time)}</button>
             <button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
               <strong>${escapeHtml(item.name)}</strong>
-              <span class="opening-line"><b>營業</b>${formatOpeningHours(place?.openingHours)}</span>
+              <span class="opening-line"><b>營業</b>${formatOpeningHoursForDay(place?.openingHours, selectedWeekday)}</span>
               <span class="phone-line"><b>電話</b>${escapeHtml(place?.phone || "待 Google Maps 同步")}</span>
             </button>
             ${canEdit() ? `<button
               class="drag-handle"
               type="button"
               draggable="true"
-              data-drag-name="${escapeHtml(item.name)}"
-              data-reorder-menu="${escapeHtml(item.name)}"
+              data-drag-key="${escapeHtml(itemKey)}"
+              data-reorder-menu="${escapeHtml(itemKey)}"
               aria-label="調整${escapeHtml(item.name)}順序，目前第 ${index + 1} 個"
             >☰</button>` : ""}
           </article>
@@ -1028,9 +1149,11 @@ function itineraryScreen() {
     })
     .join("");
 
-  const area = dayItems.length
-    ? [...new Set(dayItems.map((item) => state.places.find((place) => place.name === item.name)?.area || "行程"))].join("／")
+  const placeItems = dayItems.filter((item) => item.type !== "flight");
+  const area = placeItems.length
+    ? [...new Set(placeItems.map((item) => state.places.find((place) => place.name === item.name)?.area || "行程"))].join("／")
     : "尚未安排";
+  const dayCountLabel = [placeItems.length ? `${placeItems.length} 個地點` : "", dayItems.length - placeItems.length ? `${dayItems.length - placeItems.length} 個航班` : ""].filter(Boolean).join(" · ");
 
   return `
     <section class="screen">
@@ -1040,8 +1163,8 @@ function itineraryScreen() {
       </header>
       <div class="date-strip">${dates}</div>
       <div class="day-area">
-        <h2>⌖ ${escapeHtml(area)}${dayItems.length ? ` · ${dayItems.length} 個地點` : ""}</h2>
-        ${dayItems.length ? `<button class="map-link" type="button" data-day-map>地圖查看　›</button>` : ""}
+        <h2>⌖ ${escapeHtml(area)}${dayCountLabel ? ` · ${dayCountLabel}` : ""}</h2>
+        ${placeItems.length ? `<button class="map-link" type="button" data-day-map>地圖查看　›</button>` : ""}
       </div>
       ${
         dayItems.length
@@ -1049,7 +1172,6 @@ function itineraryScreen() {
           : `<div class="empty-state"><div><b>這天還沒有地點</b><span>從地圖選取同區景點，加入這一天。</span></div></div>`
       }
       ${canEdit() ? `<button class="outline-button" type="button" data-go-tab="places">＋　加入地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
-      ${state.flights.length ? `<div class="boundary-card">${state.flights.map((flight) => `<div class="boundary-row"><span>${flight.direction === "回程" ? "🛫" : "🛬"}</span><strong>${escapeHtml(tripDateLabel(flight.departureDate))} ${escapeHtml(flight.departureTime)} ${escapeHtml(flight.departureCity)} → ${escapeHtml(flight.arrivalCity)}</strong><small>${escapeHtml(flight.travelers || "尚未註記")}</small></div>`).join("")}</div>` : ""}
     </section>`;
 }
 
@@ -1181,6 +1303,7 @@ async function ensurePlaceDetails(place) {
     Object.assign(place, {
       fullName: resolved.name || place.fullName,
       area: resolved.area || place.area,
+      areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
       category: resolved.category || place.category,
       kind: place.kind || inferPlaceKind(resolved.category || place.category),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
@@ -1481,6 +1604,7 @@ async function enrichPlaceImportsFromApi(entries) {
         name: resolved.name,
         fullName: resolved.name,
         area: resolved.area || place.area,
+        areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
         category: resolved.category || place.category,
         kind: place.kind || inferPlaceKind(resolved.category || place.category),
         sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
@@ -1586,10 +1710,11 @@ function openAddPlaceDateSheet(name) {
     </div>`;
 }
 
-function openReorderSheet(name) {
+function openReorderSheet(key) {
   const items = state.itinerary[state.selectedDate] || [];
-  const index = items.findIndex((item) => item.name === name);
+  const index = items.findIndex((item) => itineraryItemKey(item) === key);
   if (index < 0) return;
+  const label = itineraryItemLabel(items[index]);
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
       <section class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="reorder-title">
@@ -1599,12 +1724,12 @@ function openReorderSheet(name) {
         </div>
         <p>拖曳「☰」也可以直接排序。按鈕是觸控與輔助使用的替代方式。</p>
         <div class="sheet-place">
-          <strong>${escapeHtml(name)}</strong>
+          <strong>${escapeHtml(label)}</strong>
           <span class="meta">目前第 ${index + 1} 個</span>
         </div>
         <div class="modal-actions">
-          <button class="secondary-button" type="button" data-move-item="up" data-move-name="${escapeHtml(name)}" ${index === 0 ? "disabled" : ""}>↑ 上移一格</button>
-          <button class="primary-button" type="button" data-move-item="down" data-move-name="${escapeHtml(name)}" ${index === items.length - 1 ? "disabled" : ""}>↓ 下移一格</button>
+          <button class="secondary-button" type="button" data-move-item="up" data-move-key="${escapeHtml(key)}" ${index === 0 ? "disabled" : ""}>↑ 上移一格</button>
+          <button class="primary-button" type="button" data-move-item="down" data-move-key="${escapeHtml(key)}" ${index === items.length - 1 ? "disabled" : ""}>↓ 下移一格</button>
         </div>
       </section>
     </div>`;
@@ -1709,6 +1834,7 @@ document.addEventListener("click", async (event) => {
   if (deleteFlight) {
     if (!canEdit()) return guestOnlyMessage();
     state.flights = state.flights.filter((flight) => flight.id !== deleteFlight.dataset.deleteFlight);
+    syncFlightItineraryItems();
     persist();
     closeSheet();
     render();
@@ -1833,7 +1959,7 @@ document.addEventListener("click", async (event) => {
     if (!canEdit()) return guestOnlyMessage();
     const moved = moveItineraryItem(
       state.selectedDate,
-      moveItem.dataset.moveName,
+      moveItem.dataset.moveKey,
       moveItem.dataset.moveItem,
     );
     closeSheet();
@@ -1859,10 +1985,10 @@ document.addEventListener("click", async (event) => {
 
 document.addEventListener("dragstart", (event) => {
   if (!canEdit()) return event.preventDefault();
-  const handle = event.target.closest("[data-drag-name]");
+  const handle = event.target.closest("[data-drag-key]");
   if (!handle) return;
   event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", handle.dataset.dragName);
+  event.dataTransfer.setData("text/plain", handle.dataset.dragKey);
   handle.closest(".timeline-item")?.classList.add("dragging");
 });
 
@@ -1874,8 +2000,8 @@ document.addEventListener("drop", (event) => {
   const target = event.target.closest(".timeline-item");
   if (!target) return;
   event.preventDefault();
-  const sourceName = event.dataTransfer.getData("text/plain");
-  if (reorderItineraryItem(state.selectedDate, sourceName, target.dataset.itemName)) {
+  const sourceKey = event.dataTransfer.getData("text/plain");
+  if (reorderItineraryItem(state.selectedDate, sourceKey, target.dataset.itemKey)) {
     render();
     showToast("行程順序已更新");
   }
@@ -1888,7 +2014,7 @@ document.addEventListener("dragend", () => {
 document.addEventListener("pointerdown", (event) => {
   if (!canEdit()) return;
   const surface = event.target.closest("[data-swipe-item]");
-  if (!surface || event.target.closest("[data-drag-name]")) return;
+  if (!surface || event.target.closest("[data-drag-key]")) return;
 
   document.querySelectorAll("[data-swipe-item].revealed").forEach((item) => {
     if (item !== surface) item.classList.remove("revealed");
@@ -2006,10 +2132,10 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("pointerdown", (event) => {
-  const handle = event.target.closest("[data-drag-name]");
+  const handle = event.target.closest("[data-drag-key]");
   if (!canEdit() || !handle || event.pointerType === "mouse") return;
   pointerDrag = {
-    name: handle.dataset.dragName,
+    key: handle.dataset.dragKey,
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
@@ -2046,7 +2172,7 @@ document.addEventListener("pointerup", (event) => {
   }, 0);
   if (
     target &&
-    reorderItineraryItem(state.selectedDate, dragState.name, target.dataset.itemName)
+    reorderItineraryItem(state.selectedDate, dragState.key, target.dataset.itemKey)
   ) {
     render();
     showToast("行程順序已更新");
@@ -2151,6 +2277,7 @@ document.addEventListener("submit", async (event) => {
     if (index >= 0) state.flights[index] = flight;
     else state.flights.push(flight);
     state.flights.sort((a, b) => `${a.departureDate} ${a.departureTime}`.localeCompare(`${b.departureDate} ${b.departureTime}`));
+    syncFlightItineraryItems();
     persist();
     closeSheet();
     render();
