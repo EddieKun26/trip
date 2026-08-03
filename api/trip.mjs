@@ -166,7 +166,6 @@ function cleanTrip(input, previous, member) {
     itinerary: input?.itinerary && typeof input.itinerary === "object" ? input.itinerary : {},
     members: {
       ...(previous.members || {}),
-      ...(input?.members && typeof input.members === "object" ? input.members : {}),
       [member.id]: member.nickname,
     },
     revision: (Number(previous.revision) || 0) + 1,

@@ -174,6 +174,10 @@ const savedProfile = rawSavedProfile?.authVersion === 2
   : null;
 const savedDeletedPlaces = JSON.parse(localStorage.getItem("tokyo-deleted-places-v1") || "[]");
 const savedAccessMode = sessionStorage.getItem("tokyo-access-mode-v1");
+const sharedInviteCode = String(new URLSearchParams(window.location.search).get("invite") || "")
+  .trim()
+  .toUpperCase()
+  .slice(0, 6);
 
 const state = {
   tripId: localStorage.getItem("active-trip-v1") || "",
@@ -183,6 +187,8 @@ const state = {
   startDate: "2026-09-20",
   endDate: "2026-09-26",
   inviteCode: "",
+  ownerId: "",
+  pendingInviteCode: sharedInviteCode,
   flights: [
     { id: "flight-khh-nrt", direction: "去程", departureDate: "2026-09-20", departureTime: "09:55", departureCity: "高雄", departureCode: "KHH", arrivalDate: "2026-09-20", arrivalTime: "14:45", arrivalCity: "成田", arrivalCode: "NRT", travelers: "尚未註記" },
     { id: "flight-nrt-khh", direction: "回程", departureDate: "2026-09-26", departureTime: "17:50", departureCity: "成田", departureCode: "NRT", arrivalDate: "2026-09-26", arrivalTime: "21:00", arrivalCity: "高雄", arrivalCode: "KHH", travelers: "尚未註記" },
@@ -215,7 +221,7 @@ const state = {
   ],
   deletedPlaces: savedDeletedPlaces,
   profile: savedProfile,
-  isGuest: savedAccessMode === "guest" && !savedProfile,
+  isGuest: savedAccessMode === "guest" && !savedProfile && !sharedInviteCode,
   members: savedProfile ? { [savedProfile.id]: savedProfile.nickname } : {},
   sharedRevision: 0,
   votes: JSON.parse(
@@ -273,6 +279,10 @@ function canEdit() {
 
 function currentMemberId() {
   return state.profile?.id || "";
+}
+
+function isTripOwner() {
+  return Boolean(state.ownerId && state.ownerId === currentMemberId());
 }
 
 function persist({ sync = true } = {}) {
@@ -568,6 +578,7 @@ function applySharedTrip(payload) {
   state.startDate = payload.startDate || state.startDate;
   state.endDate = payload.endDate || state.endDate;
   state.inviteCode = payload.inviteCode || "";
+  state.ownerId = payload.ownerId || "";
   state.flights = Array.isArray(payload.flights) ? payload.flights : [];
   state.places = payload.places.map((place) => ({ ...place, kind: place.kind || inferPlaceKind(place.category) }));
   state.votes = payload.votes && typeof payload.votes === "object" ? payload.votes : {};
@@ -670,7 +681,62 @@ async function mutateTrips(payload) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || "TRIP_ACTION_FAILED");
-  return result.trip;
+  return result.trip || result;
+}
+
+function clearSharedInviteFromUrl() {
+  state.pendingInviteCode = "";
+  const url = new URL(window.location.href);
+  url.searchParams.delete("invite");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function tripShareUrl() {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("invite", state.inviteCode);
+  return url.toString();
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  }
+}
+
+async function shareCurrentTrip() {
+  if (!state.tripId || !state.inviteCode) return showToast("邀請碼仍在讀取，請稍後再試");
+  const url = tripShareUrl();
+  const copyPromise = copyText(url);
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: state.tripTitle,
+        text: `加入「${state.tripTitle}」一起規劃旅行`,
+        url,
+      });
+      await copyPromise;
+      return showToast("邀請連結已複製並分享");
+    } catch (error) {
+      const copied = await copyPromise;
+      if (error?.name !== "AbortError") return showToast(copied ? "邀請連結已複製" : "暫時無法分享連結");
+    }
+  }
+  const copied = await copyPromise;
+  return showToast(copied ? "邀請連結已複製" : "暫時無法複製連結");
 }
 
 async function loadSharedTrip({ quiet = false, force = false } = {}) {
@@ -678,6 +744,12 @@ async function loadSharedTrip({ quiet = false, force = false } = {}) {
   try {
     if (!state.tripId) return;
     const response = await fetch(`/api/trip?id=${encodeURIComponent(state.tripId)}`, { cache: "no-store" });
+    if (response.status === 403) {
+      localStorage.removeItem("active-trip-v1");
+      state.tripId = "";
+      await loadTrips();
+      return showToast("你已不在這趟旅程中");
+    }
     if (!response.ok) throw new Error("LOAD_FAILED");
     const payload = await response.json();
     if (!force && (Number(payload.revision) || 0) <= state.sharedRevision) return;
@@ -709,6 +781,10 @@ function tripDateLabel(date) {
   return Number.isFinite(parsed.getTime()) ? `${parsed.getMonth() + 1}/${parsed.getDate()}` : date;
 }
 
+function shareButtonMarkup() {
+  return `<button class="share-button" type="button" data-share-trip aria-label="分享這趟旅程"><span aria-hidden="true">↗</span><b>分享</b></button>`;
+}
+
 function emptyTripsScreen() {
   return `
     <section class="screen empty-trips-screen">
@@ -716,7 +792,7 @@ function emptyTripsScreen() {
         <div><h1>我的旅程</h1><p class="meta">建立自己的旅行，或加入旅伴的行程</p></div>
         <button class="profile-button" type="button" data-edit-profile>${avatarMarkup(currentMemberId())}<span><small>目前身分</small><strong>${escapeHtml(state.profile?.nickname || "旅伴")}</strong></span></button>
       </header>
-      <div class="empty-trip-card"><span>＋</span><h2>建立第一個空白旅程</h2><p>設定目的地與日期後，再加入航班、住宿、景點和餐廳。</p><button class="primary-button" type="button" data-create-trip>建立空白旅程</button><button class="secondary-button" type="button" data-join-trip>輸入邀請碼加入</button></div>
+      <div class="empty-trip-card"><span>＋</span><h2>開始你的第一趟旅程</h2><p>建立一趟全新旅程，或輸入旅伴分享給你的邀請碼。</p><button class="primary-button" type="button" data-create-trip>建立空白旅程</button><div class="empty-choice"><i></i><b>或</b><i></i></div><form id="empty-join-trip-form" class="empty-invite-form"><label for="empty-trip-invite">旅程邀請碼</label><div><input id="empty-trip-invite" name="inviteCode" maxlength="6" minlength="6" required autocomplete="off" autocapitalize="characters" value="${escapeHtml(state.pendingInviteCode)}" placeholder="輸入 6 位邀請碼" /><button class="secondary-button" type="submit">加入旅程</button></div></form></div>
     </section>`;
 }
 
@@ -759,10 +835,13 @@ function overviewScreen() {
           <button class="trip-title-button" type="button" ${state.isGuest ? "disabled" : "data-open-trips"}><h1>${escapeHtml(state.tripTitle)}</h1><span>${state.isGuest ? "" : "⌄"}</span></button>
           <p class="subtitle">${escapeHtml(tripDateLabel(state.startDate))}–${escapeHtml(tripDateLabel(state.endDate))} · ${escapeHtml(state.destination)}</p>
         </div>
-        <button class="profile-button" type="button" data-edit-profile aria-label="編輯旅行暱稱">
-          ${state.isGuest ? `<span class="member-avatar guest">訪</span>` : avatarMarkup(currentMemberId())}
-          <span><small>${state.isGuest ? "目前身分" : "這趟旅程的我"}</small><strong>${escapeHtml(state.isGuest ? "訪客" : state.profile?.nickname || "設定暱稱")}</strong></span>
-        </button>
+        <div class="header-actions">
+          ${state.isGuest ? "" : shareButtonMarkup()}
+          <button class="profile-button" type="button" data-edit-profile aria-label="查看旅程成員與帳戶">
+            ${state.isGuest ? `<span class="member-avatar guest">訪</span>` : avatarMarkup(currentMemberId())}
+            <span><small>${state.isGuest ? "目前身分" : `旅程成員 · ${members().length} 人`}</small><strong>${escapeHtml(state.isGuest ? "訪客" : state.profile?.nickname || "設定暱稱")}</strong></span>
+          </button>
+        </div>
       </header>
 
       <section class="flight-section">
@@ -778,7 +857,10 @@ function overviewScreen() {
         <div class="preview-rail">${cards}</div>
       </section>
 
-      <button class="primary-button" type="button" data-go-tab="places">繼續規劃　→</button>
+      <div class="overview-footer-actions">
+        <button class="primary-button" type="button" data-go-tab="places">繼續規劃　→</button>
+        ${canEdit() ? `<button class="leave-trip-button" type="button" data-request-leave-trip>退出行程</button>` : ""}
+      </div>
     </section>`;
 }
 
@@ -938,6 +1020,7 @@ function airportMapNodes(item) {
       mark: "✈",
       airportCode: airport.code,
       airportRole: airport.role,
+      flightId: item.flightId,
       isAirport: true,
       latitude: airport.coordinates.latitude,
       longitude: airport.coordinates.longitude,
@@ -987,6 +1070,23 @@ function mapRouteGroups(places) {
   }));
 }
 
+function mapRouteSegments(places) {
+  return mapRouteGroups(places).flatMap((group) =>
+    group.places.slice(0, -1).map((place, index) => {
+      const nextPlace = group.places[index + 1];
+      return {
+        color: group.color,
+        places: [place, nextPlace],
+        isFlight:
+          Boolean(place.isAirport && nextPlace.isAirport) &&
+          place.flightId === nextPlace.flightId &&
+          place.airportRole === "departure" &&
+          nextPlace.airportRole === "arrival",
+      };
+    }),
+  );
+}
+
 function offsetOverlappingMapPins(places) {
   return places.map((place) => {
     const peers = places.filter((candidate) =>
@@ -1031,6 +1131,9 @@ function mapScreen() {
   const dayLegend = state.mapDate === "all"
     ? mapRouteGroups(projectedPlaces).map(({ date, color }) => `<span><i style="background:${color}"></i>${escapeHtml(date)}</span>`).join("") || `<span>尚無已排路線</span>`
     : `<span class="day-route-legend"><i style="background:${routeColorForDate(state.mapDate)}"></i>數字為時間順序，連線表示下一站</span>`;
+  const flightLegend = state.mapView === "day" && projectedPlaces.some((place) => place.isAirport)
+    ? `<span class="flight-route-legend"><i></i>紅色虛線為航班</span>`
+    : "";
   const mapTitle = state.mapView === "planning"
     ? "規劃地圖"
     : state.mapDate === "all" ? "所有日期路線" : `${state.mapDate} 當日地圖`;
@@ -1056,7 +1159,7 @@ function mapScreen() {
         </select></label>
       </div>
       <div class="map-legend" aria-label="圖釘狀態">
-        ${state.mapView === "day" ? dayLegend : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
+        ${state.mapView === "day" ? `${dayLegend}${flightLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
       </div>
       <div class="map-canvas" data-map-host>
         <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
@@ -1136,14 +1239,17 @@ function renderGoogleInteractiveMap(host, places) {
   map.addListener("zoom_changed", () => { mapInteractionUntil = Date.now() + 3000; });
   const bounds = new google.maps.LatLngBounds();
   if (state.mapView === "day") {
-    mapRouteGroups(places).filter((group) => group.places.length > 1).forEach((group) => {
+    mapRouteSegments(places).forEach((segment) => {
       new google.maps.Polyline({
         map,
-        path: group.places.map((place) => ({ lat: place.latitude, lng: place.longitude })),
+        path: segment.places.map((place) => ({ lat: place.latitude, lng: place.longitude })),
         geodesic: true,
-        strokeColor: group.color,
-        strokeOpacity: 0.84,
+        strokeColor: segment.isFlight ? "#c8452d" : segment.color,
+        strokeOpacity: segment.isFlight ? 0 : 0.84,
         strokeWeight: 4,
+        icons: segment.isFlight
+          ? [{ icon: { path: "M 0,-1 0,1", strokeColor: "#c8452d", strokeOpacity: 1, strokeWeight: 3, scale: 3 }, offset: "0", repeat: "16px" }]
+          : undefined,
       });
     });
   }
@@ -1205,11 +1311,12 @@ function renderLeafletInteractiveMap(host, places) {
   }).addTo(activeLeafletMap);
   const bounds = [];
   if (state.mapView === "day") {
-    mapRouteGroups(places).filter((group) => group.places.length > 1).forEach((group) => {
-      L.polyline(group.places.map((place) => [place.latitude, place.longitude]), {
-        color: group.color,
+    mapRouteSegments(places).forEach((segment) => {
+      L.polyline(segment.places.map((place) => [place.latitude, place.longitude]), {
+        color: segment.isFlight ? "#c8452d" : segment.color,
         opacity: 0.84,
         weight: 4,
+        dashArray: segment.isFlight ? "10 9" : undefined,
       }).addTo(activeLeafletMap);
     });
   }
@@ -1410,7 +1517,7 @@ function itineraryScreen() {
     <section class="screen">
       <header class="title-row">
         <div><h1>每日行程</h1><p class="meta">先排區域，再調整時間</p></div>
-        <button class="icon-button" type="button" aria-label="更多">•••</button>
+        ${state.isGuest ? "" : shareButtonMarkup()}
       </header>
       <div class="date-strip">${dates}</div>
       <div class="day-area">
@@ -1511,6 +1618,12 @@ function openPlaceSheet(name) {
             }
           </div>
         </section>
+        <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
+          <div class="section-row"><div><small>共同註記</small><strong>旅伴都看得到</strong></div>${canEdit() ? `<button type="submit">儲存註記</button>` : ""}</div>
+          ${canEdit()
+            ? `<textarea name="note" maxlength="800" placeholder="例如：要預約、想買的品項、集合方式…">${escapeHtml(place.note || "")}</textarea>`
+            : `<p>${escapeHtml(place.note || "尚未加入註記")}</p>`}
+        </form>
         <section class="detail-plan-row" aria-label="行程安排">
           <div>
             <small>行程安排</small>
@@ -1576,6 +1689,14 @@ async function ensurePlaceDetails(place) {
 
 function openProfileSheet(required = false) {
   const current = state.profile?.nickname || "";
+  const memberRows = state.tripId
+    ? members().map((member) => `
+        <div class="account-member-row">
+          ${avatarMarkup(member.id, true)}
+          <span><strong>${escapeHtml(member.name)}</strong><small>${member.id === currentMemberId() ? (member.id === state.ownerId ? "你 · 旅程建立者" : "你") : member.id === state.ownerId ? "旅程建立者" : "旅程成員"}</small></span>
+          ${isTripOwner() && member.id !== currentMemberId() ? `<button type="button" data-request-remove-member="${escapeHtml(member.id)}" data-member-name="${escapeHtml(member.name)}">移除</button>` : ""}
+        </div>`).join("")
+    : "";
   sheetRoot.innerHTML = `
     <div class="modal-backdrop profile-backdrop">
       <form class="modal-sheet profile-sheet" id="profile-form" data-required="${required ? "true" : "false"}">
@@ -1593,6 +1714,8 @@ function openProfileSheet(required = false) {
           <input id="profile-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required autocomplete="current-password" placeholder="輸入 4 位數字" />
           <span class="field-note">首次使用會建立 PIN；換手機時用相同暱稱與 PIN 取回身分</span>
         </div>
+        ${required ? `<div class="field"><label for="profile-invite">旅程邀請碼（選填）</label><input id="profile-invite" name="inviteCode" maxlength="6" minlength="6" autocomplete="off" autocapitalize="characters" value="${escapeHtml(state.pendingInviteCode)}" placeholder="分享連結會自動帶入" /><span class="field-note">沒有邀請碼也可以先登入，再建立自己的旅程</span></div>` : ""}
+        ${!required && state.tripId ? `<section class="account-members"><div class="section-row"><div><p class="section-kicker">這趟旅程</p><h3>${members().length} 位成員</h3></div>${isTripOwner() ? `<span>你是建立者</span>` : ""}</div><div class="account-member-list">${memberRows}</div>${!isTripOwner() ? `<p>只有旅程建立者能移除成員。</p>` : ""}</section>` : ""}
         <div class="modal-actions ${required ? "profile-entry-actions" : ""}">
           ${required ? `<button class="secondary-button" type="button" data-enter-guest>不登入，以訪客瀏覽</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}
           <button class="primary-button" type="submit">儲存並開始</button>
@@ -1650,7 +1773,7 @@ function openJoinTripSheet() {
       <form class="modal-sheet" id="join-trip-form">
         <div class="section-row"><div><p class="section-kicker">加入旅伴</p><h2>輸入旅程邀請碼</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
         <p>加入後，這個旅程會出現在你的旅程清單；原本自己的旅程不會分享給對方。</p>
-        <div class="field"><label for="trip-invite">6 位邀請碼</label><input id="trip-invite" name="inviteCode" maxlength="6" minlength="6" required autocomplete="off" autocapitalize="characters" placeholder="例如 TOKYO6" /></div>
+        <div class="field"><label for="trip-invite">6 位邀請碼</label><input id="trip-invite" name="inviteCode" maxlength="6" minlength="6" required autocomplete="off" autocapitalize="characters" value="${escapeHtml(state.pendingInviteCode)}" placeholder="例如 TOKYO6" /></div>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">加入旅程</button></div>
       </form>
     </div>`;
@@ -1704,6 +1827,34 @@ function openDeleteConfirmation({ kind, name, date = "" }) {
         <div class="modal-actions">
           <button class="secondary-button" type="button" data-close-sheet>取消</button>
           <button class="danger-button" type="button" data-confirm-delete="${kind}" data-delete-name="${escapeHtml(name)}" data-delete-date="${escapeHtml(date)}">確認刪除</button>
+        </div>
+      </section>
+    </div>`;
+}
+
+function openMembershipConfirmation({ action, memberId = "", memberName = "" }) {
+  const leaving = action === "leave";
+  const remainingMembers = members().filter((member) => member.id !== currentMemberId());
+  const isLastMember = leaving && remainingMembers.length === 0;
+  const nextOwner = leaving && isTripOwner() ? remainingMembers[0] : null;
+  const title = leaving ? `確定退出「${state.tripTitle}」？` : `確定移除「${memberName}」？`;
+  const description = leaving
+    ? isLastMember
+      ? "你是這趟旅程的最後一位成員。退出後，旅程及邀請連結會一併刪除，且無法復原。"
+      : nextOwner
+        ? `退出後你將無法再查看或修改；旅程建立者會自動交接給「${nextOwner.name}」。`
+        : "退出後這趟旅程會從你的清單移除；之後仍可用邀請碼重新加入。"
+    : "移除後，對方會失去這趟旅程的查看與編輯權限；對方的推薦標記也會移除。";
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <section class="modal-sheet confirm-sheet" role="alertdialog" aria-modal="true" aria-labelledby="membership-title">
+        <div class="danger-mark">${leaving ? "退" : "移"}</div>
+        <p class="section-kicker">${leaving ? "退出目前旅程" : "管理旅程成員"}</p>
+        <h2 id="membership-title">${escapeHtml(title)}</h2>
+        <p>${escapeHtml(description)}</p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" data-close-sheet>取消</button>
+          <button class="danger-button" type="button" data-confirm-membership="${action}" data-member-id="${escapeHtml(memberId)}" data-member-name="${escapeHtml(memberName)}">${leaving ? "確認退出" : "確認移除"}</button>
         </div>
       </section>
     </div>`;
@@ -2198,6 +2349,54 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("[data-edit-profile]")) return openProfileSheet(false);
 
+  if (event.target.closest("[data-share-trip]")) return shareCurrentTrip();
+
+  const removeMember = event.target.closest("[data-request-remove-member]");
+  if (removeMember) {
+    if (!isTripOwner()) return showToast("只有旅程建立者能移除成員");
+    return openMembershipConfirmation({
+      action: "remove",
+      memberId: removeMember.dataset.requestRemoveMember,
+      memberName: removeMember.dataset.memberName,
+    });
+  }
+
+  if (event.target.closest("[data-request-leave-trip]")) {
+    if (!canEdit()) return guestOnlyMessage();
+    return openMembershipConfirmation({ action: "leave" });
+  }
+
+  const confirmMembership = event.target.closest("[data-confirm-membership]");
+  if (confirmMembership) {
+    if (!canEdit()) return guestOnlyMessage();
+    confirmMembership.disabled = true;
+    try {
+      if (sharedSaveTimer) {
+        window.clearTimeout(sharedSaveTimer);
+        sharedSaveTimer = 0;
+        await saveSharedTrip();
+      }
+      if (confirmMembership.dataset.confirmMembership === "remove") {
+        await mutateTrips({ action: "removeMember", tripId: state.tripId, memberId: confirmMembership.dataset.memberId });
+        closeSheet();
+        await loadTrips();
+        return showToast(`已將「${confirmMembership.dataset.memberName}」移出旅程`);
+      }
+      const previousTitle = state.tripTitle;
+      await mutateTrips({ action: "leave", tripId: state.tripId });
+      localStorage.removeItem("active-trip-v1");
+      state.tripId = "";
+      state.ownerId = "";
+      closeSheet();
+      await loadTrips();
+      return showToast(`已退出「${previousTitle}」`);
+    } catch (error) {
+      confirmMembership.disabled = false;
+      const message = error.message === "OWNER_REQUIRED" ? "只有旅程建立者能移除成員" : "操作失敗，請稍後再試";
+      return showToast(message);
+    }
+  }
+
   if (event.target.closest("[data-open-trips]")) return canEdit() ? openTripsSheet() : guestOnlyMessage();
   if (event.target.closest("[data-create-trip]")) return state.profile ? openTripForm(false) : guestOnlyMessage();
   if (event.target.closest("[data-join-trip]")) return state.profile ? openJoinTripSheet() : guestOnlyMessage();
@@ -2609,6 +2808,16 @@ document.addEventListener("contextmenu", (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "place-note-form") {
+    event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
+    const place = state.places.find((item) => item.name === event.target.dataset.placeName);
+    if (!place) return showToast("找不到這個地點");
+    place.note = String(new FormData(event.target).get("note") || "").trim().slice(0, 800);
+    persist();
+    return showToast("景點註記已儲存");
+  }
+
   if (event.target.id === "itinerary-places-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
@@ -2635,6 +2844,7 @@ document.addEventListener("submit", async (event) => {
     const form = new FormData(event.target);
     const nickname = String(form.get("nickname") || "").trim().slice(0, 10);
     const pin = String(form.get("pin") || "").trim();
+    const inviteCode = String(form.get("inviteCode") || "").trim().toUpperCase();
     if (!nickname || !/^\d{4}$/.test(pin)) return showToast("請輸入 4 位數字 PIN");
     const submitButton = event.target.querySelector('button[type="submit"]');
     submitButton.disabled = true;
@@ -2656,6 +2866,7 @@ document.addEventListener("submit", async (event) => {
     state.isGuest = false;
     state.members[id] = member.nickname;
     sessionStorage.setItem("tokyo-access-mode-v1", "member");
+    state.pendingInviteCode = inviteCode;
     persist({ sync: false });
     closeSheet();
     try {
@@ -2664,6 +2875,19 @@ document.addEventListener("submit", async (event) => {
       render();
       showToast("已登入，但旅程清單暫時無法載入");
       return;
+    }
+    if (inviteCode) {
+      try {
+        const trip = await mutateTrips({ action: "join", inviteCode });
+        clearSharedInviteFromUrl();
+        await loadTrips();
+        await switchTrip(trip.id);
+        return showToast(`已登入並加入「${trip.title}」`);
+      } catch (error) {
+        state.pendingInviteCode = inviteCode;
+        openJoinTripSheet();
+        return showToast(error.message === "INVITE_NOT_FOUND" ? "找不到這組邀請碼，請確認後重試" : "已登入，但暫時無法加入旅程");
+      }
     }
     return showToast(`接下來會用「${nickname}」標記你的選擇`);
   }
@@ -2692,12 +2916,13 @@ document.addEventListener("submit", async (event) => {
     }
   }
 
-  if (event.target.id === "join-trip-form") {
+  if (event.target.id === "join-trip-form" || event.target.id === "empty-join-trip-form") {
     event.preventDefault();
     if (!state.profile) return guestOnlyMessage();
     const inviteCode = String(new FormData(event.target).get("inviteCode") || "").trim().toUpperCase();
     try {
       const trip = await mutateTrips({ action: "join", inviteCode });
+      clearSharedInviteFromUrl();
       await loadTrips();
       await switchTrip(trip.id);
       return showToast(`已加入「${trip.title}」`);
@@ -2813,7 +3038,11 @@ persist({ sync: false });
 render();
 if (!state.profile && !state.isGuest) openProfileSheet(true);
 if (state.profile) {
-  loadTrips().catch(() => showToast("旅程清單暫時無法載入"));
+  loadTrips()
+    .then(() => {
+      if (state.pendingInviteCode) openJoinTripSheet();
+    })
+    .catch(() => showToast("旅程清單暫時無法載入"));
 } else if (state.isGuest) {
   state.tripId = "";
   render();

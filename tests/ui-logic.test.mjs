@@ -115,3 +115,28 @@ test("map type filter uses the same attraction restaurant and lodging groups as 
   assert.doesNotMatch(mapSection, /data-map-category/);
   assert.match(mapSection, /data-map-kind/);
 });
+
+test("day map renders flight legs as red dashed route segments", () => {
+  const routeSection = sourceSection("function mapRouteGroups", "function offsetOverlappingMapPins");
+  const mapRouteSegments = new Function("state", "routeColorForDate", `${routeSection}; return mapRouteSegments;`)(
+    { mapDate: "9/20" },
+    () => "#123456",
+  );
+  const segments = mapRouteSegments([
+    { name: "高雄機場", routeDate: "9/20", isAirport: true, flightId: "flight-1", airportRole: "departure" },
+    { name: "成田機場", routeDate: "9/20", isAirport: true, flightId: "flight-1", airportRole: "arrival" },
+    { name: "銀座", routeDate: "9/20" },
+  ]);
+  assert.equal(segments[0].isFlight, true);
+  assert.equal(segments[1].isFlight, false);
+  assert.match(appSource, /strokeColor: segment\.isFlight \? "#c8452d"/);
+  assert.match(appSource, /dashArray: segment\.isFlight \? "10 9"/);
+});
+
+test("shared invite links prefill login and use the native share sheet", () => {
+  assert.match(appSource, /URLSearchParams\(window\.location\.search\)\.get\("invite"\)/);
+  assert.match(appSource, /name="inviteCode"/);
+  assert.match(appSource, /navigator\.share/);
+  assert.match(appSource, /navigator\.clipboard\.writeText/);
+  assert.match(appSource, /id="empty-join-trip-form"/);
+});

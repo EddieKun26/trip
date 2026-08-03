@@ -81,6 +81,21 @@ async function addMemberTrip(memberId, tripId) {
   if (!ids.includes(tripId)) await redisCommand(["SET", key, JSON.stringify([...ids, tripId])]);
 }
 
+async function removeMemberTrip(memberId, tripId) {
+  const key = `${MEMBER_TRIPS_PREFIX}${memberId}`;
+  const ids = await memberTripIds(memberId);
+  await redisCommand(["SET", key, JSON.stringify(ids.filter((id) => id !== tripId))]);
+}
+
+function removeMemberVotes(votes, memberId) {
+  return Object.fromEntries(
+    Object.entries(votes || {}).map(([placeName, memberIds]) => [
+      placeName,
+      Array.isArray(memberIds) ? memberIds.filter((id) => id !== memberId) : [],
+    ]),
+  );
+}
+
 async function legacyTripFor(member) {
   const key = `${TRIP_PREFIX}${DEFAULT_TRIP_ID}`;
   const migrated = await readJson(key);
@@ -192,6 +207,51 @@ export default async function tripsHandler(request, response) {
         Object.assign(trip, fields, { revision: (Number(trip.revision) || 0) + 1, updatedAt: new Date().toISOString(), updatedBy: member.id });
         await redisCommand(["SET", `${TRIP_PREFIX}${trip.id}`, JSON.stringify(trip)]);
         return sendJson(response, 200, { trip: tripSummary(trip) });
+      }
+
+      if (action === "removeMember") {
+        const tripId = String(request.body?.tripId || "");
+        const memberId = String(request.body?.memberId || "");
+        const trip = await readJson(`${TRIP_PREFIX}${tripId}`);
+        if (!trip?.members?.[member.id]) return sendJson(response, 403, { error: "TRIP_ACCESS_REQUIRED" });
+        if (trip.ownerId !== member.id) return sendJson(response, 403, { error: "OWNER_REQUIRED" });
+        if (!memberId || memberId === member.id || !trip.members?.[memberId]) {
+          return sendJson(response, 400, { error: "INVALID_MEMBER" });
+        }
+        const nextMembers = { ...(trip.members || {}) };
+        delete nextMembers[memberId];
+        trip.members = nextMembers;
+        trip.votes = removeMemberVotes(trip.votes, memberId);
+        trip.revision = (Number(trip.revision) || 0) + 1;
+        trip.updatedAt = new Date().toISOString();
+        trip.updatedBy = member.id;
+        await redisCommand(["SET", `${TRIP_PREFIX}${trip.id}`, JSON.stringify(trip)]);
+        await removeMemberTrip(memberId, trip.id);
+        return sendJson(response, 200, { trip: tripSummary(trip), removedMemberId: memberId });
+      }
+
+      if (action === "leave") {
+        const tripId = String(request.body?.tripId || "");
+        const trip = await readJson(`${TRIP_PREFIX}${tripId}`);
+        if (!trip?.members?.[member.id]) return sendJson(response, 403, { error: "TRIP_ACCESS_REQUIRED" });
+        const nextMembers = { ...(trip.members || {}) };
+        delete nextMembers[member.id];
+        const remainingMemberIds = Object.keys(nextMembers);
+        await removeMemberTrip(member.id, trip.id);
+        if (!remainingMemberIds.length) {
+          await redisCommand(["DEL", `${TRIP_PREFIX}${trip.id}`]);
+          await redisCommand(["DEL", `${INVITE_PREFIX}${trip.inviteCode}`]);
+          if (trip.id === DEFAULT_TRIP_ID) await redisCommand(["DEL", LEGACY_TRIP_KEY]);
+          return sendJson(response, 200, { left: true, deleted: true, tripId: trip.id });
+        }
+        trip.members = nextMembers;
+        trip.votes = removeMemberVotes(trip.votes, member.id);
+        if (trip.ownerId === member.id) trip.ownerId = remainingMemberIds[0];
+        trip.revision = (Number(trip.revision) || 0) + 1;
+        trip.updatedAt = new Date().toISOString();
+        trip.updatedBy = member.id;
+        await redisCommand(["SET", `${TRIP_PREFIX}${trip.id}`, JSON.stringify(trip)]);
+        return sendJson(response, 200, { left: true, deleted: false, tripId: trip.id, ownerId: trip.ownerId });
       }
 
       const fields = validTripFields(request.body || {});

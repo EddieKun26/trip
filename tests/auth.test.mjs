@@ -167,3 +167,63 @@ test("members see only their own trips until they join with an invite code", asy
   const mingAfterJoin = await request(mingCookie);
   assert.deepEqual(mingAfterJoin.payload.trips.map((trip) => trip.title), ["小明東京旅行"]);
 });
+
+test("owners can remove members, stale clients cannot restore access, and ownership transfers on leave", async () => {
+  store.clear();
+  const login = async (nickname, pin, ip) => {
+    const response = responseMock();
+    await memberHandler({ method: "POST", body: { nickname, pin }, headers: { "x-forwarded-for": ip } }, response);
+    assert.equal(response.statusCode, 200);
+    return { member: response.payload.member, cookie: response.headers["set-cookie"].split(";")[0] };
+  };
+  const tripsRequest = async (cookie, body) => {
+    const response = responseMock();
+    await tripsHandler({ method: body ? "POST" : "GET", body, headers: { cookie } }, response);
+    return response;
+  };
+
+  const owner = await login("哥哥", "1111", "203.0.113.31");
+  const companion = await login("妹妹", "2222", "203.0.113.32");
+  const created = await tripsRequest(owner.cookie, { action: "create", destination: "東京", title: "家庭東京旅行", startDate: "2026-09-20", endDate: "2026-09-26" });
+  const { id: tripId, inviteCode } = created.payload.trip;
+  await tripsRequest(companion.cookie, { action: "join", inviteCode });
+
+  const companionCannotRemoveOwner = await tripsRequest(companion.cookie, { action: "removeMember", tripId, memberId: owner.member.id });
+  assert.equal(companionCannotRemoveOwner.statusCode, 403);
+  assert.equal(companionCannotRemoveOwner.payload.error, "OWNER_REQUIRED");
+
+  const removed = await tripsRequest(owner.cookie, { action: "removeMember", tripId, memberId: companion.member.id });
+  assert.equal(removed.statusCode, 200);
+  const companionTrips = await tripsRequest(companion.cookie);
+  assert.deepEqual(companionTrips.payload.trips, []);
+
+  const staleWrite = responseMock();
+  await tripHandler({
+    method: "PUT",
+    url: `/api/trip?id=${tripId}`,
+    headers: { cookie: owner.cookie },
+    body: { places: [], votes: {}, itinerary: {}, members: { [companion.member.id]: companion.member.nickname } },
+  }, staleWrite);
+  assert.equal(staleWrite.statusCode, 200);
+  assert.equal(staleWrite.payload.members[companion.member.id], undefined);
+
+  await tripsRequest(companion.cookie, { action: "join", inviteCode });
+  const ownerLeft = await tripsRequest(owner.cookie, { action: "leave", tripId });
+  assert.equal(ownerLeft.statusCode, 200);
+  assert.equal(ownerLeft.payload.ownerId, companion.member.id);
+  const companionRead = responseMock();
+  await tripHandler({ method: "GET", url: `/api/trip?id=${tripId}`, headers: { cookie: companion.cookie } }, companionRead);
+  assert.equal(companionRead.statusCode, 200);
+  assert.equal(companionRead.payload.ownerId, companion.member.id);
+  assert.equal(companionRead.payload.members[owner.member.id], undefined);
+
+  const lastMemberLeft = await tripsRequest(companion.cookie, { action: "leave", tripId });
+  assert.equal(lastMemberLeft.statusCode, 200);
+  assert.equal(lastMemberLeft.payload.deleted, true);
+  const deletedTrip = responseMock();
+  await tripHandler({ method: "GET", url: `/api/trip?id=${tripId}`, headers: { cookie: companion.cookie } }, deletedTrip);
+  assert.equal(deletedTrip.statusCode, 404);
+  const expiredInvite = await tripsRequest(owner.cookie, { action: "join", inviteCode });
+  assert.equal(expiredInvite.statusCode, 404);
+  assert.equal(expiredInvite.payload.error, "INVITE_NOT_FOUND");
+});
