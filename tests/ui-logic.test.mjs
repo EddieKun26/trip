@@ -140,3 +140,27 @@ test("shared invite links prefill login and use the native share sheet", () => {
   assert.match(appSource, /navigator\.clipboard\.writeText/);
   assert.match(appSource, /id="empty-join-trip-form"/);
 });
+
+test("Google Maps search links keep their place query when checking duplicates", () => {
+  const section = sourceSection("function normalizeGoogleMapsUrl", "function importAlreadyExists");
+  const { normalizeGoogleMapsUrl, samePlaceIdentity } = new Function(`${section}; return { normalizeGoogleMapsUrl, samePlaceIdentity };`)();
+  const firstUrl = "https://www.google.com/maps/search/?api=1&query=東京鐵塔";
+  const secondUrl = "https://www.google.com/maps/search/?api=1&query=晴空塔";
+  assert.notEqual(normalizeGoogleMapsUrl(firstUrl), normalizeGoogleMapsUrl(secondUrl));
+  assert.equal(
+    normalizeGoogleMapsUrl("https://maps.app.goo.gl/abc123?g_st=il"),
+    normalizeGoogleMapsUrl("https://maps.app.goo.gl/abc123?g_st=ic"),
+  );
+  assert.equal(
+    samePlaceIdentity({ name: "同名分店", sourceUrl: firstUrl }, { name: "同名分店", sourceUrl: secondUrl }),
+    false,
+  );
+});
+
+test("leave trip is a compact action inside the account member sheet", () => {
+  const overviewSection = sourceSection("function overviewScreen", "function placesScreen");
+  const profileSection = sourceSection("function openProfileSheet", "function openTripsSheet");
+  assert.doesNotMatch(overviewSection, /data-request-leave-trip/);
+  assert.match(profileSection, /class="account-leave-button"/);
+  assert.match(profileSection, /data-request-leave-trip/);
+});

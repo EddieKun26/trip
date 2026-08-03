@@ -151,6 +151,7 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
 
   return {
     requestUrl,
+    placeId: place.id,
     name: place.displayName?.text || textQuery,
     area,
     areaOriginal,

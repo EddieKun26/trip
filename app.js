@@ -857,10 +857,7 @@ function overviewScreen() {
         <div class="preview-rail">${cards}</div>
       </section>
 
-      <div class="overview-footer-actions">
-        <button class="primary-button" type="button" data-go-tab="places">繼續規劃　→</button>
-        ${canEdit() ? `<button class="leave-trip-button" type="button" data-request-leave-trip>退出行程</button>` : ""}
-      </div>
+      <button class="primary-button" type="button" data-go-tab="places">繼續規劃　→</button>
     </section>`;
 }
 
@@ -1665,6 +1662,7 @@ async function ensurePlaceDetails(place) {
     const resolved = (await response.json()).places?.[0];
     if (!resolved || resolved.error) return;
     Object.assign(place, {
+      placeId: resolved.placeId || place.placeId,
       fullName: resolved.name || place.fullName,
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
@@ -1715,7 +1713,7 @@ function openProfileSheet(required = false) {
           <span class="field-note">首次使用會建立 PIN；換手機時用相同暱稱與 PIN 取回身分</span>
         </div>
         ${required ? `<div class="field"><label for="profile-invite">旅程邀請碼（選填）</label><input id="profile-invite" name="inviteCode" maxlength="6" minlength="6" autocomplete="off" autocapitalize="characters" value="${escapeHtml(state.pendingInviteCode)}" placeholder="分享連結會自動帶入" /><span class="field-note">沒有邀請碼也可以先登入，再建立自己的旅程</span></div>` : ""}
-        ${!required && state.tripId ? `<section class="account-members"><div class="section-row"><div><p class="section-kicker">這趟旅程</p><h3>${members().length} 位成員</h3></div>${isTripOwner() ? `<span>你是建立者</span>` : ""}</div><div class="account-member-list">${memberRows}</div>${!isTripOwner() ? `<p>只有旅程建立者能移除成員。</p>` : ""}</section>` : ""}
+        ${!required && state.tripId ? `<section class="account-members"><div class="section-row"><div><p class="section-kicker">這趟旅程</p><h3>${members().length} 位成員</h3></div>${isTripOwner() ? `<span>你是建立者</span>` : ""}</div><div class="account-member-list">${memberRows}</div>${!isTripOwner() ? `<p>只有旅程建立者能移除成員。</p>` : ""}<button class="account-leave-button" type="button" data-request-leave-trip>退出行程</button></section>` : ""}
         <div class="modal-actions ${required ? "profile-entry-actions" : ""}">
           ${required ? `<button class="secondary-button" type="button" data-enter-guest>不登入，以訪客瀏覽</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}
           <button class="primary-button" type="submit">儲存並開始</button>
@@ -1863,10 +1861,36 @@ function openMembershipConfirmation({ action, memberId = "", memberName = "" }) 
 function normalizeGoogleMapsUrl(value) {
   try {
     const url = new URL(value);
-    return `${url.hostname.toLowerCase()}${url.pathname.replace(/\/$/, "")}`;
+    const hostAndPath = `${url.hostname.toLowerCase()}${url.pathname.replace(/\/$/, "")}`;
+    const identityKey = ["query_place_id", "query", "q"]
+      .map((key) => [key, url.searchParams.get(key)])
+      .find(([, parameter]) => parameter);
+    return identityKey
+      ? `${hostAndPath}?${identityKey[0]}=${String(identityKey[1]).normalize("NFKC").trim().toLowerCase()}`
+      : hostAndPath;
   } catch {
     return "";
   }
+}
+
+function samePlaceIdentity(first, second) {
+  const firstPlaceId = String(first?.placeId || "").trim();
+  const secondPlaceId = String(second?.placeId || "").trim();
+  if (firstPlaceId && secondPlaceId) return firstPlaceId === secondPlaceId;
+  const firstUrl = normalizeGoogleMapsUrl(first?.sourceUrl);
+  const secondUrl = normalizeGoogleMapsUrl(second?.sourceUrl);
+  if (firstUrl && secondUrl) return firstUrl === secondUrl;
+  const firstName = String(first?.name || "").normalize("NFKC").trim().toLowerCase();
+  const secondName = String(second?.name || "").normalize("NFKC").trim().toLowerCase();
+  return Boolean(firstName && secondName && firstName === secondName);
+}
+
+function importAlreadyExists(place) {
+  return state.places.some((existing) => samePlaceIdentity(existing, place));
+}
+
+function importCanBeAdded(place) {
+  return Boolean(place?.canImport) && !importAlreadyExists(place);
 }
 
 function extractNameFromGoogleMapsUrl(value) {
@@ -1930,11 +1954,7 @@ function parseGoogleMapsList(value) {
         const identity = normalizeGoogleMapsUrl(url) || parsedName.toLowerCase();
         if (!identity || seen.has(identity)) return;
         seen.add(identity);
-        const isExisting = state.places.some(
-          (place) =>
-            (url && normalizeGoogleMapsUrl(place.sourceUrl) === normalizeGoogleMapsUrl(url)) ||
-            (parsedName && place.name.toLowerCase() === parsedName.toLowerCase()),
-        );
+        const isExisting = importAlreadyExists({ name: parsedName, sourceUrl: url });
         const canImport = Boolean(parsedName);
         entries.push({
           ...(known || {}),
@@ -1995,14 +2015,14 @@ async function enrichPlaceImportsFromApi(entries) {
     return entries.map((place) => {
       const resolved = resolvedByUrl.get(normalizeGoogleMapsUrl(place.sourceUrl));
       if (!resolved || resolved.error || !resolved.name) return place;
-      const isExisting = state.places.some(
-        (existing) =>
-          existing.name.toLowerCase() === resolved.name.toLowerCase() ||
-          normalizeGoogleMapsUrl(existing.sourceUrl) ===
-            normalizeGoogleMapsUrl(resolved.googleMapsUrl || place.sourceUrl),
-      );
+      const isExisting = importAlreadyExists({
+        name: resolved.name,
+        placeId: resolved.placeId,
+        sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
+      });
       return {
         ...place,
+        placeId: resolved.placeId || place.placeId,
         name: resolved.name,
         fullName: resolved.name,
         area: resolved.area || place.area,
@@ -2034,7 +2054,8 @@ function importPreviewMarkup(entries) {
   }
   const rows = entries
     .map((place) => {
-      const status = place.isExisting
+      const isExisting = importAlreadyExists(place);
+      const status = isExisting
         ? ["duplicate", "已在收藏"]
         : place.recognition === "complete"
           ? ["complete", "資料已辨識"]
@@ -2049,7 +2070,7 @@ function importPreviewMarkup(entries) {
         </article>`;
     })
     .join("");
-  const addableCount = entries.filter((place) => place.canImport && !place.isExisting).length;
+  const addableCount = entries.filter(importCanBeAdded).length;
   return `${rows}<p class="import-summary">可新增 ${addableCount} 個地點；重複項目會自動略過。</p>`;
 }
 
@@ -2487,9 +2508,7 @@ document.addEventListener("click", async (event) => {
     pendingPlaceImports = parseGoogleMapsList(textarea.value);
     pendingPlaceImports = await enrichPlaceImportsFromApi(pendingPlaceImports);
     preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
-    const addableCount = pendingPlaceImports.filter(
-      (place) => place.canImport && !place.isExisting,
-    ).length;
+    const addableCount = pendingPlaceImports.filter(importCanBeAdded).length;
     const confirmButton = document.querySelector("[data-confirm-import]");
     if (confirmButton) {
       confirmButton.disabled = addableCount === 0;
@@ -2989,15 +3008,7 @@ document.addEventListener("submit", async (event) => {
       : parseGoogleMapsList(String(form.get("mapsList") || ""));
     const requestedKind = String(form.get("placeKind") || "auto");
     const additions = parsed
-      .filter((place) => place.canImport && !place.isExisting)
-      .filter(
-        (place) =>
-          !state.places.some(
-            (existing) =>
-              existing.name.toLowerCase() === place.name.toLowerCase() ||
-              normalizeGoogleMapsUrl(existing.sourceUrl) === normalizeGoogleMapsUrl(place.sourceUrl),
-          ),
-      )
+      .filter(importCanBeAdded)
       .map(({ recognition, isExisting, canImport, ...place }) => ({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,

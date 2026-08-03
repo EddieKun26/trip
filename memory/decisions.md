@@ -38,6 +38,7 @@
 - 航班仍由 `flights` 保存完整資料，並在 `itinerary` 以 `type: flight`、`flightId` 建立可排序的行程參照，避免複製航班內容。
 - 分享網址使用 `?invite={六位碼}`；未登入者在登入表單預填，已登入者開啟預填加入面板。分享按鈕同時嘗試複製連結與呼叫 Web Share API，以支援 AirDrop 和通訊軟體。
 - 景點共同註記直接保存於該旅程的 place 物件，屬於旅程共用資料，不建立個人私密註記。
+- Google Maps 地點去重優先使用 Places `placeId`，其次使用包含 `query_place_id`／`query`／`q` 的正規化網址；只有缺少可用網址時才以名稱比對，避免同名分店或不同搜尋連結被誤判重複。
 
 ## 產品範圍
 

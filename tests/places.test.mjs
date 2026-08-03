@@ -52,6 +52,7 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
   }, response);
 
   assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.places[0].placeId, "test-place-id");
   assert.equal(response.payload.places[0].area, "銀座");
   assert.equal(response.payload.places[0].areaOriginal, "銀座");
   assert.equal(calls.length, 2);
