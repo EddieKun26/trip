@@ -60,6 +60,41 @@ test("itinerary uses custom solid drag behavior instead of native translucent dr
   assert.match(appSource, /data-swipe-item/);
   assert.match(appSource, /position: "fixed"/);
   assert.doesNotMatch(appSource, /window\.prompt\("輸入時間/);
-  assert.match(appSource, /id="time-picker-form"/);
+  assert.doesNotMatch(appSource, /id="time-picker-form"/);
+  assert.match(appSource, /type="time"[^>]+data-edit-time/);
+  assert.match(appSource, /sortItineraryByTime\(state\.selectedDate\)/);
   assert.match(appSource, /id="itinerary-places-form"/);
+});
+
+test("changing a time sorts places and flights chronologically", () => {
+  const section = sourceSection("function itineraryItemTime", "function syncFlightItineraryItems");
+  const state = {
+    flights: [{ id: "outbound", departureTime: "09:55" }],
+    itinerary: {
+      "9/20": [
+        { name: "下午景點", time: "14:00" },
+        { type: "flight", flightId: "outbound", time: "09:55" },
+        { name: "早上景點", time: "08:30" },
+      ],
+    },
+  };
+  const sortItineraryByTime = new Function("state", `${section}; return sortItineraryByTime;`)(state);
+  sortItineraryByTime("9/20");
+  assert.deepEqual(state.itinerary["9/20"].map((item) => item.name || item.flightId), ["早上景點", "outbound", "下午景點"]);
+});
+
+test("day route markers keep place mark and votes with a separate order badge", () => {
+  const section = sourceSection("function markerHtml", "async function getGoogleMapsBrowserKey");
+  const markerHtml = new Function("state", "escapeHtml", "mapPinColor", "placeMapStatus", "placeVoters", `${section}; return markerHtml;`)(
+    { mapView: "day" },
+    (value) => String(value),
+    () => "#000",
+    () => "scheduled",
+    () => ["a", "b"],
+  );
+  const html = markerHtml({ name: "景點", mark: "景", dayOrder: 3, routeDate: "9/20", routeColor: "#123" });
+  assert.match(html, /<span>景<\/span>/);
+  assert.match(html, /★ 2/);
+  assert.match(html, /<em>3<\/em>/);
+  assert.match(appSource, /class TripPlaceOverlay extends google\.maps\.OverlayView/);
 });

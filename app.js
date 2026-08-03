@@ -234,6 +234,7 @@ let mapRenderToken = 0;
 let activeLeafletMap = null;
 let googleMapsLoader = null;
 let mapInteractionUntil = 0;
+let mapCoordinatesLoading = false;
 
 function escapeHtml(value = "") {
   return String(value)
@@ -434,6 +435,20 @@ function itineraryItemLabel(item) {
   if (item?.type !== "flight") return item?.name || "行程項目";
   const flight = state.flights.find((candidate) => candidate.id === item.flightId);
   return flight ? `${flight.direction || "航班"} · ${flight.departureCity} → ${flight.arrivalCity}` : "航班";
+}
+
+function itineraryItemTime(item) {
+  if (item?.type !== "flight") return /^\d{2}:\d{2}$/.test(item?.time || "") ? item.time : "99:99";
+  const flight = state.flights.find((candidate) => candidate.id === item.flightId);
+  const time = flight?.departureTime || item.time || "";
+  return /^\d{2}:\d{2}$/.test(time) ? time : "99:99";
+}
+
+function sortItineraryByTime(date) {
+  state.itinerary[date] = (state.itinerary[date] || [])
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => itineraryItemTime(a.item).localeCompare(itineraryItemTime(b.item)) || a.index - b.index)
+    .map(({ item }) => item);
 }
 
 function syncFlightItineraryItems() {
@@ -922,6 +937,25 @@ function mapRouteGroups(places) {
   }));
 }
 
+function offsetOverlappingMapPins(places) {
+  return places.map((place) => {
+    const peers = places.filter((candidate) =>
+      Math.abs((candidate.x ?? 0) - (place.x ?? 0)) < 7 &&
+      Math.abs((candidate.y ?? 0) - (place.y ?? 0)) < 7,
+    );
+    if (peers.length < 2) return { ...place, pinOffsetX: 0, pinOffsetY: 0 };
+    const peerIndex = peers.findIndex((candidate) =>
+      candidate.name === place.name && candidate.routeDate === place.routeDate,
+    );
+    const offsetIndex = peerIndex - (peers.length - 1) / 2;
+    return {
+      ...place,
+      pinOffsetX: offsetIndex * 34,
+      pinOffsetY: Math.abs(offsetIndex) % 2 ? -8 : 0,
+    };
+  });
+}
+
 function mapScreen() {
   const projectedPlaces = filteredMapPlaces();
   const kindPlaces = state.places.filter((place) => state.placeKind === "all" || place.kind === state.placeKind);
@@ -998,10 +1032,10 @@ function mapPinColor(status) {
 }
 
 function markerHtml(place) {
-  if (state.mapView === "day") {
-    return `<button class="google-place-pin day-order-pin" type="button" style="--pin-color:${place.routeColor || mapPinColor("scheduled")}" aria-label="${escapeHtml(place.routeDate || "當日")}第 ${place.dayOrder} 站，${escapeHtml(place.name)}"><span>${place.dayOrder}</span></button>`;
-  }
-  return `<button class="google-place-pin" type="button" style="--pin-color:${mapPinColor(placeMapStatus(place))}" aria-label="${escapeHtml(place.name)}，${placeVoters(place.name).length} 人推薦"><span>${escapeHtml(place.mark)}</span><b>★ ${placeVoters(place.name).length}</b></button>`;
+  const isDayRoute = state.mapView === "day";
+  const color = isDayRoute ? place.routeColor || mapPinColor("scheduled") : mapPinColor(placeMapStatus(place));
+  const routeLabel = isDayRoute ? `${escapeHtml(place.routeDate || "當日")}第 ${place.dayOrder} 站，` : "";
+  return `<button class="google-place-pin ${isDayRoute ? "day-route-pin" : ""}" type="button" style="--pin-color:${color}" aria-label="${routeLabel}${escapeHtml(place.name)}，${placeVoters(place.name).length} 人推薦"><span>${escapeHtml(place.mark)}</span><b>★ ${placeVoters(place.name).length}</b>${isDayRoute ? `<em>${place.dayOrder}</em>` : ""}</button>`;
 }
 
 async function getGoogleMapsBrowserKey() {
@@ -1061,29 +1095,41 @@ function renderGoogleInteractiveMap(host, places) {
       });
     });
   }
-  places.forEach((place) => {
+  class TripPlaceOverlay extends google.maps.OverlayView {
+    constructor(place) {
+      super();
+      this.place = place;
+      this.position = new google.maps.LatLng(place.latitude, place.longitude);
+    }
+
+    onAdd() {
+      this.element = document.createElement("div");
+      this.element.className = "google-html-marker";
+      this.element.innerHTML = markerHtml(this.place);
+      this.element.querySelector("button")?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openPlaceSheet(this.place.name);
+      });
+      this.getPanes().overlayMouseTarget.appendChild(this.element);
+    }
+
+    draw() {
+      const point = this.getProjection().fromLatLngToDivPixel(this.position);
+      if (!point || !this.element) return;
+      this.element.style.left = `${point.x + (this.place.pinOffsetX || 0)}px`;
+      this.element.style.top = `${point.y + (this.place.pinOffsetY || 0)}px`;
+    }
+
+    onRemove() {
+      this.element?.remove();
+      this.element = null;
+    }
+  }
+
+  offsetOverlappingMapPins(places).forEach((place) => {
     const position = { lat: place.latitude, lng: place.longitude };
     bounds.extend(position);
-    const marker = new google.maps.Marker({
-      map,
-      position,
-      title: place.name,
-      label: {
-        text: state.mapView === "day" ? String(place.dayOrder) : `${place.mark} ${placeVoters(place.name).length}`,
-        color: "#ffffff",
-        fontSize: "12px",
-        fontWeight: "800",
-      },
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        fillColor: state.mapView === "day" ? place.routeColor : mapPinColor(placeMapStatus(place)),
-        fillOpacity: 1,
-        strokeColor: "#ffffff",
-        strokeWeight: 3,
-        scale: 20,
-      },
-    });
-    marker.addListener("click", () => openPlaceSheet(place.name));
+    new TripPlaceOverlay(place).setMap(map);
   });
   if (places.length > 1) map.fitBounds(bounds, 42);
 }
@@ -1115,14 +1161,14 @@ function renderLeafletInteractiveMap(host, places) {
       }).addTo(activeLeafletMap);
     });
   }
-  places.forEach((place) => {
+  offsetOverlappingMapPins(places).forEach((place) => {
     const point = [place.latitude, place.longitude];
     bounds.push(point);
     const icon = L.divIcon({
       className: "trip-div-icon",
       html: markerHtml(place),
-      iconSize: [48, 48],
-      iconAnchor: [24, 46],
+      iconSize: [64, 58],
+      iconAnchor: [32 - (place.pinOffsetX || 0), 54 - (place.pinOffsetY || 0)],
     });
     L.marker(point, { icon, title: place.name })
       .addTo(activeLeafletMap)
@@ -1132,10 +1178,46 @@ function renderLeafletInteractiveMap(host, places) {
   else activeLeafletMap.setView(bounds[0] || [35.6762, 139.6503], bounds.length ? 14 : 11);
 }
 
+async function ensureMapCoordinates() {
+  const missing = state.places.filter((place) =>
+    place.sourceUrl && (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)),
+  );
+  if (!missing.length || mapCoordinatesLoading) return false;
+  mapCoordinatesLoading = true;
+  let updated = false;
+  try {
+    const response = await fetch("/api/places", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ places: missing.map((place) => ({ sourceUrl: place.sourceUrl, hintName: place.name })) }),
+    });
+    if (!response.ok) return false;
+    const resolvedPlaces = (await response.json()).places || [];
+    missing.forEach((place, index) => {
+      const resolved = resolvedPlaces[index];
+      if (!resolved || resolved.error || !Number.isFinite(resolved.latitude) || !Number.isFinite(resolved.longitude)) return;
+      place.latitude = resolved.latitude;
+      place.longitude = resolved.longitude;
+      place.area = resolved.area || place.area;
+      place.areaOriginal = resolved.areaOriginal || place.areaOriginal || place.area;
+      updated = true;
+    });
+    if (updated) persist();
+    return updated;
+  } catch {
+    return false;
+  } finally {
+    mapCoordinatesLoading = false;
+  }
+}
+
 async function initializeInteractiveMap() {
   const token = ++mapRenderToken;
   const host = document.querySelector("#interactive-map");
   if (!host) return;
+  const coordinatesUpdated = await ensureMapCoordinates();
+  if (token !== mapRenderToken || !document.body.contains(host)) return;
+  if (coordinatesUpdated) document.querySelector(".map-coordinate-note")?.remove();
   const places = filteredMapPlaces().filter(
     (place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude),
   );
@@ -1198,7 +1280,9 @@ function itineraryScreen() {
         <div class="swipe-row timeline-swipe-row ${canEdit() ? "" : "readonly"}" data-itinerary-row="${escapeHtml(itemKey)}">
           ${canEdit() ? `<button class="swipe-delete" type="button" data-request-delete-itinerary="${escapeHtml(item.name)}" data-delete-date="${state.selectedDate}" aria-label="從${state.selectedDate}刪除${escapeHtml(item.name)}">刪除</button>` : ""}
           <article class="timeline-item swipe-surface" data-item-key="${escapeHtml(itemKey)}" ${canEdit() ? `data-swipe-item="itinerary:${state.selectedDate}:${escapeHtml(item.name)}"` : ""}>
-            <button class="time-button" type="button" ${canEdit() ? `data-edit-time="${escapeHtml(item.name)}"` : "disabled"}>${escapeHtml(item.time)}</button>
+            ${canEdit()
+              ? `<label class="time-button inline-time-button"><span>${escapeHtml(item.time)}</span><input type="time" value="${escapeHtml(item.time)}" step="300" data-edit-time="${escapeHtml(item.name)}" aria-label="修改${escapeHtml(item.name)}時間" /></label>`
+              : `<span class="time-button readonly-time">${escapeHtml(item.time)}</span>`}
             <button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
               <strong>${escapeHtml(item.name)}</strong>
               <span class="opening-line"><b>營業</b>${formatOpeningHoursForDay(place?.openingHours, selectedWeekday)}</span>
@@ -1777,27 +1861,6 @@ function openAddPlaceDateSheet(name) {
     </div>`;
 }
 
-function openTimePickerSheet(name) {
-  const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === name);
-  if (!item) return;
-  sheetRoot.innerHTML = `
-    <div class="modal-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet time-picker-sheet" id="time-picker-form" data-item-name="${escapeHtml(name)}">
-        <div class="section-row"><div><p class="section-kicker">${escapeHtml(state.selectedDate)}</p><h2>調整行程時間</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
-        <p>${escapeHtml(name)}會使用手機原生的滾輪時間選擇器。</p>
-        <label class="wheel-time-field"><span>抵達時間</span><input name="time" type="time" step="300" required value="${escapeHtml(item.time || "11:00")}" /></label>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">套用時間</button></div>
-      </form>
-    </div>`;
-  const picker = document.querySelector('#time-picker-form input[type="time"]');
-  try {
-    if (picker?.showPicker) picker.showPicker();
-    else picker?.focus();
-  } catch {
-    picker?.focus();
-  }
-}
-
 function rememberItineraryPlaceChecks() {
   document.querySelectorAll('#itinerary-places-form input[name="places"]').forEach((input) => {
     if (input.checked) itineraryPlaceSelection.add(input.value);
@@ -1920,7 +1983,14 @@ document.addEventListener("click", async (event) => {
   const mode = event.target.closest("[data-places-mode]");
   if (mode) {
     state.placesMode = mode.dataset.placesMode;
-    if (state.placesMode === "map") state.selectedMapPlace = "";
+    if (state.placesMode === "map") {
+      state.selectedMapPlace = "";
+      if (state.mapView === "planning") {
+        state.placeKind = "all";
+        state.mapCategory = "all";
+        state.mapPreference = "all";
+      }
+    }
     return render();
   }
 
@@ -1934,6 +2004,11 @@ document.addEventListener("click", async (event) => {
   const mapView = event.target.closest("[data-map-view]");
   if (mapView) {
     state.mapView = mapView.dataset.mapView;
+    if (state.mapView === "planning") {
+      state.placeKind = "all";
+      state.mapCategory = "all";
+      state.mapPreference = "all";
+    }
     state.selectedMapPlace = "";
     return render();
   }
@@ -2121,11 +2196,6 @@ document.addEventListener("click", async (event) => {
     return showToast(moved ? "行程順序已更新" : "已經在最前或最後");
   }
 
-  const time = event.target.closest("[data-edit-time]");
-  if (time) {
-    if (!canEdit()) return guestOnlyMessage();
-    return openTimePickerSheet(time.dataset.editTime);
-  }
 });
 
 document.addEventListener("pointerdown", (event) => {
@@ -2224,6 +2294,19 @@ document.addEventListener("pointerup", finishPreviewRailDrag);
 document.addEventListener("pointercancel", finishPreviewRailDrag);
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-edit-time]")) {
+    if (!canEdit()) return guestOnlyMessage();
+    const next = event.target.value;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(next)) return showToast("請選擇有效時間");
+    const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === event.target.dataset.editTime);
+    if (!item) return showToast("找不到這個行程項目");
+    item.time = next;
+    sortItineraryByTime(state.selectedDate);
+    persist();
+    render({ preserveScroll: true });
+    return showToast("時間與行程順序已更新");
+  }
+
   if (event.target.matches("[data-map-date]")) {
     state.mapDate = event.target.value;
     state.mapView = "day";
@@ -2352,20 +2435,6 @@ document.addEventListener("contextmenu", (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
-  if (event.target.id === "time-picker-form") {
-    event.preventDefault();
-    if (!canEdit()) return guestOnlyMessage();
-    const next = String(new FormData(event.target).get("time") || "");
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(next)) return showToast("請選擇有效時間");
-    const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === event.target.dataset.itemName);
-    if (!item) return showToast("找不到這個行程項目");
-    item.time = next;
-    persist();
-    closeSheet();
-    render({ preserveScroll: true });
-    return showToast("行程時間已更新");
-  }
-
   if (event.target.id === "itinerary-places-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
