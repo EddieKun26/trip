@@ -101,13 +101,20 @@ async function originalAreaForPlace(apiKey, placeId, fallback) {
   }
 }
 
-async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false }) {
+async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false, latitude = null, longitude = null }) {
   const requestBody = {
     textQuery,
     languageCode: "zh-TW",
     maxResultCount: 1,
   };
-  if (!globalSearch) {
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    requestBody.locationBias = {
+      circle: {
+        center: { latitude, longitude },
+        radius: 3000,
+      },
+    };
+  } else if (!globalSearch) {
     requestBody.regionCode = "JP";
     requestBody.locationBias = {
       circle: {
@@ -186,6 +193,8 @@ export default async function placesHandler(request, response) {
       const originalUrl = safeMapsUrl(item.sourceUrl);
       const hintName = String(item.hintName || "").trim().slice(0, 160);
       const globalSearch = item.globalSearch === true;
+      const latitude = Number(item.latitude);
+      const longitude = Number(item.longitude);
       if (!originalUrl && !hintName) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
       try {
         const expandedUrl = await expandShortMapsUrl(originalUrl);
@@ -198,6 +207,8 @@ export default async function placesHandler(request, response) {
           textQuery: globalSearch ? textQuery : `${textQuery} 東京`,
           requestUrl: originalUrl?.toString() || item.sourceUrl,
           globalSearch,
+          latitude: Number.isFinite(latitude) ? latitude : null,
+          longitude: Number.isFinite(longitude) ? longitude : null,
         });
       } catch (error) {
         return {

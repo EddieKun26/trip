@@ -67,4 +67,14 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
   assert.equal(airportSearchBody.textQuery, "KHH airport");
   assert.equal("regionCode" in airportSearchBody, false);
   assert.equal("locationBias" in airportSearchBody, false);
+
+  const listPlaceResponse = responseMock();
+  await placesHandler({
+    method: "POST",
+    body: { places: [{ sourceUrl: "", hintName: "添食埊粒", globalSearch: true, latitude: 22.646195, longitude: 120.3021201 }] },
+  }, listPlaceResponse);
+  const listPlaceSearchBody = JSON.parse(calls[4].options.body);
+  assert.deepEqual(listPlaceSearchBody.locationBias.circle.center, { latitude: 22.646195, longitude: 120.3021201 });
+  assert.equal(listPlaceSearchBody.locationBias.circle.radius, 3000);
+  assert.equal("regionCode" in listPlaceSearchBody, false);
 });

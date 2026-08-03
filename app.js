@@ -1919,7 +1919,7 @@ function inferPlaceCategory(name) {
     [/水族館|Aquarium/i, "水族館"],
     [/塔|展望|Tower/i, "展望景點"],
     [/咖啡|珈琲|Cafe/i, "咖啡"],
-    [/燒肉|焼肉|牛舌|牛たん|餐廳|Restaurant|Steak/i, "餐廳"],
+    [/燒肉|焼肉|牛舌|牛たん|餐廳|食堂|小館|合菜|Restaurant|Steak/i, "餐廳"],
     [/百貨|商場|Market|Mall/i, "購物"],
   ];
   return rules.find(([pattern]) => pattern.test(name))?.[1] || "景點";
@@ -1932,84 +1932,193 @@ function knownGooglePlace(value) {
     .find((place) => normalizeGoogleMapsUrl(place.sourceUrl) === normalized);
 }
 
+function googleMapsImportCandidates(value) {
+  const lines = String(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const candidates = [];
+  let pendingLabel = "";
+
+  lines.forEach((line, index) => {
+    const urls = line.match(/https?:\/\/[^\s<>"']+/g) || [];
+    if (!urls.length) {
+      const nextLine = lines[index + 1] || "";
+      if (/https?:\/\/[^\s<>"']+/.test(nextLine)) {
+        if (pendingLabel) candidates.push({ label: pendingLabel, url: "" });
+        pendingLabel = line;
+      } else {
+        candidates.push({ label: line, url: "" });
+      }
+      return;
+    }
+
+    const lineLabel = urls
+      .reduce((label, rawUrl) => label.replace(rawUrl, ""), line)
+      .replace(/^[\s•·\-*\d.)、]+/, "")
+      .replace(/[|｜:：\-–—]+$/, "")
+      .trim();
+    urls.forEach((rawUrl, urlIndex) => {
+      candidates.push({
+        label: lineLabel || (urlIndex === 0 ? pendingLabel : ""),
+        url: rawUrl.replace(/[),，。]+$/, ""),
+      });
+    });
+    pendingLabel = "";
+  });
+
+  if (pendingLabel) candidates.push({ label: pendingLabel, url: "" });
+  return candidates;
+}
+
 function parseGoogleMapsList(value) {
   const entries = [];
   const seen = new Set();
-  String(value)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .forEach((line) => {
-      const urls = line.match(/https?:\/\/[^\s<>"']+/g) || [];
-      const candidates = urls.length ? urls : [""];
-      candidates.forEach((rawUrl) => {
-        const url = rawUrl.replace(/[),，。]+$/, "");
-        const lineName = line
-          .replace(rawUrl, "")
-          .replace(/^[\s•·\-*\d.)、]+/, "")
-          .replace(/[|｜:：\-–—]+$/, "")
-          .trim();
-        const known = url ? knownGooglePlace(url) : null;
-        const parsedName = known?.name || lineName || extractNameFromGoogleMapsUrl(url);
-        const identity = normalizeGoogleMapsUrl(url) || parsedName.toLowerCase();
-        if (!identity || seen.has(identity)) return;
-        seen.add(identity);
-        const isExisting = importAlreadyExists({ name: parsedName, sourceUrl: url });
-        const canImport = Boolean(parsedName);
-        entries.push({
-          ...(known || {}),
-          name: parsedName || "無法辨識的 Google Maps 短連結",
-          fullName: known?.fullName || parsedName || "待辨識地點",
-          category: known?.category || inferPlaceCategory(parsedName || ""),
-          kind: known?.kind || inferPlaceKind(known?.category || inferPlaceCategory(parsedName || "")),
-          area: known?.area || inferPlaceArea(parsedName || ""),
-          sourceUrl:
-            url ||
-            `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parsedName)}`,
-          swatch: known?.swatch || "#587a73",
-          mark: known?.mark || (parsedName || "?").slice(0, 1),
-          latitude: known?.latitude ?? null,
-          longitude: known?.longitude ?? null,
-          openingHours: known?.openingHours || "待 Google Maps 同步",
-          phone: known?.phone || "待 Google Maps 同步",
-          description:
-            known?.description ||
-            "這是從 Google Maps 清單匯入的地點，串接 Places API 後會自動補齊更多介紹。",
-          highlights: known?.highlights || ["Google Maps 匯入"],
-          galleryLabels: known?.galleryLabels || ["地點照片", "環境照片", "附近街景"],
+  googleMapsImportCandidates(value).forEach(({ label: lineName, url }) => {
+    const known = url ? knownGooglePlace(url) : null;
+    const parsedName = known?.name || lineName || extractNameFromGoogleMapsUrl(url);
+    const identity = normalizeGoogleMapsUrl(url) || parsedName.toLowerCase();
+    if (!identity || seen.has(identity)) return;
+    seen.add(identity);
+    const isExisting = importAlreadyExists({ name: parsedName, sourceUrl: url });
+    const canImport = Boolean(parsedName);
+    entries.push({
+      ...(known || {}),
+      name: parsedName || "無法辨識的 Google Maps 短連結",
+      fullName: known?.fullName || parsedName || "待辨識地點",
+      category: known?.category || inferPlaceCategory(parsedName || ""),
+      kind: known?.kind || inferPlaceKind(known?.category || inferPlaceCategory(parsedName || "")),
+      area: known?.area || inferPlaceArea(parsedName || ""),
+      sourceUrl:
+        url ||
+        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parsedName)}`,
+      swatch: known?.swatch || "#587a73",
+      mark: known?.mark || (parsedName || "?").slice(0, 1),
+      latitude: known?.latitude ?? null,
+      longitude: known?.longitude ?? null,
+      openingHours: known?.openingHours || "待 Google Maps 同步",
+      phone: known?.phone || "待 Google Maps 同步",
+      description:
+        known?.description ||
+        "這是從 Google Maps 清單匯入的地點，串接 Places API 後會自動補齊更多介紹。",
+      highlights: known?.highlights || ["Google Maps 匯入"],
+      galleryLabels: known?.galleryLabels || ["地點照片", "環境照片", "附近街景"],
+      addedBy: currentMemberId(),
+      addedByName: state.profile?.nickname || "我",
+      isCustom: true,
+      recognition: known ? "complete" : canImport ? "partial" : "unresolved",
+      isExisting,
+      canImport,
+    });
+  });
+  return entries;
+}
+
+function placeAreaFromAddress(address, fallbackName = "") {
+  const district = String(address || "").match(/(?:縣|県|市|都|道|府)([\p{L}]{1,8}(?:區|区|鄉|郷|鎮|町|村))/u)?.[1];
+  return district || inferPlaceArea(fallbackName);
+}
+
+async function expandGoogleMapsSharedLists(entries) {
+  const urls = [...new Set(entries.map((place) => place.sourceUrl).filter(Boolean))].slice(0, 5);
+  if (!urls.length) return entries;
+
+  try {
+    const response = await fetch("/api/place-list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    if (!response.ok) return entries;
+    const payload = await response.json();
+    const listsByUrl = new Map(
+      (payload.results || []).map((result) => [normalizeGoogleMapsUrl(result.requestUrl), result]),
+    );
+
+    return entries.flatMap((entry) => {
+      const result = listsByUrl.get(normalizeGoogleMapsUrl(entry.sourceUrl));
+      if (!result?.isList) return [entry];
+      if (!Array.isArray(result.places) || !result.places.length) {
+        const title = result.title || entry.name || "Google Maps";
+        return [{
+          ...entry,
+          name: `「${title}」清單暫時無法讀取`,
+          fullName: `「${title}」清單暫時無法讀取`,
+          description: result.error || "請確認這是公開的 Google Maps 共用清單後再試一次。",
+          mark: "?",
+          recognition: "unresolved",
+          canImport: false,
+          isSharedList: true,
+        }];
+      }
+
+      return result.places.map((rawPlace) => {
+        const name = String(rawPlace.name || "").trim();
+        const address = String(rawPlace.address || "").trim();
+        const category = inferPlaceCategory(`${result.title || ""} ${name}`);
+        const isExisting = importAlreadyExists({ name, sourceUrl: rawPlace.sourceUrl });
+        return {
+          name,
+          fullName: name,
+          category,
+          kind: inferPlaceKind(category),
+          area: placeAreaFromAddress(address, name),
+          areaOriginal: placeAreaFromAddress(address, name),
+          formattedAddress: address,
+          sourceUrl: rawPlace.sourceUrl,
+          swatch: "#587a73",
+          mark: name.slice(0, 1) || "?",
+          latitude: Number.isFinite(rawPlace.latitude) ? rawPlace.latitude : null,
+          longitude: Number.isFinite(rawPlace.longitude) ? rawPlace.longitude : null,
+          openingHours: "待 Google Maps 同步",
+          phone: "待 Google Maps 同步",
+          description: `從「${result.title || "Google Maps 共用清單"}」匯入，將由 Google Places 自動補齊資料。`,
+          highlights: [result.title || "Google Maps 共用清單", "Google Maps 匯入"],
+          galleryLabels: ["地點照片", "環境照片", "附近街景"],
           addedBy: currentMemberId(),
           addedByName: state.profile?.nickname || "我",
           isCustom: true,
-          recognition: known ? "complete" : canImport ? "partial" : "unresolved",
+          recognition: "partial",
           isExisting,
-          canImport,
-        });
+          canImport: Boolean(name),
+          globalSearch: true,
+          isSharedList: true,
+          listTitle: result.title || "Google Maps 共用清單",
+          listIndex: rawPlace.listIndex,
+        };
       });
     });
-  return entries;
+  } catch {
+    return entries;
+  }
 }
 
 async function enrichPlaceImportsFromApi(entries) {
   const targets = entries.filter(
-    (place) => !place.isExisting && place.recognition !== "complete",
+    (place) => !place.isExisting && place.canImport && place.recognition !== "complete",
   );
   if (!targets.length) return entries;
 
   try {
-    const response = await fetch("/api/places", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        places: targets.map((place) => ({
-          sourceUrl: place.sourceUrl,
-          hintName: place.canImport ? place.name : "",
-        })),
-      }),
-    });
-    if (!response.ok) return entries;
-    const payload = await response.json();
+    const chunks = Array.from({ length: Math.ceil(targets.length / 10) }, (_, index) => targets.slice(index * 10, index * 10 + 10));
+    const payloads = await Promise.all(chunks.map(async (chunk) => {
+      const response = await fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          places: chunk.map((place) => ({
+            sourceUrl: place.sourceUrl,
+            hintName: place.name,
+            globalSearch: place.globalSearch === true,
+            latitude: place.latitude,
+            longitude: place.longitude,
+          })),
+        }),
+      });
+      return response.ok ? response.json() : { places: [] };
+    }));
     const resolvedByUrl = new Map(
-      (payload.places || []).map((place) => [normalizeGoogleMapsUrl(place.requestUrl), place]),
+      payloads.flatMap((payload) => payload.places || []).map((place) => [normalizeGoogleMapsUrl(place.requestUrl), place]),
     );
 
     return entries.map((place) => {
@@ -2028,7 +2137,8 @@ async function enrichPlaceImportsFromApi(entries) {
         area: resolved.area || place.area,
         areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
         category: resolved.category || place.category,
-        kind: place.kind || inferPlaceKind(resolved.category || place.category),
+        kind: inferPlaceKind(resolved.category || place.category),
+        formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
         sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
         latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
         longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
@@ -2036,8 +2146,8 @@ async function enrichPlaceImportsFromApi(entries) {
         phone: resolved.phone || place.phone,
         photos: resolved.photos || place.photos || [],
         mark: resolved.name.slice(0, 1),
-        description: `${resolved.name}位於${resolved.area || "東京"}，由 Google Places 自動補齊地點資料。`,
-        highlights: [resolved.category || "Google Maps 匯入", resolved.area || "東京"],
+        description: `${resolved.name}位於${resolved.area || place.area || "待確認區域"}，由 Google Places 自動補齊地點資料。`,
+        highlights: [resolved.category || "Google Maps 匯入", resolved.area || place.area || "待確認區域"],
         recognition: "complete",
         isExisting,
         canImport: true,
@@ -2083,14 +2193,14 @@ function openAddPlaceSheet() {
           <div><p class="section-kicker">Google Maps 批次匯入</p><h2>一次新增多個景點</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p>每行貼上一個景點連結；短連結前可加上名稱，例如「東京鐵塔 https://maps.app.goo.gl/...」。</p>
+        <p>可貼上單一地點、多個地點連結，或整個 Google Maps 公開共用清單。</p>
         <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select><span class="field-note">新增飯店或民宿時可直接選擇「住宿」。</span></div>
         <div class="field">
-          <label for="google-maps-list">Google Maps 景點清單</label>
-          <textarea id="google-maps-list" name="mapsList" rows="6" required placeholder="銀座八芳 https://maps.app.goo.gl/...&#10;銀座金魚美術館 https://maps.app.goo.gl/..."></textarea>
-          <span class="field-note">會自動辨識名稱、區域與類型；正式串接 Places API 後可同步任意地點的營業時間與電話。</span>
+          <label for="google-maps-list">Google Maps 地點或共用清單</label>
+          <textarea id="google-maps-list" name="mapsList" rows="6" required placeholder="高雄合菜 · Eddie&#10;https://maps.app.goo.gl/...&#10;&#10;或每行貼上一個地點連結"></textarea>
+          <span class="field-note">公開共用清單會自動展開為每個地點，再分別同步名稱、區域、類型、營業時間與電話。</span>
         </div>
-        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識並預覽</button>
+        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識並展開</button>
         <div id="import-preview" class="import-preview" aria-live="polite"></div>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>一次加入收藏</button></div>
       </form>
@@ -2506,6 +2616,7 @@ document.addEventListener("click", async (event) => {
     analyzePlaces.disabled = true;
     analyzePlaces.textContent = "辨識 Google Maps 資料中…";
     pendingPlaceImports = parseGoogleMapsList(textarea.value);
+    pendingPlaceImports = await expandGoogleMapsSharedLists(pendingPlaceImports);
     pendingPlaceImports = await enrichPlaceImportsFromApi(pendingPlaceImports);
     preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
     const addableCount = pendingPlaceImports.filter(importCanBeAdded).length;

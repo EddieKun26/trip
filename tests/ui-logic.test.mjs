@@ -162,6 +162,26 @@ test("Google Maps search links keep their place query when checking duplicates",
   );
 });
 
+test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
+  const section = sourceSection("function googleMapsImportCandidates", "function parseGoogleMapsList");
+  const googleMapsImportCandidates = new Function(`${section}; return googleMapsImportCandidates;`)();
+  const candidates = googleMapsImportCandidates("高雄合菜 · Eddie\nhttps://maps.app.goo.gl/RbuDr1WSBJHoquGi8?g_st=i");
+  assert.deepEqual(candidates, [{
+    label: "高雄合菜 · Eddie",
+    url: "https://maps.app.goo.gl/RbuDr1WSBJHoquGi8?g_st=i",
+  }]);
+});
+
+test("shared-list imports expand before Places enrichment and support global chunks", () => {
+  assert.match(appSource, /fetch\("\/api\/place-list"/);
+  assert.match(appSource, /expandGoogleMapsSharedLists\(pendingPlaceImports\)/);
+  assert.match(appSource, /globalSearch: place\.globalSearch === true/);
+  assert.match(appSource, /latitude: place\.latitude/);
+  assert.match(appSource, /longitude: place\.longitude/);
+  assert.match(appSource, /targets\.length \/ 10/);
+  assert.match(appSource, /inferPlaceCategory\(`\$\{result\.title \|\| ""\} \$\{name\}`\)/);
+});
+
 test("leave trip is a compact action inside the account member sheet", () => {
   const overviewSection = sourceSection("function overviewScreen", "function placesScreen");
   const profileSection = sourceSection("function openProfileSheet", "function openTripsSheet");
