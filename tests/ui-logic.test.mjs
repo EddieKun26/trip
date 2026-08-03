@@ -18,12 +18,13 @@ test("persisted romanized Tokyo areas display as Chinese and Japanese", () => {
   assert.equal(areaDisplayName("Ebisunishi", "Ebisunishi"), "惠比壽西（恵比寿西）");
 });
 
-test("day map numbers places by itinerary time and excludes flights", () => {
-  const section = sourceSection("function filteredMapPlaces", "function mapScreen");
+test("day map follows itinerary order and represents flights with the relevant airport", () => {
+  const section = sourceSection("function flightAirportInfo", "function mapScreen");
   const state = {
     mapView: "day",
     mapDate: "9/20",
     selectedDate: "9/20",
+    flights: [{ id: "outbound", direction: "去程", departureCode: "KHH", departureCity: "高雄", arrivalCode: "NRT", arrivalCity: "成田", departureTime: "09:30" }],
     places: [{ name: "下午景點" }, { name: "早上景點" }],
     itinerary: {
       "9/20": [
@@ -33,8 +34,13 @@ test("day map numbers places by itinerary time and excludes flights", () => {
       ],
     },
   };
-  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", `const dateMeta = [["9/20", "週日"]]; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true);
-  assert.deepEqual(filteredMapPlaces().map(({ name, dayOrder }) => [name, dayOrder]), [["早上景點", 1], ["下午景點", 2]]);
+  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", `const dateMeta = [["9/20", "週日"]]; const airportCoordinateCache = { KHH: { latitude: 22.57, longitude: 120.35 }, NRT: { latitude: 35.77, longitude: 140.39 } }; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true);
+  assert.deepEqual(filteredMapPlaces().map(({ name, dayOrder, isAirport = false }) => [name, dayOrder, isAirport]), [
+    ["下午景點", 1, false],
+    ["高雄機場（KHH）", 2, true],
+    ["成田機場（NRT）", 3, true],
+    ["早上景點", 4, false],
+  ]);
 });
 
 test("all-date route map keeps daily ordering and assigns different route colors", () => {
@@ -61,7 +67,9 @@ test("itinerary uses custom solid drag behavior instead of native translucent dr
   assert.match(appSource, /position: "fixed"/);
   assert.doesNotMatch(appSource, /window\.prompt\("輸入時間/);
   assert.doesNotMatch(appSource, /id="time-picker-form"/);
-  assert.match(appSource, /type="time"[^>]+data-edit-time/);
+  assert.match(appSource, /class="time-wheel-picker"/);
+  assert.match(appSource, /data-cancel-time/);
+  assert.match(appSource, /data-confirm-time/);
   assert.match(appSource, /sortItineraryByTime\(state\.selectedDate\)/);
   assert.match(appSource, /id="itinerary-places-form"/);
 });
@@ -97,4 +105,13 @@ test("day route markers keep place mark and votes with a separate order badge", 
   assert.match(html, /★ 2/);
   assert.match(html, /<em>3<\/em>/);
   assert.match(appSource, /class TripPlaceOverlay extends google\.maps\.OverlayView/);
+});
+
+test("map type filter uses the same attraction restaurant and lodging groups as the list", () => {
+  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
+  assert.match(mapSection, /\["attraction", "景點"\]/);
+  assert.match(mapSection, /\["restaurant", "餐廳"\]/);
+  assert.match(mapSection, /\["lodging", "住宿"\]/);
+  assert.doesNotMatch(mapSection, /data-map-category/);
+  assert.match(mapSection, /data-map-kind/);
 });

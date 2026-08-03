@@ -56,4 +56,14 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
   assert.equal(response.payload.places[0].areaOriginal, "銀座");
   assert.equal(calls.length, 2);
   assert.match(calls[1].url, /languageCode=ja/);
+
+  const airportResponse = responseMock();
+  await placesHandler({
+    method: "POST",
+    body: { places: [{ sourceUrl: "", hintName: "KHH airport", globalSearch: true }] },
+  }, airportResponse);
+  const airportSearchBody = JSON.parse(calls[2].options.body);
+  assert.equal(airportSearchBody.textQuery, "KHH airport");
+  assert.equal("regionCode" in airportSearchBody, false);
+  assert.equal("locationBias" in airportSearchBody, false);
 });

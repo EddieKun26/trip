@@ -101,7 +101,21 @@ async function originalAreaForPlace(apiKey, placeId, fallback) {
   }
 }
 
-async function searchPlace({ apiKey, textQuery, requestUrl }) {
+async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false }) {
+  const requestBody = {
+    textQuery,
+    languageCode: "zh-TW",
+    maxResultCount: 1,
+  };
+  if (!globalSearch) {
+    requestBody.regionCode = "JP";
+    requestBody.locationBias = {
+      circle: {
+        center: { latitude: 35.6762, longitude: 139.6503 },
+        radius: 50000,
+      },
+    };
+  }
   const googleResponse = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
@@ -120,18 +134,7 @@ async function searchPlace({ apiKey, textQuery, requestUrl }) {
         "places.photos",
       ].join(","),
     },
-    body: JSON.stringify({
-      textQuery,
-      languageCode: "zh-TW",
-      regionCode: "JP",
-      maxResultCount: 1,
-      locationBias: {
-        circle: {
-          center: { latitude: 35.6762, longitude: 139.6503 },
-          radius: 50000,
-        },
-      },
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!googleResponse.ok) {
@@ -181,6 +184,7 @@ export default async function placesHandler(request, response) {
     requestedPlaces.map(async (item) => {
       const originalUrl = safeMapsUrl(item.sourceUrl);
       const hintName = String(item.hintName || "").trim().slice(0, 160);
+      const globalSearch = item.globalSearch === true;
       if (!originalUrl && !hintName) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
       try {
         const expandedUrl = await expandShortMapsUrl(originalUrl);
@@ -190,8 +194,9 @@ export default async function placesHandler(request, response) {
         }
         return await searchPlace({
           apiKey,
-          textQuery: `${textQuery} 東京`,
+          textQuery: globalSearch ? textQuery : `${textQuery} 東京`,
           requestUrl: originalUrl?.toString() || item.sourceUrl,
+          globalSearch,
         });
       } catch (error) {
         return {
