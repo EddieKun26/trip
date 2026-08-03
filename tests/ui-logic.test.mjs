@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 function sourceSection(start, end) {
   const startIndex = appSource.indexOf(start);
@@ -155,6 +156,10 @@ test("Google Maps search links keep their place query when checking duplicates",
     samePlaceIdentity({ name: "同名分店", sourceUrl: firstUrl }, { name: "同名分店", sourceUrl: secondUrl }),
     false,
   );
+  assert.notEqual(
+    normalizeGoogleMapsUrl("https://maps.google.com/?cid=15925741963762439993&g_mp=abc"),
+    normalizeGoogleMapsUrl("https://maps.google.com/?cid=123456789&g_mp=abc"),
+  );
 });
 
 test("leave trip is a compact action inside the account member sheet", () => {
@@ -163,4 +168,11 @@ test("leave trip is a compact action inside the account member sheet", () => {
   assert.doesNotMatch(overviewSection, /data-request-leave-trip/);
   assert.match(profileSection, /class="account-leave-button"/);
   assert.match(profileSection, /data-request-leave-trip/);
+});
+
+test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
+  assert.match(stylesSource, /\.import-places-sheet\s*{[^}]*overflow:\s*hidden/s);
+  assert.match(stylesSource, /\.import-places-sheet \.field select,\s*\.import-places-sheet \.field textarea\s*{[^}]*font-size:\s*16px/s);
+  assert.match(stylesSource, /\.import-preview\s*{[^}]*overflow-y:\s*auto/s);
+  assert.match(appSource, /state\.placeKind = addedKinds\.length === 1 \? addedKinds\[0\] : "all"/);
 });

@@ -1862,7 +1862,7 @@ function normalizeGoogleMapsUrl(value) {
   try {
     const url = new URL(value);
     const hostAndPath = `${url.hostname.toLowerCase()}${url.pathname.replace(/\/$/, "")}`;
-    const identityKey = ["query_place_id", "query", "q"]
+    const identityKey = ["query_place_id", "cid", "ftid", "query", "q"]
       .map((key) => [key, url.searchParams.get(key)])
       .find(([, parameter]) => parameter);
     return identityKey
@@ -3015,6 +3015,9 @@ document.addEventListener("submit", async (event) => {
       }));
     if (!additions.length) return showToast("沒有可新增的地點");
     state.places.push(...additions);
+    const addedKinds = [...new Set(additions.map((place) => place.kind))];
+    state.placeKind = addedKinds.length === 1 ? addedKinds[0] : "all";
+    state.selectedArea = "";
     persist();
     closeSheet();
     render();

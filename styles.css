@@ -2451,7 +2451,44 @@ body.itinerary-dragging * {
 }
 
 .import-places-sheet {
-  max-height: 90dvh;
+  height: min(760px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.import-places-sheet > .section-row,
+.import-places-sheet > p,
+.import-places-sheet > .field,
+.import-places-sheet > .analyze-button,
+.import-places-sheet > .modal-actions {
+  flex: 0 0 auto;
+}
+
+.import-places-sheet > p {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+.import-places-sheet .field {
+  margin-top: 9px;
+}
+
+.import-places-sheet .field select,
+.import-places-sheet .field textarea {
+  font-size: 16px;
+}
+
+.import-places-sheet .field textarea {
+  min-height: 112px;
+  max-height: 112px;
+  resize: none;
+}
+
+.import-places-sheet > .modal-actions {
+  margin-top: 12px;
 }
 
 .analyze-button {
@@ -2467,9 +2504,15 @@ body.itinerary-dragging * {
 }
 
 .import-preview {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
+  align-content: start;
   gap: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin-top: 12px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .import-place-row {
