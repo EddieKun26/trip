@@ -453,6 +453,92 @@ function compactTripDate(isoDate = "") {
   return match ? `${Number(match[1])}/${Number(match[2])}` : "";
 }
 
+const flightAirportCatalog = [
+  { city: "高雄", aliases: ["高雄市", "Kaohsiung"], code: "KHH", name: "高雄國際機場（小港）" },
+  { city: "台北", aliases: ["臺北", "台北市", "臺北市", "桃園", "桃園市", "Taipei", "Taoyuan"], code: "TPE", name: "桃園國際機場" },
+  { city: "台北", aliases: ["臺北", "台北市", "臺北市", "Taipei"], code: "TSA", name: "台北松山機場" },
+  { city: "台中", aliases: ["臺中", "台中市", "臺中市", "Taichung"], code: "RMQ", name: "台中國際機場" },
+  { city: "東京", aliases: ["成田", "成田市", "Tokyo", "Narita"], code: "NRT", name: "成田國際機場" },
+  { city: "東京", aliases: ["羽田", "Tokyo", "Haneda"], code: "HND", name: "羽田機場" },
+  { city: "大阪", aliases: ["Osaka", "關西", "関西"], code: "KIX", name: "關西國際機場" },
+  { city: "大阪", aliases: ["Osaka", "伊丹"], code: "ITM", name: "大阪國際機場（伊丹）" },
+  { city: "大阪", aliases: ["Osaka", "神戶", "神戸", "Kobe"], code: "UKB", name: "神戶機場" },
+  { city: "名古屋", aliases: ["Nagoya"], code: "NGO", name: "中部國際機場" },
+  { city: "福岡", aliases: ["Fukuoka"], code: "FUK", name: "福岡機場" },
+  { city: "札幌", aliases: ["Sapporo", "新千歲", "新千歳"], code: "CTS", name: "新千歲機場" },
+  { city: "沖繩", aliases: ["沖縄", "Okinawa", "那霸", "那覇", "Naha"], code: "OKA", name: "那霸機場" },
+  { city: "首爾", aliases: ["首爾市", "Seoul", "仁川", "Incheon"], code: "ICN", name: "仁川國際機場" },
+  { city: "首爾", aliases: ["首爾市", "Seoul", "金浦", "Gimpo"], code: "GMP", name: "金浦國際機場" },
+  { city: "釜山", aliases: ["Busan"], code: "PUS", name: "金海國際機場" },
+  { city: "濟州", aliases: ["济州", "Jeju"], code: "CJU", name: "濟州國際機場" },
+  { city: "香港", aliases: ["Hong Kong"], code: "HKG", name: "香港國際機場" },
+  { city: "澳門", aliases: ["澳门", "Macau"], code: "MFM", name: "澳門國際機場" },
+  { city: "新加坡", aliases: ["Singapore"], code: "SIN", name: "樟宜機場" },
+  { city: "曼谷", aliases: ["Bangkok", "素萬那普"], code: "BKK", name: "蘇凡納布機場" },
+  { city: "曼谷", aliases: ["Bangkok", "廊曼"], code: "DMK", name: "廊曼國際機場" },
+];
+
+const flightCitySuggestions = ["高雄", "台北", "桃園", "台中", "東京", "成田", "大阪", "名古屋", "福岡", "札幌", "沖繩", "首爾", "釜山", "濟州", "香港", "澳門", "新加坡", "曼谷"];
+
+function normalizeFlightCity(value = "") {
+  return String(value).normalize("NFKC").trim().toLocaleLowerCase();
+}
+
+function airportsForCity(city = "") {
+  const target = normalizeFlightCity(city);
+  if (!target) return [];
+  return flightAirportCatalog.filter((airport) =>
+    [airport.city, ...airport.aliases].some((label) => normalizeFlightCity(label) === target),
+  );
+}
+
+function airportOptionsMarkup(city = "", currentCode = "") {
+  const airports = airportsForCity(city);
+  const code = String(currentCode || "").trim().toUpperCase();
+  if (!airports.length) {
+    return code
+      ? `<option value="${escapeHtml(code)}" selected>${escapeHtml(code)}｜目前機場</option>`
+      : `<option value="" selected>請先選擇城市</option>`;
+  }
+  const validCode = airports.some((airport) => airport.code === code) ? code : "";
+  const selectedCode = validCode || (airports.length === 1 ? airports[0].code : "");
+  const prompt = airports.length > 1
+    ? `<option value="" ${selectedCode ? "" : "selected"}>請選擇機場</option>`
+    : "";
+  return prompt + airports.map((airport) =>
+    `<option value="${airport.code}" ${airport.code === selectedCode ? "selected" : ""}>${airport.code}｜${escapeHtml(airport.name)}</option>`,
+  ).join("");
+}
+
+function refreshFlightAirportField(form, side) {
+  const cityInput = form?.elements?.[`${side}City`];
+  const airportSelect = form?.elements?.[`${side}Code`];
+  if (!cityInput || !airportSelect) return;
+  airportSelect.innerHTML = airportOptionsMarkup(cityInput.value, airportSelect.value);
+}
+
+function updateFlightFormMode(form) {
+  if (!form) return;
+  const isRoundTrip = form.elements.direction?.value === "來回" && !form.dataset.flightId;
+  const outboundHeading = form.querySelector("[data-flight-outbound-heading]");
+  if (outboundHeading) outboundHeading.hidden = !isRoundTrip;
+  const returnFields = form.querySelector("[data-flight-return-fields]");
+  if (returnFields) {
+    returnFields.hidden = !isRoundTrip;
+    returnFields.querySelectorAll("input").forEach((input) => {
+      input.disabled = !isRoundTrip;
+      input.required = isRoundTrip;
+    });
+  }
+  const routeLabel = form.querySelector("[data-flight-return-route]");
+  if (routeLabel) {
+    const departureCity = String(form.elements.departureCity?.value || "").trim() || "出發地";
+    const arrivalCity = String(form.elements.arrivalCity?.value || "").trim() || "目的地";
+    routeLabel.textContent = `${arrivalCity} → ${departureCity}`;
+  }
+  form.classList.toggle("round-trip-mode", isRoundTrip);
+}
+
 function flightItineraryDate(flight) {
   if (flight.direction === "去程") return dateMeta[0]?.[0] || compactTripDate(flight.departureDate);
   if (flight.direction === "回程") return dateMeta.at(-1)?.[0] || compactTripDate(flight.departureDate);
@@ -2119,19 +2205,33 @@ function openFlightSheet(flightId = "") {
     arrivalCode: "",
     travelers: "",
   };
+  const selectedDirection = flight.direction === "回程" ? "回程" : "去程";
+  const cityOptions = flightCitySuggestions.map((city) => `<option value="${escapeHtml(city)}"></option>`).join("");
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet flight-form-sheet" id="flight-form" data-flight-id="${escapeHtml(flight.id)}">
         <div class="section-row"><div><p class="section-kicker">航班安排</p><h2>${flight.id ? "編輯航班" : "新增航班"}</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
-        <div class="field"><label for="flight-direction">航程標記</label><select id="flight-direction" name="direction"><option ${flight.direction === "去程" ? "selected" : ""}>去程</option><option ${flight.direction === "回程" ? "selected" : ""}>回程</option><option ${flight.direction === "其他" ? "selected" : ""}>其他</option></select></div>
-        <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="departureCity" required value="${escapeHtml(flight.departureCity)}" placeholder="高雄" /></div><div class="field compact-field"><label>機場</label><input name="departureCode" maxlength="4" required value="${escapeHtml(flight.departureCode)}" placeholder="KHH" /></div></div>
-        <div class="field-grid"><div class="field"><label>出發日期</label><input name="departureDate" type="date" required value="${escapeHtml(flight.departureDate)}" /></div><div class="field"><label>出發時間</label><input name="departureTime" type="time" required value="${escapeHtml(flight.departureTime)}" /></div></div>
-        <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="arrivalCity" required value="${escapeHtml(flight.arrivalCity)}" placeholder="成田" /></div><div class="field compact-field"><label>機場</label><input name="arrivalCode" maxlength="4" required value="${escapeHtml(flight.arrivalCode)}" placeholder="NRT" /></div></div>
-        <div class="field-grid"><div class="field"><label>抵達日期</label><input name="arrivalDate" type="date" required value="${escapeHtml(flight.arrivalDate)}" /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" required value="${escapeHtml(flight.arrivalTime)}" /></div></div>
+        <div class="field"><label for="flight-direction">航程標記</label><select id="flight-direction" name="direction" data-flight-direction><option ${selectedDirection === "去程" ? "selected" : ""}>去程</option><option ${selectedDirection === "回程" ? "selected" : ""}>回程</option>${flight.id ? "" : "<option>來回</option>"}</select></div>
+        <section class="flight-leg-fields">
+          <div class="flight-segment-heading" data-flight-outbound-heading hidden><span>去程</span><strong>先填出發與抵達資料</strong></div>
+          <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="departureCity" list="flight-city-options" data-flight-city-side="departure" autocomplete="off" required value="${escapeHtml(flight.departureCity)}" placeholder="選擇或輸入城市" /></div><div class="field compact-field"><label>機場</label><select name="departureCode" required>${airportOptionsMarkup(flight.departureCity, flight.departureCode)}</select></div></div>
+          <div class="field-grid flight-date-time-grid"><div class="field"><label>出發日期</label><input name="departureDate" type="date" required value="${escapeHtml(flight.departureDate)}" /></div><div class="field"><label>出發時間</label><input name="departureTime" type="time" required value="${escapeHtml(flight.departureTime)}" /></div></div>
+          <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="arrivalCity" list="flight-city-options" data-flight-city-side="arrival" autocomplete="off" required value="${escapeHtml(flight.arrivalCity)}" placeholder="選擇或輸入城市" /></div><div class="field compact-field"><label>機場</label><select name="arrivalCode" required>${airportOptionsMarkup(flight.arrivalCity, flight.arrivalCode)}</select></div></div>
+          <div class="field-grid flight-date-time-grid"><div class="field"><label>抵達日期</label><input name="arrivalDate" type="date" required value="${escapeHtml(flight.arrivalDate)}" /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" required value="${escapeHtml(flight.arrivalTime)}" /></div></div>
+        </section>
+        <section class="flight-return-fields" data-flight-return-fields hidden>
+          <div class="flight-segment-heading"><span>回程</span><strong data-flight-return-route>目的地 → 出發地</strong></div>
+          <p class="field-note">回程會自動使用相反方向的城市與機場。</p>
+          <div class="field-grid flight-date-time-grid"><div class="field"><label>回程出發日期</label><input name="returnDepartureDate" type="date" value="${escapeHtml(state.endDate)}" /></div><div class="field"><label>回程出發時間</label><input name="returnDepartureTime" type="time" value="17:00" /></div></div>
+          <div class="field-grid flight-date-time-grid"><div class="field"><label>回程抵達日期</label><input name="returnArrivalDate" type="date" value="${escapeHtml(state.endDate)}" /></div><div class="field"><label>回程抵達時間</label><input name="returnArrivalTime" type="time" value="21:00" /></div></div>
+        </section>
+        <datalist id="flight-city-options">${cityOptions}</datalist>
+        <p class="flight-airport-note">選擇城市後，機場欄位會自動列出該城市可用的機場。</p>
         <div class="field"><label>搭乘成員</label><input name="travelers" required value="${escapeHtml(flight.travelers)}" placeholder="弟弟，或媽媽、妹妹、璋" /><span class="field-note">可填一人或多人，使用頓號或逗號分隔。</span></div>
         <div class="modal-actions">${flight.id ? `<button class="danger-button" type="button" data-delete-flight="${escapeHtml(flight.id)}">刪除</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}<button class="primary-button" type="submit">儲存航班</button></div>
       </form>
     </div>`;
+  updateFlightFormMode(sheetRoot.querySelector("#flight-form"));
 }
 
 function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "", toItemId = "" } = {}) {
@@ -2643,7 +2743,7 @@ function openAddPlaceSheet() {
         <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select><span class="field-note">新增飯店或民宿時可直接選擇「住宿」。</span></div>
         <div class="field">
           <label for="google-maps-list">Google Maps 地點或共用清單</label>
-          <textarea id="google-maps-list" name="mapsList" rows="6" required placeholder="高雄合菜 · Eddie&#10;https://maps.app.goo.gl/...&#10;&#10;或每行貼上一個地點連結"></textarea>
+          <textarea id="google-maps-list" name="mapsList" rows="6" required placeholder="貼上 Google Maps 地點或公開共用清單連結&#10;&#10;多個地點請每行貼上一個連結"></textarea>
           <span class="field-note">公開共用清單會自動展開為每個地點，再分別同步名稱、區域、類型、營業時間與電話。</span>
         </div>
         <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點／清單</button>
@@ -3306,6 +3406,18 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", (event) => {
+  const flightForm = event.target.closest("#flight-form");
+  if (flightForm && event.target.matches("[data-flight-direction]")) {
+    updateFlightFormMode(flightForm);
+    return;
+  }
+
+  if (flightForm && event.target.matches("[data-flight-city-side]")) {
+    refreshFlightAirportField(flightForm, event.target.dataset.flightCitySide);
+    updateFlightFormMode(flightForm);
+    return;
+  }
+
   if (event.target.matches("[data-transport-kind]")) {
     const transportForm = event.target.closest("#transport-form");
     const scheduledFields = transportForm?.querySelector(".transport-scheduled-fields");
@@ -3342,6 +3454,13 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const flightForm = event.target.closest("#flight-form");
+  if (flightForm && event.target.matches("[data-flight-city-side]")) {
+    refreshFlightAirportField(flightForm, event.target.dataset.flightCitySide);
+    updateFlightFormMode(flightForm);
+    return;
+  }
+
   const transportForm = event.target.closest("#transport-form");
   if (transportForm && event.target.matches('[name="departureTime"], [name="arrivalTime"], [name="durationMinutes"]')) {
     updateTransportFormValidation(transportForm);
@@ -3650,9 +3769,8 @@ document.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
     const form = new FormData(event.target);
-    const flight = {
-      id: event.target.dataset.flightId || `flight-${crypto.randomUUID?.() || Date.now()}`,
-      direction: String(form.get("direction") || "其他"),
+    const direction = String(form.get("direction") || "去程");
+    const baseFlight = {
       departureCity: String(form.get("departureCity") || "").trim(),
       departureCode: String(form.get("departureCode") || "").trim().toUpperCase(),
       departureDate: String(form.get("departureDate") || ""),
@@ -3663,15 +3781,42 @@ document.addEventListener("submit", async (event) => {
       arrivalTime: String(form.get("arrivalTime") || ""),
       travelers: String(form.get("travelers") || "").trim(),
     };
-    const index = state.flights.findIndex((item) => item.id === flight.id);
-    if (index >= 0) state.flights[index] = flight;
-    else state.flights.push(flight);
+    const isRoundTrip = direction === "來回" && !event.target.dataset.flightId;
+    let index = -1;
+    if (isRoundTrip) {
+      const batchId = crypto.randomUUID?.() || Date.now();
+      state.flights.push(
+        { ...baseFlight, id: `flight-${batchId}-outbound`, direction: "去程" },
+        {
+          ...baseFlight,
+          id: `flight-${batchId}-return`,
+          direction: "回程",
+          departureCity: baseFlight.arrivalCity,
+          departureCode: baseFlight.arrivalCode,
+          departureDate: String(form.get("returnDepartureDate") || ""),
+          departureTime: String(form.get("returnDepartureTime") || ""),
+          arrivalCity: baseFlight.departureCity,
+          arrivalCode: baseFlight.departureCode,
+          arrivalDate: String(form.get("returnArrivalDate") || ""),
+          arrivalTime: String(form.get("returnArrivalTime") || ""),
+        },
+      );
+    } else {
+      const flight = {
+        ...baseFlight,
+        id: event.target.dataset.flightId || `flight-${crypto.randomUUID?.() || Date.now()}`,
+        direction: direction === "回程" ? "回程" : "去程",
+      };
+      index = state.flights.findIndex((item) => item.id === flight.id);
+      if (index >= 0) state.flights[index] = flight;
+      else state.flights.push(flight);
+    }
     state.flights.sort((a, b) => `${a.departureDate} ${a.departureTime}`.localeCompare(`${b.departureDate} ${b.departureTime}`));
     syncFlightItineraryItems();
     persist();
     closeSheet();
     render();
-    return showToast(index >= 0 ? "航班已更新" : "航班已新增");
+    return showToast(isRoundTrip ? "來回航班已新增" : index >= 0 ? "航班已更新" : "航班已新增");
   }
 
   if (event.target.id === "add-place-day-form") {

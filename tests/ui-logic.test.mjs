@@ -295,3 +295,34 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
   assert.match(appSource, /<h2>新增地點<\/h2>/);
   assert.doesNotMatch(appSource, /<h2>一次新增多個景點<\/h2>/);
 });
+
+test("flight form offers city-aware airports and creates round trips as two legs", () => {
+  const section = sourceSection("const flightAirportCatalog", "function itineraryItemKey");
+  const { airportsForCity, airportOptionsMarkup } = new Function(
+    "escapeHtml",
+    `${section}; return { airportsForCity, airportOptionsMarkup };`,
+  )((value) => String(value));
+
+  assert.deepEqual(airportsForCity("高雄").map((airport) => airport.code), ["KHH"]);
+  assert.deepEqual(airportsForCity("東京").map((airport) => airport.code), ["NRT", "HND"]);
+  assert.match(airportOptionsMarkup("高雄"), /value="KHH" selected/);
+  assert.match(appSource, /<option>來回<\/option>/);
+  assert.doesNotMatch(sourceSection("function openFlightSheet", "function openTransportSheet"), /<option[^>]*>其他<\/option>/);
+  assert.match(appSource, /direction: "去程"/);
+  assert.match(appSource, /direction: "回程"/);
+  assert.match(appSource, /departureCity: baseFlight\.arrivalCity/);
+  assert.match(appSource, /arrivalCity: baseFlight\.departureCity/);
+});
+
+test("flight and itinerary time fields fit and center on iPhone", () => {
+  assert.match(stylesSource, /\.timeline-item\s*{[^}]*grid-template-columns:\s*72px minmax\(0, 1fr\) auto/s);
+  assert.match(stylesSource, /\.time-button\s*{[^}]*width:\s*72px[^}]*place-items:\s*center/s);
+  assert.match(stylesSource, /\.flight-date-time-grid\s*{[^}]*minmax\(0, 1\.45fr\) minmax\(118px, \.85fr\)/s);
+  assert.match(stylesSource, /\.flight-date-time-grid input\[type="date"\],[\s\S]*?min-inline-size:\s*0[\s\S]*?text-align:\s*center/s);
+});
+
+test("place import placeholder is neutral", () => {
+  const section = sourceSection("function openAddPlaceSheet", "function openDateSheet");
+  assert.doesNotMatch(section, /高雄合菜 · Eddie/);
+  assert.match(section, /貼上 Google Maps 地點或公開共用清單連結/);
+});

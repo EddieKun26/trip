@@ -1,17 +1,13 @@
-# 使用者偏好
+# User preferences
 
-- 主要語言：繁體中文。
-- 主要裝置：iPhone，特別重視 iPhone 15 Pro 首屏可用性。
-- 希望畫面精簡，避免重複導覽與不必要功能列。
-- 景點詳情使用略窄於滿版的底部面板，清單、行程及地圖入口保持一致。
-- 點擊地圖圖標時不要讓整頁自動捲動到頂端。
-- 總覽的大型收藏卡片需要支援左右滑動。
-- 規劃地圖圖標不顯示清單順序，只顯示景點代號與推薦數；當日地圖沿用相同圖標，另在右上角顯示行程順序。
-- 時間滾輪轉動只暫存，必須按 ✓ 才修改與排序；按 × 或關閉即取消。
-- 機場不屬於收藏地點，只在含有航班的當日路線中顯示。
-- 推薦標記使用暱稱首字作為代號。
-- 營業時間中的最晚入場／入店資訊換行顯示；電話不可被拆行。
-- 所有刪除操作必須二次確認。
-- 退出行程應放在右上角帳戶／成員面板內，使用小型按鈕，不佔用總覽底部。
-- iPhone 點擊新增景點輸入欄時不可自動放大；新增景點面板本身不可上下捲動，只允許結果清單內部捲動。
-- 網頁先行，成熟後再做測試 App。
+- Communicate in Traditional Chinese.
+- Design primarily for iPhone 15 Pro and avoid horizontal overflow, unexpected focus zoom, and unnecessary full-page scrolling.
+- Prefer compact, direct interfaces with important content visible without extra navigation.
+- Keep planning maps and day maps functionally separate.
+- Use Chinese display names while retaining local-language place/area names where helpful.
+- Deletion actions appear only after a left swipe and require confirmation.
+- Time changes require explicit confirm/cancel and itinerary order follows confirmed times.
+- Keep itinerary time text at its current size; use a wider symmetric pill with centered text.
+- Flight entry should offer outbound, return, and round-trip modes, with city-aware airport choices.
+- Input placeholders must be neutral and must not expose a real user's Google Maps list name.
+- Ship the web version first; build a test iOS app only after the web product matures.

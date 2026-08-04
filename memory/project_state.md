@@ -1,68 +1,21 @@
-# 目前專案狀態
+# Project state
 
-## 已上線功能
+## Implemented
 
-- 每位登入成員只會看到自己建立或已加入的旅程。
-- 可建立空白旅程，設定名稱、目的地、開始及結束日期，並可再次編輯。
-- 每個旅程提供六位邀請碼；其他成員輸入邀請碼後才會加入，並可切換自己的多個旅程。
-- 總覽及行程右上角提供分享按鈕：先複製帶邀請碼的連結，再呼叫 iPhone 原生分享選單；接收者開啟後，登入／加入欄位會自動帶入邀請碼。
-- 登入畫面可選填邀請碼；尚無旅程的首次總覽同時提供建立新旅程及直接輸入邀請碼加入。
-- 總覽帳戶顯示本旅程成員數；帳戶面板列出所有已加入成員，旅程建立者可移除其他成員。
-- 退出目前旅程的入口是帳戶／成員面板內的小型按鈕，不佔用總覽底部；建立者退出且仍有旅伴時會自動交接，最後一位成員退出則經確認後刪除旅程。
-- 旅程切換入口只放在總覽頁；地點與行程頁不重複顯示。
-- 各旅程的成員、航班、地點、投票及每日行程以不同 Redis key 分開保存。
-- 可新增、編輯及刪除多班航班，分別設定出發／抵達日期、時間、機場與搭乘成員。
-- 去程航班預設成為第一天首個行程，回程航班預設成為最後一天尾端行程，之後可與景點一起調整順序。
-- 地點可切換「全部、景點、餐廳、住宿」；清單與地圖的類型選單使用完全相同的四種分類，不顯示牛排館、自助餐等細項。
-- 地點清單維持依地區分組，標題顯示「中文名稱（當地原文）」。
-- 總覽、地點、行程三個主要頁面。
-- 六個初始景點，新增者皆為「璋」。
-- 清單及互動地圖兩種地點檢視。
-- 規劃地圖與路線地圖為獨立模式；進入規劃地圖時預設顯示全部地點，缺少座標會自動向 Google Places 補取，靠近的圖標會錯開避免互相遮住。
-- 路線地圖可看單日或所有日期，所有日期以每日不同顏色顯示；圖標保留景點簡稱與推薦數，右上角另顯示當日順序，並連接同日站點。
-- 當日地圖的航班起訖機場以紅色虛線連接；一般行程段仍使用該日期顏色的實線。
-- 航班機場不加入收藏地點；只在含有該航班的當日／所有日期路線中，依航班起訖順序顯示出發及抵達機場。
-- 地圖支援單指移動、雙指縮放及縮放按鈕。
-- Vercel Production 與 Preview 已設定獨立的 `GOOGLE_MAPS_BROWSER_KEY` 敏感環境變數。
-- 相同 revision 的背景同步不再重建地圖；操作地圖期間會延後套用遠端更新。
-- 點擊清單、行程或地圖景點會開啟一致的景點詳情。
-- 詳情包含摘要、營業時間、電話、Google Places 照片及 Google Maps 連結。
-- 景點詳情提供可編輯的共同註記，內容隨旅程同步給所有成員；訪客只能閱讀。
-- 景點可投票、加入每日行程、排序及刪除；刪除前再次確認。
-- 行程三橫線使用固定浮動卡片與插入槽拖曳，卡片跟隨手指、鄰近項目平滑讓位；長按不選取文字，刪除鍵只在行程項目向左滑時顯示。
-- 行程時間使用專用雙欄滾輪；轉動只更新待確認值，按 ✓ 才儲存並依時間重排行程與航班，按 × 或點背景則取消。
-- 行程內的「加入地點」會開啟勾選面板，不離開行程頁；面板顯示本日與其他日期安排狀態。
-- 每兩個相鄰行程之間可建立交通段；一般移動以精簡連接列呈現，指定班次或需購票的交通以完整卡片呈現。
-- 交通段可保存步行、地鐵、火車、公車、計程車、開車、渡輪或其他方式，以及起訖站、路線、班次、出發抵達時間、耗時、車資、購票狀態、搭乘成員、訂票連結與共同備註。
-- 交通卡片可直接開啟 Google Maps 路線；指定班次的訂票／憑證連結也可直接開啟。刪除交通段前會再次確認，不影響前後景點。
-- 指定班次／票券表單固定在 iPhone 可視範圍，開啟時鎖住背景及橫向位移；只有中間表單可垂直捲動。出發與抵達時間和上方一般雙欄欄位使用相同的等寬兩欄，時間數字以 20px 粗體在欄內水平、垂直置中。
-- 指定班次的抵達時間必須晚於出發時間；只填其中一個時間時不套用前後順序限制。前後行程已有時間時，交通時間及所需分鐘數必須完整落在兩者之間，否則顯示原因並停用儲存。
-- 交通段以穩定行程項目 ID 連接。拖曳或時間排序使原本兩站不再相鄰時，資料不會消失，會改列為「交通待確認」供重新連接。
-- 當日及所有日期地圖會依交通方式改變線色與虛實，並在線段中顯示交通圖示；步行為灰色點線、鐵路為紫色、公車為藍色虛線、汽車為橘色、渡輪為青色虛線，航班仍為紅色虛線。
-- 行程勾選地點面板固定在可視高度內，面板本身不捲動，只有中間景點清單可上下捲動。
-- 行程地區摘要只顯示中文並保持單行，地圖查看按鈕亦固定單行。
-- 總覽已壓縮為 iPhone 15 Pro 可在一頁查看目前旅程摘要、航班、收藏與入口。
-- 總覽收藏卡片的地點文字已在按鈕內水平及垂直置中。
-- 新增地點維持單一通用輸入欄，可自動辨識單一地點、多個 Google Maps 連結或整個公開共用清單；只有確認為清單才展開，單一短連結則回到 Places API 取得地點名稱與資料。
-- 批次匯入辨識成功後會啟用確認加入，搜尋型網址會保留 `query`／`cid` 等地點身分，不會把不同景點誤判為同一收藏。加入後會切換到新地點的類型，避免被原篩選隱藏。
-- 新增景點面板固定在 iPhone 可視高度內，整個面板不捲動；只有辨識結果區可內部捲動。輸入區使用 16px 字體，避免 iOS 聚焦時自動放大頁面。
-- 共用地點、投票、成員及行程存於 Redis，前端每 15 秒同步。
-- 暱稱搭配四位數 PIN；相同暱稱與 PIN 可跨裝置取回相同成員 ID。
-- 登入工作階段使用 HttpOnly、Secure、SameSite=Lax Cookie，有效期 180 天。
-- 新使用者登入後先看到空白旅程入口，不會自動載入東京旅程。
-- 訪客不會自動進入任何私人旅程；伺服器會拒絕未登入的讀寫要求。
-- 景點詳情以週一至週日逐行顯示營業時間；每日行程只顯示該行程日期對應星期的營業時間。
+- Public responsive web app optimized for iPhone 15 Pro.
+- Four-digit PIN identities persist across devices; guest mode is read-only.
+- Multiple private trips per member, invite-code joining, trip switching, member removal, leaving a trip, and native share links.
+- Shared Redis-backed trip data with revision-aware updates.
+- Places are separated into attractions, restaurants, and lodging. Lists are grouped by Chinese area name with local name retained.
+- Google Maps single-place links, multiple links, and public shared lists can be imported and enriched with name, area, category, hours, phone, photos, and coordinates.
+- Place details include photos, Google Maps link, votes, itinerary assignment, business hours, phone, and editable notes.
+- Planning map and day map are independent. Day maps support per-day colors, ordering badges, route lines, airports, and red dashed flight segments.
+- Daily itinerary supports time-wheel confirmation, chronological sorting, touch drag reordering, swipe deletion, add-place selection, and transport segments between adjacent items.
+- Transport segments support regular and scheduled journeys, lines/stations, departure/arrival times, duration, fares, ticket status, travelers, booking links, and time-window validation.
+- Flights support outbound and return records. New round trips create two compatible legs automatically.
+- Flight airports are selected from city-aware options; common Taiwan, Japan, Korea, and regional airports are included.
 
-## 目前資料
+## Latest validation
 
-- 六個景點皆為「璋新增」。
-- 投票為空。
-- 行程為空，沒有預設安排。
-- 住宿未設定。
-- 既有東京旅程保留原資料與原成員，但已改為私人旅程。
-
-## 驗證狀態
-
-- `node --test tests/auth.test.mjs` 已驗證跨裝置取回身分、錯誤 PIN、訪客寫入拒絕、多旅程隔離、邀請加入、私人旅程存取、建立者移除成員、舊裝置不得恢復成員及建立者退出交接。
-- `node --test tests/*.test.mjs` 共二十四項測試，另驗證 Google Maps 單一短連結辨識、公開共用清單展開、清單標題與下一行網址合併、地區中日文轉換、Google Maps `query`／`cid` 地點識別、iPhone 匯入面板固定與防聚焦縮放、退出按鈕位置、機場路線節點、紅色虛線航班、分享連結預填、地圖分類、單日／所有日期路線、時間自動排序、交通段重排待確認、交通時間範圍、交通表單與刪除確認，以及非原生拖曳互動契約。
-- 正式站已驗證四碼 PIN 介面及未登入寫入回覆 401。
+- `node --check app.js` passes.
+- `node --test tests/*.test.mjs`: 27 tests passing as of 2026-08-04.

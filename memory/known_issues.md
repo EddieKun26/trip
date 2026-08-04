@@ -1,16 +1,7 @@
-# 已知問題與限制
+# Known issues
 
-- 尚無忘記 PIN 或自行重設 PIN 功能；PIN 遺失目前需要開發者協助處理資料。
-- 每個暱稱第一次設定的 PIN 會鎖定該身分，成員應由本人先完成首次設定。
-- 四位數 PIN 僅適合小型家庭協作，不等同高安全性的公開帳號系統；已有每個暱稱／來源五分鐘最多十次嘗試的基本限制。
-- Redis 會按旅程 ID 分開，但同一旅程仍以整份資料覆寫；同一旅程的兩人極接近同時修改時可能出現後寫覆蓋先寫。
-- `GOOGLE_MAPS_BROWSER_KEY` 必須在 Google Cloud Console 設定 HTTP referrer 限制；未設定或載入失敗時會回退至 OpenStreetMap。
-- Google Places 暫時失敗時，景點詳情會保留本機摘要與既有營業資訊，不顯示最新照片。
-- Google Places 無法取得當地語言地區名稱時，清單會以現有地區名稱同時作為中文與原文顯示。
-- 當日地圖會依已設定交通方式顯示不同線型與圖示，但仍以兩站座標直線連接，不會沿道路、鐵路、航路或即時大眾運輸路線繪製；點擊交通可交由 Google Maps 顯示實際路線。
-- 交通班次、票價、購票狀態與搭乘時間目前由成員手動輸入，不會自動查詢最新時刻表或票價。
-- 使用不同 Vercel 子網域會產生不同 Cookie；家庭成員應統一使用正式網址 `trip-eddie23.vercel.app`。
-- 邀請碼目前沒有自行重設／撤銷介面；需要時由開發者處理。
-- 訪客目前沒有「輸入邀請碼只讀」模式；加入私人旅程前必須先用暱稱與 PIN 登入。
-- 帳戶面板的成員清單代表「已加入這趟旅程」，目前沒有即時在線／離線狀態。
-- 只能自動展開可公開存取的 Google Maps 共用清單；私人清單需由擁有者先改為共用連結。Google 若調整公開清單的頁面資料格式，解析器也需跟著更新。
+- The Google Maps key was previously shared in conversation. It should be rotated and restricted in Google Cloud before broader public use.
+- Google Maps browser-map availability depends on correct production referrer restrictions; Leaflet is the fallback when the key cannot load.
+- Google Maps shared-list import works only for publicly accessible lists. Private lists cannot be expanded server-side.
+- The local airport catalog is intentionally curated rather than exhaustive; unsupported cities need catalog additions.
+- Shared production data depends on Vercel/Upstash availability. Device-local state is not a substitute for the shared store.

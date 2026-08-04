@@ -1,25 +1,17 @@
-# 專案概要
+# Project
 
-## 產品
+An iPhone-first collaborative travel-planning web app. Travelers can create private trips, invite other members, collect Google Maps places, vote, build daily itineraries, add flights and transport segments, and view planning/day maps.
 
-可建立及加入多個旅程的家庭／小團體旅行規劃 Web App，優先為 iPhone 15 Pro 尺寸設計。
+## Delivery
 
-## 使用情境
+- Production: https://trip-eddie23.vercel.app
+- GitHub: `EddieKun26/trip`, branch `main`
+- Hosting: Vercel
+- Shared storage: Upstash Redis through Vercel
+- Place enrichment and maps: Google Places API and Google Maps JavaScript API
 
-- 既有東京旅程日期：9/20–9/26。
-- 使用者可另外建立任意目的地、日期與航班的空白旅程。
-- 家庭成員共同收藏、投票及安排行程。
-- 訪客可以免登入進入空白入口，但私人旅程需以暱稱與 PIN 登入並加入後才能閱覽或修改。
+## Workspace
 
-## 正式環境
-
-- 正式網址：https://trip-eddie23.vercel.app
-- GitHub：EddieKun26/trip，正式分支 `main`。
-- 部署：Vercel。
-- 共用資料：Vercel Marketplace Upstash Redis。
-- 地點資料及照片：Google Places API；金鑰只放在伺服器環境變數。
-
-## 本機目錄
-
-- 主要工作目錄：`travel-app/prototype`。
-- `trip-deploy` 是 GitHub 同步與部署用的本機副本，不是主要編輯來源。
+- Canonical source: `travel-app/prototype`
+- Deployment mirror / Git repository: `trip-deploy`
+- Never treat `trip-deploy` as the primary editing surface; copy validated source changes there before publishing.

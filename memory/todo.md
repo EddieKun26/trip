@@ -1,16 +1,6 @@
-# 待辦事項
+# Todo
 
-## 優先
-
-- 加入忘記 PIN／管理者重設 PIN 流程。
-- 在 Google Cloud Console 將 `GOOGLE_MAPS_BROWSER_KEY` 限制為正式站與需要的 Vercel 預覽網域，並確認 Maps JavaScript API 已啟用。
-- 取得實際住宿後加入東京旅程；住宿分類與綠色圖標功能已完成。
-- 繼續加入使用者後續提供的景點。
-- 依實際家人試用結果微調交通卡片密度、欄位名稱與地圖線型。
-
-## 後續候選
-
-- 改善同一旅程多人同時編輯的衝突處理；不同旅程已完全分開，但同一旅程仍採整份資料覆寫與 revision。
-- 補強自動化測試：PIN 嘗試次數限制、工作階段過期及同步衝突。
-- 成熟後再製作 iPhone 測試 App；目前維持網頁先行版。
-- 若之後需要道路／鐵路實際曲線、即時班次或自動建議，再評估 Google Routes／Transit 等額外 API；第一版維持手動可靠輸入。
+- Rotate the exposed Google Maps key, then restrict the browser key by production HTTP referrer and enable only required APIs.
+- Perform final real-device iPhone verification before packaging a test app.
+- Consider Google Routes/Transit integration only after the manual transport workflow is stable; it adds API cost and routing complexity.
+- Continue improving less-common airport coverage when users encounter an unsupported city.

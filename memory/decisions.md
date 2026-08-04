@@ -1,61 +1,27 @@
-# 重要決策
+# Decisions
 
-## 身分與權限
+## Identity and sharing
 
-- 不使用手機號碼、Email 或完整 OAuth 帳號系統。
-- 使用「暱稱＋四位數 PIN」作為家庭成員身分。
-- 同名成員必須使用已設定的 PIN；不再以暱稱相同就視為同一人。
-- PIN 使用 scrypt 加鹽雜湊後儲存，不保存明碼。
-- 修改權限由伺服器 Cookie 工作階段驗證，不能只靠前端隱藏按鈕。
-- 訪客保持免登入，但沒有預設公開旅程；必須登入後建立或用邀請碼加入旅程。
-- 每趟旅程只有一位 `ownerId` 建立者；只有建立者能移除其他成員。建立者退出時自動交接給剩餘成員的第一位，最後一位退出則刪除旅程與邀請碼。
-- 成員增刪只能由伺服器端旅程 API 修改；一般共用資料 PUT 不接受前端送來的 `members` 覆蓋，避免被移除者被舊裝置同步重新加入。
+- Identity is nickname plus four-digit PIN, not email/OAuth.
+- PIN verification uses server-side hashing and an HttpOnly secure session cookie.
+- Trips are private to members; invite codes explicitly grant access.
+- Guests may read a shared trip but cannot add, vote, reorder, edit, or delete.
 
-## 地圖
+## Data
 
-- 有 `GOOGLE_MAPS_BROWSER_KEY` 時可使用 Google Maps JavaScript 地圖。
-- 沒有瀏覽器金鑰時使用 Leaflet＋OpenStreetMap，仍保留互動圖標及手勢。
-- 不可把伺服器端 Google Places 金鑰暴露給瀏覽器。
-- 當日地圖依行程項目順序編號；航班展開為出發與抵達機場節點，但機場不寫入收藏地點。相鄰節點以直線連接作為規劃提示，不代表實際交通路線。
-- `mapView` 決定規劃／路線用途，`mapDate` 獨立決定所有日期／單日；選擇所有日期不得切回規劃地圖。
-- 所有日期路線沿用各日自己的 1 起算順序，每日使用固定色盤的一種顏色，路線不跨日相連。
-- Google Maps 使用自訂 HTML Overlay 顯示圖標，與 Leaflet 共用同一標記內容；密集地點以小幅像素偏移分開，避免圖標重疊造成「少顯示」的錯覺。
-- 航班的出發與抵達機場若屬於同一 `flightId`，該相鄰段以紅色虛線繪製；Google Maps 使用重複線段符號，Leaflet 使用 `dashArray`。
+- Each trip owns flights, places, votes, itinerary, transports, and members.
+- Flights remain one persisted record per leg. "Round trip" is a creation mode that saves one outbound and one return record so itinerary and map behavior remain compatible.
+- Itinerary items have stable IDs. Transport segments connect two adjacent item IDs and are flagged for review when reordering breaks adjacency.
+- Place categories use the shared top-level groups attraction, restaurant, and lodging.
 
-## 資料
+## Maps and external data
 
-- 舊東京資料保留在 `tokyo-family-trip:v1`，首次讀取時遷移至旅程 ID `tokyo-family-2026`。
-- 新資料以 `tokyo-family-trip:trip:{tripId}` 分開保存；成員另有自己的旅程 ID 清單。
-- 新旅程預設為私人；伺服器只有在成員屬於該旅程時才允許讀寫。
-- 旅程使用六位邀請碼加入；加入某旅程不會讓對方看見自己的其他旅程。
-- 舊東京旅程不再使用曾出現在程式碼裡的固定邀請碼；部署後自動撤銷舊碼並產生隨機碼。
-- 既有東京旅程是「璋」等原成員的私人旅程，不是新使用者或訪客的預設內容。
-- App 不設定全域預設旅程；登入後只從該成員自己的旅程清單選取，沒有旅程時顯示建立／加入入口。
-- 瀏覽器儲存只保存裝置端介面狀態及成員顯示資料；共用資料以伺服器為準。
-- 地點照片透過伺服器代理取得 Google Places 圖片網址，避免洩漏 API 金鑰。
-- 地區資料保存中文 `area` 與當地原文 `areaOriginal`；清單分組顯示兩者，舊資料使用已知地名對照補齊。
-- Google Places 在繁體中文要求下仍可能回傳羅馬字地區；伺服器以當地原文轉換為繁體中文，前端另保留既有羅馬字資料的對照修正。
-- 航班仍由 `flights` 保存完整資料，並在 `itinerary` 以 `type: flight`、`flightId` 建立可排序的行程參照，避免複製航班內容。
-- `itinerary` 的每個景點與航班參照都必須有穩定 `id`；交通段以 `date + fromItemId + toItemId` 連接相鄰行程，不以可能重複或變動的顯示名稱建立關聯。
-- 一般市區移動使用精簡交通列；指定班次、需購票或需要保留完整時間的移動使用完整交通卡片。兩者共用同一 `transports` 資料模型。
-- 行程重新排序不自動猜測交通段的新目的地。原連接失效時保留資料並標記 `needsReview`，由成員重新選擇相鄰兩站，避免班次或購票資訊被靜默接錯。
-- Google Maps 路線採跨平台 Maps URL (`api=1`)，不額外呼叫付費 Directions API；App 內線段仍是相鄰地點間的規劃提示，不宣稱為實際道路或鐵道路徑。
-- 交通出發與抵達時間若都有填寫，抵達必須嚴格晚於出發；只填一個時不推測另一個。前後行程有有效時間時，以前一站時間為下限、後一站時間為上限，班次時間及所需分鐘數都不得超出該區間。
-- 分享網址使用 `?invite={六位碼}`；未登入者在登入表單預填，已登入者開啟預填加入面板。分享按鈕同時嘗試複製連結與呼叫 Web Share API，以支援 AirDrop 和通訊軟體。
-- 景點共同註記直接保存於該旅程的 place 物件，屬於旅程共用資料，不建立個人私密註記。
-- Google Maps 地點去重優先使用 Places `placeId`，其次使用包含 `query_place_id`／`cid`／`ftid`／`query`／`q` 的正規化網址；只有缺少可用網址時才以名稱比對，避免 `maps.google.com/?cid=...`、同名分店或不同搜尋連結被誤判重複。
-- Google Maps 公開共用清單由伺服器跟隨短連結、讀取公開清單資料後展開；前端只接收地點結果，不暴露 Places API 金鑰。展開後的地點使用清單內的經緯度作為 Places 搜尋範圍，不限於東京且避免同名或地址數字造成跨國誤配。
-- 新增地點不要求使用者預選「單一地點／清單」；同一欄位先由伺服器確認短連結類型，非清單連結使用展開後的地點名稱或回退 Places API 辨識。尚未取得真實名稱的 unresolved 項目不可加入收藏。
-- 貼上「清單標題」下一行再貼網址時，兩行必須合併為同一個匯入候選，不可將清單標題當成景點。
+- Google Maps JavaScript API is the preferred interactive map; Leaflet/OpenStreetMap remains a fallback.
+- Places imports support ordinary place links and public shared-list expansion before Places enrichment.
+- Airport selection uses a local city-to-airport catalog to avoid manual airport-code entry and extra API cost.
 
-## 產品範圍
+## Mobile UI
 
-- 第一階段不做分帳、AI 分析、複雜權限及自動路線最佳化。
-- 目前優先完成地點、地圖、多人投票、行程及家庭成員身分。
-- 旅程切換只出現在總覽頁，避免地點與行程頁重複入口。
-- 行程時間使用 App 內雙欄 scroll-snap 滾輪，待確認時間與正式行程資料分離；只有 ✓ 會提交，×、背景關閉都不修改資料。
-- 景點時間變更後，當日景點與航班會依有效時間穩定排序；相同時間維持原有先後。
-- 行程拖曳採固定定位的浮動卡片與列表插入槽，排序期間不讓滑動刪除層露出，也停用文字選取與長按選單。
-- 從行程加入景點採同頁 modal 勾選，不切換到地點頁；重複日期狀態必須在勾選前可見。
-- 交通編輯採略窄的固定高度底部面板，外層不捲動，僅表單內容區內部捲動；所有輸入維持至少 16px，避免 iPhone 聚焦放大。
-- 交通時間欄須與路線名稱／所需時間使用相同的等寬雙欄，不可用固定窄寬或裁切避免重疊；iOS 原生 `time` 元件改以無外觀模式服從欄寬，時間數字使用 20px 粗體置中，同時保留點擊後的原生時間選擇功能。
+- iPhone native form controls must have bounded grid tracks and at least 16px input text to avoid overlap and focus zoom.
+- Itinerary time pills keep their established type size; width and centering are adjusted instead.
+- Flight date/time controls remain side by side, with more room assigned to the date.

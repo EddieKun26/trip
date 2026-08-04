@@ -1,73 +1,19 @@
-# 變更紀錄
+# Changelog
 
 ## 2026-08-04
 
-- 修正支援公開共用清單後，單一 Google Maps 短連結被留在「無法辨識」且不能加入的回歸問題；維持通用輸入欄，自動將非清單連結交回 Places API 辨識。
-- 修正交通表單切換至指定班次／票券後時間欄互相重疊或內容被裁切；出發與抵達時間改為和一般欄位相同的等寬雙欄，完整顯示內容並保留 iPhone 原生時間選擇。
-- 放大交通出發／抵達時間數字，改為粗體並在欄位內水平與垂直置中。
-- 新增交通時間驗證：抵達必須晚於出發，且班次時間與所需分鐘數不得超出前後行程的可用時間；不合法時停用儲存並顯示原因。
-- 新增相鄰行程間的交通段，可選步行、地鐵、火車、公車、計程車、開車、渡輪與其他交通方式。
-- 一般移動採精簡連接列；指定班次／需購票採完整卡片，支援起訖站、路線、班次、時間、耗時、車資、購票狀態、搭乘成員、訂票連結與備註。
-- 新增 Google Maps 跨平台路線跳轉，無須額外 Directions API 金鑰。
-- 交通段加入共用旅程資料庫，改以穩定行程 ID 關聯；拖曳或時間排序破壞相鄰關係時保留資料並顯示「交通待確認」。
-- 地圖依交通方式顯示不同顏色、虛實線與中點交通圖示，航班持續使用紅色虛線。
-- 新增交通刪除二次確認與 iPhone 固定高度編輯面板；自動化測試增加至二十三項並全部通過。
+- Widened and centered itinerary time pills without changing their type size.
+- Fixed iPhone flight date/time overlap with bounded, centered fields.
+- Added city-aware airport selection.
+- Replaced the flight type "Other" with "Round trip" for new flights; round trips create outbound and return legs.
+- Removed the named Google Maps list example from the add-place placeholder.
+- Restored reliable single-place imports while retaining public shared-list expansion.
+- Added manual transport segments, scheduled ticket details, validation, and route links.
 
 ## 2026-08-03
 
-- 新增 Google Maps 公開共用清單匯入：貼上一個整份清單的分享連結，會自動展開為每個地點再逐筆補齊 Places 資料。
-- 修正「清單標題一行、網址下一行」被當成兩個景點的問題，並保留單一地點及多行連結匯入。
-- 批次 Places 辨識改為每十筆分段處理，公開清單地點會用清單座標限定附近搜尋，可正確辨識東京以外的區域並降低跨國誤配。
-- 修正 Google 回傳 `maps.google.com/?cid=...` 時忽略 cid，導致任意新景點被誤判為既有收藏的問題；The Giant 3D Cat 連結已用正式 API 結果驗證。
-- 新增景點成功後自動切換到該地點類型，避免新收藏被目前分類篩選隱藏。
-- 新增景點面板改為固定高度、不整頁捲動，只有結果區可捲動；輸入欄改為 16px 防止 iPhone 聚焦自動放大。
-- 修正 Google Maps 搜尋型連結忽略 query，導致不同景點被誤判已收藏、確認加入按鈕無法使用的問題。
-- Google Places 匯入資料新增 `placeId`，並統一以 placeId／完整地點識別網址去重。
-- 將總覽底部的退出行程文字移除，改為帳戶成員面板內的小型按鈕。
-- 新增旅程成員清單與建立者移除成員；被移除者同步失去存取，舊裝置 PUT 也不能恢復成員資格。
-- 新增退出旅程；建立者有其他旅伴時自動交接，最後一人退出時確認刪除旅程。
-- 登入及空白首次總覽新增邀請碼欄位，分享網址開啟時會自動預填。
-- 總覽與行程新增原生分享按鈕，邀請連結會先複製並可透過 AirDrop 或通訊軟體分享。
-- 景點詳情新增旅程共用的可編輯註記。
-- 當日地圖的同一航班起訖機場改用紅色虛線連接。
-- 時間選擇改為待確認雙欄滾輪，新增 ✓ 套用與 × 取消；轉動時不再立即修改行程。
-- 地圖類型改為與清單一致的全部／景點／餐廳／住宿，不再使用 Google Places 細分類。
-- 行程勾選地點面板改為固定高度，只讓中間景點清單捲動。
-- 航班起訖機場加入當日路線節點，但不加入收藏景點；未知機場可用無區域偏向的 Places 搜尋補座標。
-- 時間變更後自動依先後排序同日景點與航班。
-- 規劃地圖進入時恢復全部篩選，自動補取缺失座標並錯開密集圖標。
-- 當日圖標恢復景點簡稱與推薦數，新增獨立的右上角順序徽章；Google Maps 與 Leaflet 共用樣式。
-- 總覽收藏卡片文字改為水平與垂直置中。
-- 將「所有日期路線」從規劃地圖分離，新增每日不同顏色的圖標與獨立連線。
-- 重寫行程拖曳為跟手浮動卡片與插入槽，停用長按選字並避免排序時露出刪除鈕。
-- 行程加入地點改為同頁勾選面板，新增本日／其他日期安排提示與分類切換。
-- 修正地圖查看、行程地區摘要斷行；摘要改用中文地區名稱。
-- 移除地圖頁無效的「互動地圖」標籤，並壓縮總覽至 iPhone 15 Pro 單頁高度。
-- 修正 Google Places 回傳 Ginza 等羅馬字地區時無法顯示中文與日文原名的問題。
-- 行程拖曳改為即時平滑讓位，取消 iPhone 原生半透明拖曳；刪除鍵只由左滑顯示。
-- 地點清單分組標題新增地區中文名稱與當地原文。
-- 將去程／回程航班整合為首日／末日的可排序行程項目，移除每天底部重複航班卡片。
-- 每日行程的景點營業資訊改為只顯示該天星期的時間。
-- 取消全域預設東京旅程；新成員使用空白旅程入口，既有東京資料保留為原成員的私人旅程。
-- 將旅程切換入口集中在總覽頁，移除地點與行程頁的重複切換列。
-- 訪客入口改為中立空白畫面，不再自動載入東京資料。
-- 將 Google Maps 瀏覽器金鑰存入 Vercel Production 與 Preview 的敏感環境變數，未寫入 GitHub。
-- 撤銷舊東京旅程的固定邀請碼，改為自動產生的隨機六位碼。
-- 建立專案 Memory，作為後續工作的主要知識來源。
-- 將單一東京旅程重構成多旅程工作區，新增空白旅程、切換與邀請碼加入。
-- 每位成員只讀寫自己建立或加入的旅程，私人旅程由伺服器驗證成員資格。
-- 新增可編輯的多班航班與搭乘成員註記。
-- 新增景點、餐廳、住宿分類，清單與地圖共用篩選。
-- 修正地圖背景同步造成的突然重建，Google Maps 模式指定預設道路地圖。
-- 營業時間統一為每個星期逐行顯示。
-
-## 2026-07-31
-
-- 加入暱稱＋四位數 PIN 成員身分。
-- PIN 改為 scrypt 加鹽雜湊，登入使用伺服器 HttpOnly Cookie。
-- 同一暱稱與 PIN 可跨裝置取回相同成員 ID。
-- 伺服器拒絕訪客寫入，並加入錯誤 PIN 嘗試限制。
-- 新增身分與權限自動化測試。
-- 啟用共用 Redis 資料庫並完成第一筆旅程資料初始化。
-- 加入訪客唯讀模式、Google Places 照片代理及互動地圖。
-- 修復地圖圖標消失、中文暱稱同步及點擊地圖捲動問題。
+- Added multi-trip membership, invitations, sharing, leaving, and member removal.
+- Added shared Redis persistence and four-digit PIN identities.
+- Added Google Maps interactive planning/day maps, airport markers, route ordering, and flight paths.
+- Added place categories, Google Maps enrichment, notes, photos, hours, phone, and voting attribution.
+- Added itinerary time confirmation, chronological sorting, touch reordering, and swipe deletion.
