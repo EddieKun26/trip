@@ -170,7 +170,9 @@ test("transport UI supports compact and scheduled cards, route links, members, a
   assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-y:\s*auto/s);
   assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-x:\s*hidden/s);
   assert.match(stylesSource, /\.transport-sheet \.field-grid\s*{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/s);
-  assert.match(stylesSource, /\.transport-sheet \.transport-time-grid\s*{[^}]*repeat\(2, minmax\(0, 132px\)\)/s);
+  assert.match(stylesSource, /\.transport-sheet \.transport-time-grid\s*{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/s);
+  assert.match(stylesSource, /\.transport-sheet input\[type="time"\]\s*{[^}]*-webkit-appearance:\s*none/s);
+  assert.doesNotMatch(stylesSource, /\.transport-sheet \.transport-time-grid \.field\s*{[^}]*overflow:\s*hidden/s);
   assert.match(appSource, /data-transport-validation/);
   assert.match(appSource, /data-transport-save/);
   assert.match(appSource, /document\.body\.classList\.add\("transport-sheet-open"\)/);

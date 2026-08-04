@@ -1866,14 +1866,12 @@ body.transport-sheet-open .app {
 }
 
 .transport-sheet .transport-time-grid {
-  grid-template-columns: repeat(2, minmax(0, 132px));
-  justify-content: space-between;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
 }
 
 .transport-sheet .transport-time-grid .field {
   width: 100%;
-  overflow: hidden;
 }
 
 .transport-sheet .field,
@@ -1891,15 +1889,21 @@ body.transport-sheet-open .app {
 }
 
 .transport-sheet input[type="time"] {
+  display: block;
   width: 100%;
   inline-size: 100%;
   min-inline-size: 0;
   max-inline-size: 100%;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .transport-sheet input[type="time"]::-webkit-date-and-time-value,
 .transport-sheet input[type="time"]::-webkit-datetime-edit {
+  width: 100%;
   min-width: 0;
+  margin: 0;
+  padding: 0;
   text-align: left;
 }
 
@@ -3253,7 +3257,7 @@ body.transport-sheet-open .app {
   }
 
   .transport-sheet .transport-time-grid {
-    grid-template-columns: repeat(2, minmax(0, 132px));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .screen.map-screen {
