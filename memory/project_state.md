@@ -9,7 +9,7 @@
 - Places are separated into attractions, restaurants, and lodging. Lists are grouped by Chinese area name with local name retained.
 - Google Maps single-place links, multiple links, and public shared lists can be imported and enriched with name, area, category, hours, phone, photos, and coordinates.
 - Place details include photos, Google Maps link, votes, itinerary assignment, business hours, phone, and editable notes.
-- Planning map and day map are independent. Day maps support per-day colors, ordering badges, route lines, airports, and red dashed flight segments.
+- Planning map and day map are independent. The planning map has an optional device-only live-location layer with an accuracy radius; day maps support per-day colors, ordering badges, route lines, airports, and red dashed flight segments.
 - Daily itinerary supports time-wheel confirmation, chronological sorting, touch drag reordering, swipe deletion, add-place selection, and transport segments between adjacent items.
 - Transport segments support regular and scheduled journeys, lines/stations, departure/arrival times, duration, fares, ticket status, travelers, booking links, and time-window validation.
 - Flights support outbound and return records. New round trips create two compatible legs automatically.
@@ -20,4 +20,4 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 28 tests passing as of 2026-08-04.
+- `node --test tests/*.test.mjs`: 29 tests passing as of 2026-08-05.

@@ -117,6 +117,20 @@ test("map type filter uses the same attraction restaurant and lodging groups as 
   assert.match(mapSection, /data-map-kind/);
 });
 
+test("planning map live location is private, optional, and cleaned up", () => {
+  const locationSection = sourceSection("function liveLocationLabel", "function markerHtml");
+  const payloadSection = sourceSection("function sharedTripPayload", "function applySharedTrip");
+  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
+  assert.match(mapSection, /state\.mapView === "planning"[\s\S]*data-toggle-live-location/);
+  assert.match(locationSection, /navigator\.geolocation\.watchPosition/);
+  assert.match(locationSection, /navigator\.geolocation\.clearWatch/);
+  assert.match(locationSection, /new google\.maps\.Circle/);
+  assert.match(locationSection, /L\.circleMarker/);
+  assert.match(appSource, /window\.addEventListener\("pagehide", \(\) => stopLiveLocation\(\)\)/);
+  assert.doesNotMatch(payloadSection, /liveLocation/);
+  assert.match(stylesSource, /\.map-live-location-toggle\.active/);
+});
+
 test("day map renders flight legs as red dashed route segments", () => {
   const routeSection = sourceSection("function mapRouteGroups", "function offsetOverlappingMapPins");
   const mapRouteSegments = new Function("state", "routeColorForDate", "transportForPair", "transportModeMeta", `${routeSection}; return mapRouteSegments;`)(

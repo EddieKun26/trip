@@ -19,6 +19,7 @@
 - Google Maps JavaScript API is the preferred interactive map; Leaflet/OpenStreetMap remains a fallback.
 - Places imports support ordinary place links and public shared-list expansion before Places enrichment.
 - Airport selection uses a local city-to-airport catalog to avoid manual airport-code entry and extra API cost.
+- Live location is opt-in and planning-map-only. It stays in browser memory, is never written to shared trip data, and stops when disabled, leaving the map, or closing the page.
 
 ## Mobile UI
 

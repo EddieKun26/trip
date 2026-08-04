@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-05
+
+- Added an optional planning-map live-location switch with a blue position marker and accuracy radius for Google Maps and Leaflet.
+- Kept live location device-only and stopped geolocation tracking when disabled, leaving the planning map, or closing the page.
+
 ## 2026-08-04
 
 - Replaced top-aligned iPhone date/time text with centered app-rendered values while retaining native pickers.

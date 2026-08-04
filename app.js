@@ -239,6 +239,16 @@ let sharedSaveTimer = 0;
 let sharedSyncBusy = false;
 let mapRenderToken = 0;
 let activeLeafletMap = null;
+let activeGoogleMap = null;
+let activeGoogleLocationMarker = null;
+let activeGoogleAccuracyCircle = null;
+let activeLeafletLocationMarker = null;
+let activeLeafletAccuracyCircle = null;
+let liveLocationWatchId = null;
+let liveLocationEnabled = false;
+let liveLocationPosition = null;
+let liveLocationError = "";
+let liveLocationHasCentered = false;
 let googleMapsLoader = null;
 let mapInteractionUntil = 0;
 let mapCoordinatesLoading = false;
@@ -1731,6 +1741,11 @@ function mapScreen() {
       <div class="map-canvas" data-map-host>
         <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
         <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
+        ${state.mapView === "planning" ? `
+          <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
+            <span class="map-live-location-icon" aria-hidden="true">⌖</span>
+            <b data-live-location-label>${liveLocationLabel()}</b>
+          </button>` : ""}
         ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
         ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
       </div>
@@ -1744,6 +1759,175 @@ function mapPinColor(status) {
     lodging: "#50805e",
     candidate: "#777975",
   }[status] || "#777975";
+}
+
+function liveLocationLabel() {
+  if (!liveLocationEnabled) return "顯示位置";
+  if (liveLocationError && !liveLocationPosition) return "定位失敗";
+  if (!liveLocationPosition) return "定位中…";
+  const accuracy = Math.max(1, Math.round(liveLocationPosition.accuracy || 0));
+  return accuracy >= 1000 ? `位置 ±${(accuracy / 1000).toFixed(1)}km` : `位置 ±${accuracy}m`;
+}
+
+function updateLiveLocationControl() {
+  const control = document.querySelector("[data-toggle-live-location]");
+  if (!control) return;
+  control.classList.toggle("active", liveLocationEnabled);
+  control.classList.toggle("locating", liveLocationEnabled && !liveLocationPosition && !liveLocationError);
+  control.classList.toggle("location-error", Boolean(liveLocationError));
+  control.setAttribute("aria-checked", String(liveLocationEnabled));
+  control.setAttribute("title", liveLocationEnabled ? "停止顯示即時位置" : "在規劃地圖顯示我的即時位置");
+  const label = control.querySelector("[data-live-location-label]");
+  if (label) label.textContent = liveLocationLabel();
+}
+
+function clearLiveLocationLayers() {
+  activeGoogleLocationMarker?.setMap(null);
+  activeGoogleAccuracyCircle?.setMap(null);
+  activeGoogleLocationMarker = null;
+  activeGoogleAccuracyCircle = null;
+  activeLeafletLocationMarker?.remove?.();
+  activeLeafletAccuracyCircle?.remove?.();
+  activeLeafletLocationMarker = null;
+  activeLeafletAccuracyCircle = null;
+}
+
+function syncLiveLocationLayers({ center = false } = {}) {
+  if (!liveLocationEnabled || !liveLocationPosition) return;
+  const { latitude, longitude, accuracy } = liveLocationPosition;
+  const googlePosition = { lat: latitude, lng: longitude };
+  if (activeGoogleMap && window.google?.maps) {
+    if (!activeGoogleAccuracyCircle) {
+      activeGoogleAccuracyCircle = new google.maps.Circle({
+        map: activeGoogleMap,
+        center: googlePosition,
+        radius: accuracy,
+        clickable: false,
+        fillColor: "#1473e6",
+        fillOpacity: 0.12,
+        strokeColor: "#1473e6",
+        strokeOpacity: 0.38,
+        strokeWeight: 1,
+        zIndex: 900,
+      });
+    } else {
+      activeGoogleAccuracyCircle.setCenter(googlePosition);
+      activeGoogleAccuracyCircle.setRadius(accuracy);
+    }
+    if (!activeGoogleLocationMarker) {
+      activeGoogleLocationMarker = new google.maps.Marker({
+        map: activeGoogleMap,
+        position: googlePosition,
+        title: "我的即時位置",
+        zIndex: 1000,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: "#1473e6",
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 3,
+        },
+      });
+    } else {
+      activeGoogleLocationMarker.setPosition(googlePosition);
+    }
+    if (center) {
+      activeGoogleMap.panTo(googlePosition);
+      if ((activeGoogleMap.getZoom() || 0) < 15) activeGoogleMap.setZoom(15);
+      liveLocationHasCentered = true;
+    }
+    return;
+  }
+  if (activeLeafletMap && window.L) {
+    const leafletPosition = [latitude, longitude];
+    if (!activeLeafletAccuracyCircle) {
+      activeLeafletAccuracyCircle = L.circle(leafletPosition, {
+        radius: accuracy,
+        color: "#1473e6",
+        weight: 1,
+        opacity: 0.42,
+        fillColor: "#1473e6",
+        fillOpacity: 0.12,
+        interactive: false,
+      }).addTo(activeLeafletMap);
+    } else {
+      activeLeafletAccuracyCircle.setLatLng(leafletPosition).setRadius(accuracy);
+    }
+    if (!activeLeafletLocationMarker) {
+      activeLeafletLocationMarker = L.circleMarker(leafletPosition, {
+        radius: 8,
+        color: "#ffffff",
+        weight: 3,
+        fillColor: "#1473e6",
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(activeLeafletMap);
+    } else {
+      activeLeafletLocationMarker.setLatLng(leafletPosition);
+    }
+    if (center) {
+      activeLeafletMap.setView(leafletPosition, Math.max(activeLeafletMap.getZoom() || 0, 15));
+      liveLocationHasCentered = true;
+    }
+  }
+}
+
+function stopLiveLocation({ notify = false } = {}) {
+  if (liveLocationWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(liveLocationWatchId);
+  }
+  liveLocationWatchId = null;
+  liveLocationEnabled = false;
+  liveLocationPosition = null;
+  liveLocationError = "";
+  liveLocationHasCentered = false;
+  clearLiveLocationLayers();
+  updateLiveLocationControl();
+  if (notify) showToast("已停止顯示即時位置");
+}
+
+function handleLiveLocationError(error) {
+  const message = error?.code === 1
+    ? "請允許瀏覽器使用定位後再試一次"
+    : error?.code === 2
+      ? "目前無法取得位置，請確認定位服務已開啟"
+      : "定位逾時，仍會繼續嘗試更新";
+  const shouldNotify = liveLocationError !== message;
+  liveLocationError = message;
+  if (error?.code === 1) {
+    stopLiveLocation();
+  } else {
+    updateLiveLocationControl();
+  }
+  if (shouldNotify) showToast(message);
+}
+
+function startLiveLocation() {
+  if (state.mapView !== "planning") return;
+  if (!window.isSecureContext || !navigator.geolocation) {
+    return showToast("此瀏覽器無法使用即時定位");
+  }
+  liveLocationEnabled = true;
+  liveLocationPosition = null;
+  liveLocationError = "";
+  liveLocationHasCentered = false;
+  updateLiveLocationControl();
+  liveLocationWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (!liveLocationEnabled) return;
+      liveLocationPosition = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: Math.max(1, position.coords.accuracy || 1),
+      };
+      liveLocationError = "";
+      syncLiveLocationLayers({ center: !liveLocationHasCentered });
+      updateLiveLocationControl();
+    },
+    handleLiveLocationError,
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
+  );
 }
 
 function markerHtml(place) {
@@ -1786,6 +1970,9 @@ function loadGoogleMapsScript(key) {
 }
 
 function renderGoogleInteractiveMap(host, places) {
+  clearLiveLocationLayers();
+  activeLeafletMap?.remove();
+  activeLeafletMap = null;
   host.innerHTML = "";
   const center = places.length
     ? {
@@ -1802,6 +1989,7 @@ function renderGoogleInteractiveMap(host, places) {
     fullscreenControl: false,
     streetViewControl: false,
   });
+  activeGoogleMap = map;
   map.addListener("dragstart", () => { mapInteractionUntil = Date.now() + 5000; });
   map.addListener("zoom_changed", () => { mapInteractionUntil = Date.now() + 3000; });
   const bounds = new google.maps.LatLngBounds();
@@ -1870,10 +2058,13 @@ function renderGoogleInteractiveMap(host, places) {
     new TripPlaceOverlay(place).setMap(map);
   });
   if (places.length > 1) map.fitBounds(bounds, 42);
+  syncLiveLocationLayers({ center: liveLocationEnabled });
 }
 
 function renderLeafletInteractiveMap(host, places) {
   if (!window.L) throw new Error("LEAFLET_NOT_AVAILABLE");
+  clearLiveLocationLayers();
+  activeGoogleMap = null;
   activeLeafletMap?.remove();
   host.innerHTML = "";
   activeLeafletMap = L.map(host, {
@@ -1924,6 +2115,7 @@ function renderLeafletInteractiveMap(host, places) {
   });
   if (bounds.length > 1) activeLeafletMap.fitBounds(bounds, { padding: [42, 42] });
   else activeLeafletMap.setView(bounds[0] || [35.6762, 139.6503], bounds.length ? 14 : 11);
+  syncLiveLocationLayers({ center: liveLocationEnabled });
 }
 
 async function ensureMapCoordinates() {
@@ -2033,8 +2225,15 @@ async function initializeInteractiveMap() {
   try {
     renderLeafletInteractiveMap(host, places);
   } catch {
+    clearLiveLocationLayers();
+    activeGoogleMap = null;
+    activeLeafletMap = null;
     const center = places[0] || { latitude: 35.6762, longitude: 139.6503 };
     host.innerHTML = `<iframe title="Google Maps 互動地圖" src="https://www.google.com/maps?q=${center.latitude},${center.longitude}&z=11&output=embed" loading="eager" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>`;
+    if (liveLocationEnabled) {
+      stopLiveLocation();
+      showToast("目前的地圖模式不支援即時位置");
+    }
   }
 }
 
@@ -2188,9 +2387,13 @@ function render({ preserveScroll = false } = {}) {
   else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
   if (state.activeTab === "places" && state.placesMode === "map") {
+    if (state.mapView !== "planning" && liveLocationEnabled) stopLiveLocation();
     window.requestAnimationFrame(initializeInteractiveMap);
   } else {
+    if (liveLocationEnabled) stopLiveLocation();
     mapRenderToken += 1;
+    clearLiveLocationLayers();
+    activeGoogleMap = null;
     activeLeafletMap?.remove();
     activeLeafletMap = null;
   }
@@ -3244,6 +3447,12 @@ document.addEventListener("click", async (event) => {
     return render();
   }
 
+  if (event.target.closest("[data-toggle-live-location]")) {
+    if (liveLocationEnabled) stopLiveLocation({ notify: true });
+    else startLiveLocation();
+    return;
+  }
+
   if (event.target.closest("[data-open-itinerary-places]")) {
     if (!canEdit()) return guestOnlyMessage();
     state.itineraryPlaceKind = "all";
@@ -4170,3 +4379,4 @@ if (state.profile) {
 window.setInterval(() => {
   if (!document.hidden && state.tripId) loadSharedTrip({ quiet: true });
 }, 15000);
+window.addEventListener("pagehide", () => stopLiveLocation());

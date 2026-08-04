@@ -886,6 +886,76 @@ h2 {
   font-weight: 800;
 }
 
+.map-live-location-toggle {
+  position: absolute;
+  z-index: 7;
+  right: 12px;
+  bottom: 34px;
+  min-width: 112px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid rgba(61, 55, 49, 0.18);
+  border-radius: 99px;
+  background: rgba(255, 250, 242, 0.96);
+  color: #4b4d4b;
+  box-shadow: 0 5px 18px rgba(45, 35, 29, 0.18);
+  backdrop-filter: blur(10px);
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+
+.map-live-location-toggle b {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.map-live-location-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #eceae5;
+  color: #5f6566;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.map-live-location-toggle.active {
+  border-color: rgba(20, 115, 230, 0.34);
+  background: rgba(245, 250, 255, 0.98);
+  color: #0b62be;
+}
+
+.map-live-location-toggle.active .map-live-location-icon {
+  background: #1473e6;
+  color: white;
+  box-shadow: 0 0 0 5px rgba(20, 115, 230, 0.13);
+}
+
+.map-live-location-toggle.locating .map-live-location-icon {
+  animation: map-location-pulse 1.3s ease-in-out infinite;
+}
+
+.map-live-location-toggle.location-error {
+  border-color: rgba(200, 69, 45, 0.34);
+  color: #ad3928;
+}
+
+.map-live-location-toggle.location-error .map-live-location-icon {
+  background: #c8452d;
+  box-shadow: none;
+}
+
+@keyframes map-location-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(20, 115, 230, 0.12); }
+  50% { box-shadow: 0 0 0 8px rgba(20, 115, 230, 0.04); }
+}
+
 .google-place-pin {
   position: relative;
   width: 42px;
