@@ -35,7 +35,7 @@ test("day map follows itinerary order and represents flights with the relevant a
       ],
     },
   };
-  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", `const dateMeta = [["9/20", "週日"]]; const airportCoordinateCache = { KHH: { latitude: 22.57, longitude: 120.35 }, NRT: { latitude: 35.77, longitude: 140.39 } }; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true);
+  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", "ensureItineraryItemIds", "itineraryItemKey", `const dateMeta = [["9/20", "週日"]]; const airportCoordinateCache = { KHH: { latitude: 22.57, longitude: 120.35 }, NRT: { latitude: 35.77, longitude: 140.39 } }; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true, () => {}, (item) => item.id || (item.type === "flight" ? `flight:${item.flightId}` : `place:${item.name}`));
   assert.deepEqual(filteredMapPlaces().map(({ name, dayOrder, isAirport = false }) => [name, dayOrder, isAirport]), [
     ["下午景點", 1, false],
     ["高雄機場（KHH）", 2, true],
@@ -55,7 +55,7 @@ test("all-date route map keeps daily ordering and assigns different route colors
       "9/21": [{ name: "首爾景點", time: "09:00" }],
     },
   };
-  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", `const dateMeta = [["9/20", "週日"], ["9/21", "週一"]]; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true);
+  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", "ensureItineraryItemIds", "itineraryItemKey", `const dateMeta = [["9/20", "週日"], ["9/21", "週一"]]; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true, () => {}, (item) => item.id || `place:${item.name}`);
   const places = filteredMapPlaces();
   assert.deepEqual(places.map(({ routeDate, dayOrder }) => [routeDate, dayOrder]), [["9/20", 1], ["9/21", 1]]);
   assert.notEqual(places[0].routeColor, places[1].routeColor);
@@ -87,7 +87,7 @@ test("changing a time sorts places and flights chronologically", () => {
       ],
     },
   };
-  const sortItineraryByTime = new Function("state", `${section}; return sortItineraryByTime;`)(state);
+  const sortItineraryByTime = new Function("state", "reconcileTransportSegments", `${section}; return sortItineraryByTime;`)(state, () => {});
   sortItineraryByTime("9/20");
   assert.deepEqual(state.itinerary["9/20"].map((item) => item.name || item.flightId), ["早上景點", "outbound", "下午景點"]);
 });
@@ -119,9 +119,11 @@ test("map type filter uses the same attraction restaurant and lodging groups as 
 
 test("day map renders flight legs as red dashed route segments", () => {
   const routeSection = sourceSection("function mapRouteGroups", "function offsetOverlappingMapPins");
-  const mapRouteSegments = new Function("state", "routeColorForDate", `${routeSection}; return mapRouteSegments;`)(
+  const mapRouteSegments = new Function("state", "routeColorForDate", "transportForPair", "transportModeMeta", `${routeSection}; return mapRouteSegments;`)(
     { mapDate: "9/20" },
     () => "#123456",
+    () => null,
+    () => ({ color: "#777", dash: "" }),
   );
   const segments = mapRouteSegments([
     { name: "高雄機場", routeDate: "9/20", isAirport: true, flightId: "flight-1", airportRole: "departure" },
@@ -130,8 +132,42 @@ test("day map renders flight legs as red dashed route segments", () => {
   ]);
   assert.equal(segments[0].isFlight, true);
   assert.equal(segments[1].isFlight, false);
-  assert.match(appSource, /strokeColor: segment\.isFlight \? "#c8452d"/);
-  assert.match(appSource, /dashArray: segment\.isFlight \? "10 9"/);
+  assert.match(appSource, /if \(segment\.isFlight\) return \{ color: "#c8452d", dash: "10 9"/);
+  assert.match(appSource, /dashArray: style\.dash \|\| undefined/);
+});
+
+test("transport segments use stable itinerary IDs and become review items after reordering", () => {
+  const section = sourceSection("function itineraryItemKey", "function itineraryItemLabel");
+  const state = {
+    itinerary: {
+      "9/20": [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+        { id: "c", name: "C" },
+      ],
+    },
+    transports: [{ id: "t1", date: "9/20", fromItemId: "a", toItemId: "b" }],
+    flights: [],
+    places: [],
+  };
+  const reconcileTransportSegments = new Function("state", `${section}; return reconcileTransportSegments;`)(state);
+  reconcileTransportSegments("9/20");
+  assert.equal(state.transports[0].needsReview, false);
+  state.itinerary["9/20"] = [state.itinerary["9/20"][0], state.itinerary["9/20"][2], state.itinerary["9/20"][1]];
+  reconcileTransportSegments("9/20");
+  assert.equal(state.transports[0].needsReview, true);
+});
+
+test("transport UI supports compact and scheduled cards, route links, members, and confirmed deletion", () => {
+  assert.match(appSource, /function transportBetweenMarkup/);
+  assert.match(appSource, /指定班次／需購票/);
+  assert.match(appSource, /name="travelers"/);
+  assert.match(appSource, /data-open-transport-route/);
+  assert.match(appSource, /data-request-delete-transport/);
+  assert.match(appSource, /data-confirm-delete-transport/);
+  assert.match(appSource, /交通待確認/);
+  assert.match(stylesSource, /\.transport-sheet\s*{[^}]*overflow:\s*hidden/s);
+  assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-y:\s*auto/s);
 });
 
 test("shared invite links prefill login and use the native share sheet", () => {

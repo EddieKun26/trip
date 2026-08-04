@@ -1389,6 +1389,161 @@ h2 {
   border-left: 2px dashed rgba(200, 69, 45, 0.55);
 }
 
+.transport-between {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 2px 0;
+  background: var(--paper);
+}
+
+.transport-add-button {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px dashed rgba(64, 119, 122, 0.48);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.transport-card {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--transport-color) 32%, var(--line));
+  border-left: 4px solid var(--transport-color);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--transport-color) 7%, var(--paper-2));
+}
+
+.transport-card.scheduled {
+  box-shadow: 0 5px 14px rgba(55, 39, 25, 0.07);
+}
+
+.transport-card-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.transport-card-copy > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.transport-card-copy strong,
+.transport-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport-card-copy strong {
+  font-size: 12px;
+}
+
+.transport-card-copy small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.transport-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: white;
+  font-size: 16px;
+}
+
+.transport-route-button {
+  min-height: 30px;
+  margin-right: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: white;
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.transport-review-card {
+  display: grid;
+  gap: 8px;
+  margin: -4px 0 18px 12px;
+  padding: 12px;
+  border: 1px solid rgba(191, 123, 43, 0.36);
+  border-radius: 16px;
+  background: rgba(248, 233, 205, 0.62);
+}
+
+.transport-review-card > div {
+  display: grid;
+  gap: 2px;
+}
+
+.transport-review-card > div strong {
+  color: #8b581e;
+  font-size: 13px;
+}
+
+.transport-review-card > div span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.transport-review-card button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(191, 123, 43, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 250, 242, 0.86);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.transport-review-card button b {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport-review-card button em {
+  color: #8b581e;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .timeline-item {
   position: relative;
   display: grid;
@@ -1511,6 +1666,10 @@ h2 {
 body.itinerary-dragging,
 body.itinerary-dragging * {
   cursor: grabbing !important;
+}
+
+body.itinerary-dragging .transport-between {
+  visibility: hidden;
 }
 
 .flight-timeline-item::before {
@@ -1658,6 +1817,146 @@ body.itinerary-dragging * {
 .modal-sheet p {
   color: var(--muted);
   font-size: 14px;
+}
+
+.transport-backdrop {
+  padding-inline: 14px;
+}
+
+.transport-sheet {
+  height: min(760px, calc(100dvh - 28px));
+  max-height: calc(100dvh - 28px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.transport-sheet-header,
+.transport-sheet-actions {
+  flex: 0 0 auto;
+}
+
+.transport-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 2px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.transport-sheet .field input,
+.transport-sheet .field select,
+.transport-sheet .field textarea {
+  font-size: 16px;
+}
+
+.transport-sheet .field textarea {
+  min-height: 82px;
+  resize: none;
+}
+
+.transport-scheduled-fields.hidden {
+  display: none;
+}
+
+.transport-warning {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  background: rgba(248, 233, 205, 0.76);
+  color: #8b581e;
+}
+
+.transport-warning strong {
+  font-size: 12px;
+}
+
+.transport-warning span {
+  font-size: 10px;
+}
+
+.transport-travelers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.transport-traveler input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.transport-traveler > span {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.transport-traveler input:checked + span {
+  border-color: var(--mineral);
+  background: var(--mineral-soft);
+  color: var(--mineral);
+}
+
+.transport-google-button {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 14px;
+  border: 1px solid rgba(64, 119, 122, 0.28);
+  border-radius: 14px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.transport-booking-button {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.transport-sheet-actions {
+  margin-top: 12px;
+}
+
+.transport-div-icon {
+  background: transparent;
+  border: 0;
+}
+
+.transport-map-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--mineral);
+  border-radius: 50%;
+  background: #fffaf2;
+  box-shadow: 0 3px 9px rgba(37, 31, 26, 0.2);
+  cursor: pointer;
+  font-size: 16px;
 }
 
 .time-wheel-backdrop {

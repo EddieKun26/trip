@@ -138,6 +138,7 @@ async function ensureLegacyTrip() {
     places: Array.isArray(legacy.places) ? legacy.places : [],
     votes: legacy.votes && typeof legacy.votes === "object" ? legacy.votes : {},
     itinerary: legacy.itinerary && typeof legacy.itinerary === "object" ? legacy.itinerary : {},
+    transports: Array.isArray(legacy.transports) ? legacy.transports : [],
     members: legacy.members && typeof legacy.members === "object" ? legacy.members : {},
     revision: Number(legacy.revision) || 1,
     updatedAt: legacy.updatedAt || new Date().toISOString(),
@@ -164,6 +165,7 @@ function cleanTrip(input, previous, member) {
     places: Array.isArray(input?.places) ? input.places.slice(0, 250) : [],
     votes: input?.votes && typeof input.votes === "object" ? input.votes : {},
     itinerary: input?.itinerary && typeof input.itinerary === "object" ? input.itinerary : {},
+    transports: Array.isArray(input?.transports) ? input.transports.slice(0, 500) : previous.transports || [],
     members: {
       ...(previous.members || {}),
       [member.id]: member.nickname,
