@@ -1898,13 +1898,32 @@ body.transport-sheet-open .app {
   appearance: none;
 }
 
+.transport-sheet .transport-time-grid input[type="time"] {
+  height: 48px;
+  padding: 0 8px;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 48px;
+  text-align: center;
+}
+
 .transport-sheet input[type="time"]::-webkit-date-and-time-value,
 .transport-sheet input[type="time"]::-webkit-datetime-edit {
   width: 100%;
   min-width: 0;
   margin: 0;
   padding: 0;
-  text-align: left;
+  text-align: center;
+}
+
+.transport-sheet .transport-time-grid input[type="time"]::-webkit-datetime-edit {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .transport-sheet .field textarea {
