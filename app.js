@@ -2313,7 +2313,7 @@ function importAlreadyExists(place) {
 }
 
 function importCanBeAdded(place) {
-  return Boolean(place?.canImport) && !importAlreadyExists(place);
+  return Boolean(place?.canImport) && place?.recognition !== "unresolved" && !importAlreadyExists(place);
 }
 
 function extractNameFromGoogleMapsUrl(value) {
@@ -2404,11 +2404,11 @@ function parseGoogleMapsList(value) {
     if (!identity || seen.has(identity)) return;
     seen.add(identity);
     const isExisting = importAlreadyExists({ name: parsedName, sourceUrl: url });
-    const canImport = Boolean(parsedName);
+    const canImport = Boolean(parsedName || normalizeGoogleMapsUrl(url));
     entries.push({
       ...(known || {}),
-      name: parsedName || "無法辨識的 Google Maps 短連結",
-      fullName: known?.fullName || parsedName || "待辨識地點",
+      name: parsedName || "正在辨識 Google Maps 地點",
+      fullName: known?.fullName || parsedName || "正在辨識 Google Maps 地點",
       category: known?.category || inferPlaceCategory(parsedName || ""),
       kind: known?.kind || inferPlaceKind(known?.category || inferPlaceCategory(parsedName || "")),
       area: known?.area || inferPlaceArea(parsedName || ""),
@@ -2429,7 +2429,7 @@ function parseGoogleMapsList(value) {
       addedBy: currentMemberId(),
       addedByName: state.profile?.nickname || "我",
       isCustom: true,
-      recognition: known ? "complete" : canImport ? "partial" : "unresolved",
+      recognition: known ? "complete" : parsedName ? "partial" : "unresolved",
       isExisting,
       canImport,
     });
@@ -2440,6 +2440,29 @@ function parseGoogleMapsList(value) {
 function placeAreaFromAddress(address, fallbackName = "") {
   const district = String(address || "").match(/(?:縣|県|市|都|道|府)([\p{L}]{1,8}(?:區|区|鄉|郷|鎮|町|村))/u)?.[1];
   return district || inferPlaceArea(fallbackName);
+}
+
+function promoteSinglePlaceImport(entry, result) {
+  if (!result || result.isList || entry.recognition === "complete") return entry;
+  const sourceUrl = result.expandedUrl || entry.sourceUrl;
+  const expandedName = extractNameFromGoogleMapsUrl(sourceUrl);
+  const name = entry.recognition === "partial" && entry.name ? entry.name : expandedName;
+  if (!name) return entry;
+  const category = inferPlaceCategory(name);
+  return {
+    ...entry,
+    name,
+    fullName: name,
+    category,
+    kind: inferPlaceKind(category),
+    area: inferPlaceArea(name),
+    sourceUrl,
+    mark: name.slice(0, 1),
+    recognition: "partial",
+    isExisting: importAlreadyExists({ name, sourceUrl }),
+    canImport: true,
+    globalSearch: true,
+  };
 }
 
 async function expandGoogleMapsSharedLists(entries) {
@@ -2460,7 +2483,7 @@ async function expandGoogleMapsSharedLists(entries) {
 
     return entries.flatMap((entry) => {
       const result = listsByUrl.get(normalizeGoogleMapsUrl(entry.sourceUrl));
-      if (!result?.isList) return [entry];
+      if (!result?.isList) return [promoteSinglePlaceImport(entry, result)];
       if (!Array.isArray(result.places) || !result.places.length) {
         const title = result.title || entry.name || "Google Maps";
         return [{
@@ -2531,8 +2554,8 @@ async function enrichPlaceImportsFromApi(entries) {
         body: JSON.stringify({
           places: chunk.map((place) => ({
             sourceUrl: place.sourceUrl,
-            hintName: place.name,
-            globalSearch: place.globalSearch === true,
+            hintName: place.recognition === "unresolved" ? "" : place.name,
+            globalSearch: place.globalSearch === true || place.recognition === "unresolved",
             latitude: place.latitude,
             longitude: place.longitude,
           })),
@@ -2613,7 +2636,7 @@ function openAddPlaceSheet() {
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet import-places-sheet" id="import-places-form">
         <div class="section-row">
-          <div><p class="section-kicker">Google Maps 批次匯入</p><h2>一次新增多個景點</h2></div>
+          <div><p class="section-kicker">Google Maps 匯入</p><h2>新增地點</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p>可貼上單一地點、多個地點連結，或整個 Google Maps 公開共用清單。</p>
@@ -2623,9 +2646,9 @@ function openAddPlaceSheet() {
           <textarea id="google-maps-list" name="mapsList" rows="6" required placeholder="高雄合菜 · Eddie&#10;https://maps.app.goo.gl/...&#10;&#10;或每行貼上一個地點連結"></textarea>
           <span class="field-note">公開共用清單會自動展開為每個地點，再分別同步名稱、區域、類型、營業時間與電話。</span>
         </div>
-        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識並展開</button>
+        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點／清單</button>
         <div id="import-preview" class="import-preview" aria-live="polite"></div>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>一次加入收藏</button></div>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>加入收藏</button></div>
       </form>
     </div>`;
 }

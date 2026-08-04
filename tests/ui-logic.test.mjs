@@ -237,11 +237,46 @@ test("a Google Maps shared-list title followed by its URL is one import candidat
 test("shared-list imports expand before Places enrichment and support global chunks", () => {
   assert.match(appSource, /fetch\("\/api\/place-list"/);
   assert.match(appSource, /expandGoogleMapsSharedLists\(pendingPlaceImports\)/);
-  assert.match(appSource, /globalSearch: place\.globalSearch === true/);
+  assert.match(appSource, /globalSearch: place\.globalSearch === true \|\| place\.recognition === "unresolved"/);
   assert.match(appSource, /latitude: place\.latitude/);
   assert.match(appSource, /longitude: place\.longitude/);
   assert.match(appSource, /targets\.length \/ 10/);
   assert.match(appSource, /inferPlaceCategory\(`\$\{result\.title \|\| ""\} \$\{name\}`\)/);
+});
+
+test("a single short Google Maps link remains importable after list detection", () => {
+  assert.match(appSource, /const canImport = Boolean\(parsedName \|\| normalizeGoogleMapsUrl\(url\)\)/);
+  assert.match(appSource, /place\?\.recognition !== "unresolved"/);
+  const section = sourceSection("function promoteSinglePlaceImport", "async function expandGoogleMapsSharedLists");
+  const promoteSinglePlaceImport = new Function(
+    "extractNameFromGoogleMapsUrl",
+    "inferPlaceCategory",
+    "inferPlaceKind",
+    "inferPlaceArea",
+    "importAlreadyExists",
+    `${section}; return promoteSinglePlaceImport;`,
+  )(
+    (value) => new URL(value).searchParams.get("q") || "",
+    () => "博物館／美術館",
+    () => "attraction",
+    () => "豐洲",
+    () => false,
+  );
+  const promoted = promoteSinglePlaceImport({
+    name: "正在辨識 Google Maps 地點",
+    sourceUrl: "https://maps.app.goo.gl/single-place",
+    recognition: "unresolved",
+    canImport: true,
+  }, {
+    requestUrl: "https://maps.app.goo.gl/single-place",
+    expandedUrl: "https://www.google.com/maps?q=teamLab+Planets+TOKYO+DMM",
+    isList: false,
+  });
+
+  assert.equal(promoted.name, "teamLab Planets TOKYO DMM");
+  assert.equal(promoted.recognition, "partial");
+  assert.equal(promoted.canImport, true);
+  assert.equal(promoted.globalSearch, true);
 });
 
 test("leave trip is a compact action inside the account member sheet", () => {
@@ -257,4 +292,6 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
   assert.match(stylesSource, /\.import-places-sheet \.field select,\s*\.import-places-sheet \.field textarea\s*{[^}]*font-size:\s*16px/s);
   assert.match(stylesSource, /\.import-preview\s*{[^}]*overflow-y:\s*auto/s);
   assert.match(appSource, /state\.placeKind = addedKinds\.length === 1 \? addedKinds\[0\] : "all"/);
+  assert.match(appSource, /<h2>新增地點<\/h2>/);
+  assert.doesNotMatch(appSource, /<h2>一次新增多個景點<\/h2>/);
 });
