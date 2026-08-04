@@ -170,9 +170,26 @@ test("transport UI supports compact and scheduled cards, route links, members, a
   assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-y:\s*auto/s);
   assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-x:\s*hidden/s);
   assert.match(stylesSource, /\.transport-sheet \.field-grid\s*{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/s);
-  assert.match(stylesSource, /\.transport-time-grid\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+  assert.match(stylesSource, /\.transport-sheet \.transport-time-grid\s*{[^}]*repeat\(2, minmax\(0, 132px\)\)/s);
+  assert.match(appSource, /data-transport-validation/);
+  assert.match(appSource, /data-transport-save/);
   assert.match(appSource, /document\.body\.classList\.add\("transport-sheet-open"\)/);
   assert.match(appSource, /document\.body\.classList\.remove\("transport-sheet-open"\)/);
+});
+
+test("transport timing must stay ordered and inside adjacent itinerary times", () => {
+  const section = sourceSection("function clockMinutes", "function sortItineraryByTime");
+  const state = { flights: [] };
+  const validate = new Function("state", `${section}; return transportTimingError;`)(state);
+  const pair = { from: { name: "A", time: "10:00" }, to: { name: "B", time: "11:00" } };
+
+  assert.equal(validate(pair, { journeyType: "scheduled", departureTime: "10:30", arrivalTime: "10:20" }), "抵達時間必須晚於出發時間");
+  assert.match(validate(pair, { journeyType: "scheduled", departureTime: "09:50" }), /不能早於/);
+  assert.match(validate(pair, { journeyType: "scheduled", arrivalTime: "11:10" }), /不能晚於/);
+  assert.match(validate(pair, { durationMinutes: "70" }), /不能超過前後行程間的 60 分鐘/);
+  assert.match(validate(pair, { journeyType: "scheduled", departureTime: "10:20", arrivalTime: "10:50", durationMinutes: "40" }), /不能超過出發至抵達間的 30 分鐘/);
+  assert.equal(validate(pair, { journeyType: "scheduled", departureTime: "10:20" }), "");
+  assert.equal(validate(pair, { journeyType: "scheduled", departureTime: "10:20", arrivalTime: "10:50", durationMinutes: "30" }), "");
 });
 
 test("shared invite links prefill login and use the native share sheet", () => {

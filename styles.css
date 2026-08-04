@@ -1865,6 +1865,17 @@ body.transport-sheet-open .app {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+.transport-sheet .transport-time-grid {
+  grid-template-columns: repeat(2, minmax(0, 132px));
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.transport-sheet .transport-time-grid .field {
+  width: 100%;
+  overflow: hidden;
+}
+
 .transport-sheet .field,
 .transport-scheduled-fields {
   min-width: 0;
@@ -1881,7 +1892,9 @@ body.transport-sheet-open .app {
 
 .transport-sheet input[type="time"] {
   width: 100%;
+  inline-size: 100%;
   min-inline-size: 0;
+  max-inline-size: 100%;
 }
 
 .transport-sheet input[type="time"]::-webkit-date-and-time-value,
@@ -1893,6 +1906,34 @@ body.transport-sheet-open .app {
 .transport-sheet .field textarea {
   min-height: 82px;
   resize: none;
+}
+
+.transport-time-window,
+.transport-validation-message {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.transport-time-window {
+  color: var(--muted);
+}
+
+.transport-validation-message {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(200, 69, 45, 0.1);
+  color: #a53b28 !important;
+  font-weight: 700;
+}
+
+.transport-sheet.has-transport-error input[type="time"] {
+  border-color: rgba(200, 69, 45, 0.55);
+}
+
+.transport-sheet-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .transport-scheduled-fields.hidden {
@@ -3211,8 +3252,8 @@ body.transport-sheet-open .app {
     box-shadow: none;
   }
 
-  .transport-time-grid {
-    grid-template-columns: minmax(0, 1fr);
+  .transport-sheet .transport-time-grid {
+    grid-template-columns: repeat(2, minmax(0, 132px));
   }
 
   .screen.map-screen {

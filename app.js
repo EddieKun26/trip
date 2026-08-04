@@ -562,6 +562,116 @@ function itineraryItemTime(item) {
   return /^\d{2}:\d{2}$/.test(time) ? time : "99:99";
 }
 
+function clockMinutes(value = "") {
+  const match = String(value).match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function minutesClock(value) {
+  if (!Number.isInteger(value) || value < 0 || value >= 24 * 60) return "";
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function itineraryBoundaryTime(item, role) {
+  if (item?.type !== "flight") return clockMinutes(item?.time) === null ? "" : item.time;
+  const flight = state.flights.find((candidate) => candidate.id === item.flightId);
+  const value = role === "from" ? flight?.arrivalTime : flight?.departureTime;
+  return clockMinutes(value) === null ? "" : value;
+}
+
+function transportTimeWindow(pair) {
+  const startLabel = itineraryBoundaryTime(pair?.from, "from");
+  const endLabel = itineraryBoundaryTime(pair?.to, "to");
+  const start = clockMinutes(startLabel);
+  const end = clockMinutes(endLabel);
+  return { start, end, startLabel, endLabel, invalid: start !== null && end !== null && end < start };
+}
+
+function transportTimingError(pair, { journeyType = "regular", departureTime = "", arrivalTime = "", durationMinutes = "" } = {}) {
+  const window = transportTimeWindow(pair);
+  if (window.invalid) return "前後行程時間順序不正確，請先調整行程時間";
+
+  const scheduled = journeyType === "scheduled";
+  const departure = scheduled ? clockMinutes(departureTime) : null;
+  const arrival = scheduled ? clockMinutes(arrivalTime) : null;
+  const durationValue = Number(durationMinutes);
+  const duration = Number.isFinite(durationValue) && durationValue > 0 ? Math.round(durationValue) : null;
+
+  if (departure !== null && arrival !== null && arrival <= departure) {
+    return "抵達時間必須晚於出發時間";
+  }
+  if (window.start !== null && ((departure !== null && departure < window.start) || (arrival !== null && arrival < window.start))) {
+    return `這段交通不能早於前一個行程的 ${window.startLabel}`;
+  }
+  if (window.end !== null && ((departure !== null && departure > window.end) || (arrival !== null && arrival > window.end))) {
+    return `這段交通不能晚於下一個行程的 ${window.endLabel}`;
+  }
+  if (duration !== null && window.start !== null && window.end !== null && duration > window.end - window.start) {
+    return `所需時間不能超過前後行程間的 ${window.end - window.start} 分鐘`;
+  }
+  if (duration !== null && departure !== null && window.end !== null && departure + duration > window.end) {
+    return `依照出發時間，必須在 ${window.endLabel} 前抵達下一個行程`;
+  }
+  if (duration !== null && arrival !== null && window.start !== null && arrival - duration < window.start) {
+    return `依照抵達時間，不能早於 ${window.startLabel} 離開前一個行程`;
+  }
+  if (duration !== null && departure !== null && arrival !== null && duration > arrival - departure) {
+    return `所需時間不能超過出發至抵達間的 ${arrival - departure} 分鐘`;
+  }
+  return "";
+}
+
+function transportWindowLabel(pair) {
+  const window = transportTimeWindow(pair);
+  if (window.invalid) return "前後行程的時間順序需要先調整";
+  if (window.startLabel && window.endLabel) return `可安排時間：${window.startLabel}–${window.endLabel}`;
+  if (window.startLabel) return `最早可從 ${window.startLabel} 出發`;
+  if (window.endLabel) return `最晚須在 ${window.endLabel} 前抵達`;
+  return "前後行程尚未設定時間，可自由安排";
+}
+
+function updateTransportFormValidation(form) {
+  if (!form) return "";
+  const data = new FormData(form);
+  const pairs = itineraryAdjacentPairs(form.dataset.transportDate);
+  const pair = pairs[Number(data.get("pairIndex"))];
+  const journeyType = String(data.get("journeyType") || "regular");
+  const departureTime = String(data.get("departureTime") || "");
+  const arrivalTime = String(data.get("arrivalTime") || "");
+  const error = pair ? transportTimingError(pair, {
+    journeyType,
+    departureTime,
+    arrivalTime,
+    durationMinutes: data.get("durationMinutes"),
+  }) : "請先選擇相鄰的兩個行程";
+  const window = transportTimeWindow(pair);
+  const departure = clockMinutes(departureTime);
+  const arrival = clockMinutes(arrivalTime);
+  const departureInput = form.elements.departureTime;
+  const arrivalInput = form.elements.arrivalTime;
+
+  if (departureInput && arrivalInput) {
+    const departureMax = [window.end, arrival === null ? null : arrival - 1].filter((value) => value !== null);
+    const arrivalMin = [window.start, departure === null ? null : departure + 1].filter((value) => value !== null);
+    departureInput.min = minutesClock(window.start);
+    departureInput.max = minutesClock(departureMax.length ? Math.min(...departureMax) : null);
+    arrivalInput.min = minutesClock(arrivalMin.length ? Math.max(...arrivalMin) : null);
+    arrivalInput.max = minutesClock(window.end);
+  }
+
+  const hint = form.querySelector("[data-transport-time-window]");
+  if (hint) hint.textContent = transportWindowLabel(pair);
+  const message = form.querySelector("[data-transport-validation]");
+  if (message) {
+    message.textContent = error;
+    message.hidden = !error;
+  }
+  const saveButton = form.querySelector("[data-transport-save]");
+  if (saveButton) saveButton.disabled = Boolean(error);
+  form.classList.toggle("has-transport-error", Boolean(error));
+  return error;
+}
+
 function sortItineraryByTime(date) {
   state.itinerary[date] = (state.itinerary[date] || [])
     .map((item, index) => ({ item, index }))
@@ -2085,7 +2195,9 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
           </div>
           <div class="transport-scheduled-fields ${transport.journeyType === "scheduled" ? "" : "hidden"}">
             <div class="field"><label>班次／車次</label><input name="serviceNumber" value="${escapeHtml(transport.serviceNumber)}" placeholder="N'EX 22 號、NOZOMI 36" ${disabled} /></div>
-            <div class="field-grid transport-time-grid"><div class="field"><label>出發時間</label><input name="departureTime" type="time" value="${escapeHtml(transport.departureTime)}" ${disabled} /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" value="${escapeHtml(transport.arrivalTime)}" ${disabled} /></div></div>
+            <div class="field-grid transport-time-grid"><div class="field"><label>出發時間</label><input name="departureTime" type="time" step="60" value="${escapeHtml(transport.departureTime)}" ${disabled} /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" step="60" value="${escapeHtml(transport.arrivalTime)}" ${disabled} /></div></div>
+            <p class="transport-time-window" data-transport-time-window>${escapeHtml(transportWindowLabel(pairs[selectedPairIndex]))}</p>
+            <p class="transport-validation-message" data-transport-validation hidden></p>
             <div class="field-grid"><div class="field"><label>車資</label><input name="fare" value="${escapeHtml(transport.fare)}" placeholder="¥3,250" ${disabled} /></div><div class="field"><label>購票狀態</label><select name="ticketStatus" ${disabled}>${["尚未決定", "不需購票", "尚未購票", "已購票"].map((status) => `<option ${transport.ticketStatus === status ? "selected" : ""}>${status}</option>`).join("")}</select></div></div>
             <div class="field"><label>搭乘成員</label><div class="transport-travelers">${travelerOptions || `<span class="field-note">旅程目前沒有成員資料</span>`}</div></div>
             <div class="field"><label>訂票／憑證連結</label><input name="bookingUrl" type="url" value="${escapeHtml(transport.bookingUrl)}" placeholder="https://…" ${disabled} /></div>
@@ -2095,10 +2207,11 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
           ${transport.bookingUrl ? `<button class="transport-booking-button" type="button" data-open-booking-url="${escapeHtml(transport.id)}">開啟訂票／憑證連結 ↗</button>` : ""}
         </div>
         <div class="modal-actions transport-sheet-actions ${readonly ? "single-action" : ""}">
-          ${readonly ? `<button class="secondary-button" type="button" data-close-sheet>關閉</button>` : `${transport.id ? `<button class="danger-button" type="button" data-request-delete-transport="${escapeHtml(transport.id)}">刪除</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}<button class="primary-button" type="submit">儲存交通</button>`}
+          ${readonly ? `<button class="secondary-button" type="button" data-close-sheet>關閉</button>` : `${transport.id ? `<button class="danger-button" type="button" data-request-delete-transport="${escapeHtml(transport.id)}">刪除</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}<button class="primary-button" type="submit" data-transport-save>儲存交通</button>`}
         </div>
       </form>
     </div>`;
+  updateTransportFormValidation(sheetRoot.querySelector("#transport-form"));
 }
 
 function openTransportDeleteConfirmation(id) {
@@ -3171,8 +3284,16 @@ document.addEventListener("scroll", (event) => {
 
 document.addEventListener("change", (event) => {
   if (event.target.matches("[data-transport-kind]")) {
-    const scheduledFields = event.target.closest(".transport-sheet")?.querySelector(".transport-scheduled-fields");
+    const transportForm = event.target.closest("#transport-form");
+    const scheduledFields = transportForm?.querySelector(".transport-scheduled-fields");
     scheduledFields?.classList.toggle("hidden", event.target.value !== "scheduled");
+    updateTransportFormValidation(transportForm);
+    return;
+  }
+
+  const transportForm = event.target.closest("#transport-form");
+  if (transportForm && event.target.matches('[name="pairIndex"], [name="departureTime"], [name="arrivalTime"], [name="durationMinutes"]')) {
+    updateTransportFormValidation(transportForm);
     return;
   }
 
@@ -3194,6 +3315,13 @@ document.addEventListener("change", (event) => {
     state.mapPreference = event.target.value;
     state.selectedMapPlace = "";
     return render({ preserveScroll: true });
+  }
+});
+
+document.addEventListener("input", (event) => {
+  const transportForm = event.target.closest("#transport-form");
+  if (transportForm && event.target.matches('[name="departureTime"], [name="arrivalTime"], [name="durationMinutes"]')) {
+    updateTransportFormValidation(transportForm);
   }
 });
 
@@ -3316,6 +3444,17 @@ document.addEventListener("submit", async (event) => {
     const pairs = itineraryAdjacentPairs(date);
     const pair = pairs[Number(form.get("pairIndex"))];
     if (!pair) return showToast("請先選擇相鄰的兩個行程");
+    const journeyType = String(form.get("journeyType") || "regular");
+    const timingError = transportTimingError(pair, {
+      journeyType,
+      departureTime: String(form.get("departureTime") || ""),
+      arrivalTime: String(form.get("arrivalTime") || ""),
+      durationMinutes: form.get("durationMinutes"),
+    });
+    if (timingError) {
+      updateTransportFormValidation(event.target);
+      return showToast(timingError);
+    }
     const id = event.target.dataset.transportId || `transport-${crypto.randomUUID?.() || Date.now()}`;
     const fromItemId = itineraryItemKey(pair.from);
     const toItemId = itineraryItemKey(pair.to);
@@ -3325,7 +3464,6 @@ document.addEventListener("submit", async (event) => {
     if (conflict) return showToast("這兩個行程之間已經有交通安排");
     const previous = (state.transports || []).find((transport) => transport.id === id);
     const durationValue = Number(form.get("durationMinutes"));
-    const journeyType = String(form.get("journeyType") || "regular");
     const transport = {
       ...(previous || {}),
       id,
