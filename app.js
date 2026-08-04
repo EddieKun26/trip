@@ -1737,15 +1737,15 @@ function mapScreen() {
       </div>
       <div class="map-legend" aria-label="圖釘狀態">
         ${state.mapView === "day" ? `${dayLegend}${flightLegend}${transportLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
-      </div>
-      <div class="map-canvas" data-map-host>
-        <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
-        <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
         ${state.mapView === "planning" ? `
           <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
             <span class="map-live-location-icon" aria-hidden="true">⌖</span>
             <b data-live-location-label>${liveLocationLabel()}</b>
           </button>` : ""}
+      </div>
+      <div class="map-canvas" data-map-host>
+        <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
+        <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
         ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
         ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
       </div>

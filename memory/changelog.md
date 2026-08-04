@@ -4,6 +4,7 @@
 
 - Added an optional planning-map live-location switch with a blue position marker and accuracy radius for Google Maps and Leaflet.
 - Kept live location device-only and stopped geolocation tracking when disabled, leaving the planning map, or closing the page.
+- Moved the live-location switch into the planning-map legend row so it no longer covers Google Maps controls.
 
 ## 2026-08-04
 

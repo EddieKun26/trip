@@ -766,6 +766,7 @@ h2 {
 
 .map-legend {
   display: flex;
+  align-items: center;
   gap: 11px;
   overflow-x: auto;
   margin: 0 -2px 9px;
@@ -887,41 +888,38 @@ h2 {
 }
 
 .map-live-location-toggle {
-  position: absolute;
-  z-index: 7;
-  right: 12px;
-  bottom: 34px;
-  min-width: 112px;
-  height: 44px;
+  flex: 0 0 auto;
+  min-width: 82px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 0 13px;
+  gap: 4px;
+  margin-left: auto;
+  padding: 0 8px;
   border: 1px solid rgba(61, 55, 49, 0.18);
   border-radius: 99px;
   background: rgba(255, 250, 242, 0.96);
   color: #4b4d4b;
-  box-shadow: 0 5px 18px rgba(45, 35, 29, 0.18);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 7px rgba(45, 35, 29, 0.1);
   touch-action: manipulation;
   white-space: nowrap;
 }
 
 .map-live-location-toggle b {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 900;
 }
 
 .map-live-location-icon {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: #eceae5;
   color: #5f6566;
-  font-size: 18px;
+  font-size: 14px;
   line-height: 1;
 }
 
@@ -934,7 +932,7 @@ h2 {
 .map-live-location-toggle.active .map-live-location-icon {
   background: #1473e6;
   color: white;
-  box-shadow: 0 0 0 5px rgba(20, 115, 230, 0.13);
+  box-shadow: 0 0 0 3px rgba(20, 115, 230, 0.12);
 }
 
 .map-live-location-toggle.locating .map-live-location-icon {

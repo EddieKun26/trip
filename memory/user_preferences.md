@@ -4,6 +4,7 @@
 - Design primarily for iPhone 15 Pro and avoid horizontal overflow, unexpected focus zoom, and unnecessary full-page scrolling.
 - Prefer compact, direct interfaces with important content visible without extra navigation.
 - Keep planning maps and day maps functionally separate.
+- Keep custom map controls outside the map canvas when possible so they do not cover Google Maps controls.
 - Use Chinese display names while retaining local-language place/area names where helpful.
 - Deletion actions appear only after a left swipe and require confirmation.
 - Time changes require explicit confirm/cancel and itinerary order follows confirmed times.

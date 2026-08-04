@@ -122,6 +122,7 @@ test("planning map live location is private, optional, and cleaned up", () => {
   const payloadSection = sourceSection("function sharedTripPayload", "function applySharedTrip");
   const mapSection = sourceSection("function mapScreen", "function mapPinColor");
   assert.match(mapSection, /state\.mapView === "planning"[\s\S]*data-toggle-live-location/);
+  assert.ok(mapSection.indexOf("data-toggle-live-location") < mapSection.indexOf('class="map-canvas"'));
   assert.match(locationSection, /navigator\.geolocation\.watchPosition/);
   assert.match(locationSection, /navigator\.geolocation\.clearWatch/);
   assert.match(locationSection, /new google\.maps\.Circle/);
@@ -129,6 +130,7 @@ test("planning map live location is private, optional, and cleaned up", () => {
   assert.match(appSource, /window\.addEventListener\("pagehide", \(\) => stopLiveLocation\(\)\)/);
   assert.doesNotMatch(payloadSection, /liveLocation/);
   assert.match(stylesSource, /\.map-live-location-toggle\.active/);
+  assert.doesNotMatch(stylesSource, /\.map-live-location-toggle\s*\{[^}]*position:\s*absolute/s);
 });
 
 test("day map renders flight legs as red dashed route segments", () => {
