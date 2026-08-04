@@ -244,6 +244,10 @@ let mapInteractionUntil = 0;
 let mapCoordinatesLoading = false;
 let airportCoordinatesLoading = false;
 let pendingTimePicker = null;
+let pendingFlightTicketFile = null;
+let flightTicketPreviewUrl = "";
+let flightTicketRecognitionToken = 0;
+let flightOcrLoader = null;
 
 const airportCoordinateCache = {
   KHH: { latitude: 22.5771, longitude: 120.3500 },
@@ -537,6 +541,238 @@ function updateFlightFormMode(form) {
     routeLabel.textContent = `${arrivalCity} → ${departureCity}`;
   }
   form.classList.toggle("round-trip-mode", isRoundTrip);
+}
+
+function flightDateTimeDisplayValue(type, value = "") {
+  if (type === "time") return String(value || "").trim() || "選擇時間";
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[1]}年${Number(match[2])}月${Number(match[3])}日` : "選擇日期";
+}
+
+function flightDateTimeInputMarkup({ label, name, type, value, required = true }) {
+  const id = `flight-${name}`;
+  return `<div class="field">
+    <label for="${id}">${escapeHtml(label)}</label>
+    <div class="flight-native-control">
+      <input id="${id}" name="${name}" type="${type}" ${required ? "required" : ""} value="${escapeHtml(value)}" data-flight-native-control />
+      <span data-flight-native-display aria-hidden="true">${escapeHtml(flightDateTimeDisplayValue(type, value))}</span>
+    </div>
+  </div>`;
+}
+
+function syncFlightDateTimeDisplay(input) {
+  if (!input?.matches?.("[data-flight-native-control]")) return;
+  const display = input.parentElement?.querySelector("[data-flight-native-display]");
+  if (display) display.textContent = flightDateTimeDisplayValue(input.type, input.value);
+}
+
+function isoFlightDate(year, month, day) {
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    date.getUTCFullYear() !== Number(year) ||
+    date.getUTCMonth() !== Number(month) - 1 ||
+    date.getUTCDate() !== Number(day)
+  ) return "";
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+const flightMonthNumbers = {
+  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+  JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+};
+
+function parseFlightTicketDates(text = "") {
+  const normalized = String(text).normalize("NFKC").toUpperCase().replace(/[‐‑–—]/g, "-");
+  const found = [];
+  const collect = (pattern, mapper) => {
+    for (const match of normalized.matchAll(pattern)) {
+      const value = mapper(match);
+      if (value) found.push({ index: match.index || 0, value });
+    }
+  };
+  collect(/\b(20\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/g, (match) => isoFlightDate(match[1], match[2], match[3]));
+  collect(/\b(20\d{2})年(\d{1,2})月(\d{1,2})日?/g, (match) => isoFlightDate(match[1], match[2], match[3]));
+  collect(/\b(\d{1,2})\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+(20\d{2})\b/g, (match) => isoFlightDate(match[3], flightMonthNumbers[match[2]], match[1]));
+  collect(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+(\d{1,2}),?\s+(20\d{2})\b/g, (match) => isoFlightDate(match[3], flightMonthNumbers[match[1]], match[2]));
+  return found
+    .sort((a, b) => a.index - b.index)
+    .filter((item, index, values) => index === 0 || item.index !== values[index - 1].index || item.value !== values[index - 1].value)
+    .map((item) => item.value);
+}
+
+function parseFlightTicketTimes(text = "") {
+  const normalized = String(text).normalize("NFKC").toUpperCase();
+  const found = [];
+  for (const match of normalized.matchAll(/\b([01]?\d|2[0-3])[:：]([0-5]\d)\b/g)) {
+    found.push({ index: match.index || 0, value: `${String(match[1]).padStart(2, "0")}:${match[2]}` });
+  }
+  for (const match of normalized.matchAll(/(?:DEPARTURE|DEPART|ARRIVAL|ARRIVE|BOARDING|出發|抵達|起飛)\s*[:：]?\s*([01]\d|2[0-3])\s*([0-5]\d)\b/g)) {
+    found.push({ index: match.index || 0, value: `${match[1]}:${match[2]}` });
+  }
+  return found
+    .sort((a, b) => a.index - b.index)
+    .filter((item, index, values) => index === 0 || item.index !== values[index - 1].index || item.value !== values[index - 1].value)
+    .map((item) => item.value);
+}
+
+function flightDatesInTripWindow(dates, startDate = "", endDate = "") {
+  if (!startDate || !endDate) return dates;
+  const start = new Date(`${startDate}T00:00:00`).getTime() - 2 * 86400000;
+  const end = new Date(`${endDate}T23:59:59`).getTime() + 2 * 86400000;
+  const relevant = dates.filter((date) => {
+    const time = new Date(`${date}T00:00:00`).getTime();
+    return Number.isFinite(time) && time >= start && time <= end;
+  });
+  return relevant.length ? relevant : dates;
+}
+
+function parseFlightTicketText(text = "", { startDate = "", endDate = "" } = {}) {
+  const normalized = String(text).normalize("NFKC").toUpperCase();
+  const knownCodes = new Set(flightAirportCatalog.map((airport) => airport.code));
+  const airportCodes = [...normalized.matchAll(/\b[A-Z]{3}\b/g)]
+    .map((match) => match[0])
+    .filter((code) => knownCodes.has(code))
+    .filter((code, index, values) => index === 0 || code !== values[index - 1]);
+  const departureCode = airportCodes[0] || "";
+  const arrivalCode = airportCodes.find((code) => code !== departureCode) || "";
+  const arrivalIndex = airportCodes.indexOf(arrivalCode);
+  const isRoundTrip = Boolean(
+    departureCode && arrivalCode && airportCodes.slice(arrivalIndex + 1).includes(departureCode),
+  );
+  const dates = flightDatesInTripWindow(parseFlightTicketDates(normalized), startDate, endDate);
+  const times = parseFlightTicketTimes(normalized);
+  const departureAirport = flightAirportCatalog.find((airport) => airport.code === departureCode);
+  const arrivalAirport = flightAirportCatalog.find((airport) => airport.code === arrivalCode);
+  const fields = {
+    departureCity: departureAirport?.city || "",
+    departureCode,
+    arrivalCity: arrivalAirport?.city || "",
+    arrivalCode,
+    departureDate: dates[0] || "",
+    arrivalDate: isRoundTrip && dates.length < 4 ? dates[0] || "" : dates[1] || dates[0] || "",
+    departureTime: times[0] || "",
+    arrivalTime: times[1] || "",
+    returnDepartureDate: isRoundTrip ? (dates.length >= 4 ? dates[2] : dates[1]) || "" : "",
+    returnArrivalDate: isRoundTrip ? (dates.length >= 4 ? dates[3] : dates[1]) || dates[0] || "" : "",
+    returnDepartureTime: isRoundTrip ? times[2] || "" : "",
+    returnArrivalTime: isRoundTrip ? times[3] || "" : "",
+  };
+  return {
+    isRoundTrip,
+    fields,
+    detectedCount: Object.values(fields).filter(Boolean).length,
+  };
+}
+
+function loadFlightOcrLibrary() {
+  if (window.Tesseract?.createWorker) return Promise.resolve(window.Tesseract);
+  if (flightOcrLoader) return flightOcrLoader;
+  flightOcrLoader = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.async = true;
+    script.onload = () => window.Tesseract?.createWorker ? resolve(window.Tesseract) : reject(new Error("OCR_LOAD_FAILED"));
+    script.onerror = () => reject(new Error("OCR_LOAD_FAILED"));
+    document.head.append(script);
+  }).catch((error) => {
+    flightOcrLoader = null;
+    throw error;
+  });
+  return flightOcrLoader;
+}
+
+function setFlightTicketStatus(form, message, { progress = 0, tone = "" } = {}) {
+  const status = form?.querySelector("[data-flight-ticket-status]");
+  const progressBar = form?.querySelector("[data-flight-ticket-progress]");
+  const card = form?.querySelector("[data-flight-ticket-card]");
+  if (status) status.textContent = message;
+  if (progressBar) progressBar.style.setProperty("--ticket-progress", `${Math.max(0, Math.min(100, Math.round(progress * 100)))}%`);
+  if (card) card.dataset.ticketTone = tone;
+}
+
+function applyFlightTicketData(form, parsed) {
+  const setValue = (name, value) => {
+    const input = form.elements[name];
+    if (!input || !value) return false;
+    input.value = value;
+    syncFlightDateTimeDisplay(input);
+    return true;
+  };
+  if (parsed.isRoundTrip && !form.dataset.flightId && [...form.elements.direction.options].some((option) => option.value === "來回")) {
+    form.elements.direction.value = "來回";
+    updateFlightFormMode(form);
+  }
+  setValue("departureCity", parsed.fields.departureCity);
+  refreshFlightAirportField(form, "departure");
+  setValue("departureCode", parsed.fields.departureCode);
+  setValue("arrivalCity", parsed.fields.arrivalCity);
+  refreshFlightAirportField(form, "arrival");
+  setValue("arrivalCode", parsed.fields.arrivalCode);
+  ["departureDate", "departureTime", "arrivalDate", "arrivalTime", "returnDepartureDate", "returnDepartureTime", "returnArrivalDate", "returnArrivalTime"]
+    .forEach((name) => setValue(name, parsed.fields[name]));
+  updateFlightFormMode(form);
+  return parsed.detectedCount;
+}
+
+async function recognizeFlightTicket(form, file = pendingFlightTicketFile) {
+  if (!form || !file || form.dataset.ticketBusy === "true") return;
+  form.dataset.ticketBusy = "true";
+  const token = ++flightTicketRecognitionToken;
+  const retryButton = form.querySelector("[data-recognize-flight-ticket]");
+  if (retryButton) retryButton.disabled = true;
+  let worker;
+  try {
+    setFlightTicketStatus(form, "正在準備圖片辨識…", { progress: 0.05 });
+    const Tesseract = await loadFlightOcrLibrary();
+    worker = await Tesseract.createWorker("eng", 1, {
+      logger: (message) => {
+        if (!form.isConnected || token !== flightTicketRecognitionToken) return;
+        const label = message.status === "recognizing text" ? "正在讀取機票內容…" : "正在準備辨識工具…";
+        setFlightTicketStatus(form, label, { progress: Number(message.progress) || 0.08 });
+      },
+    });
+    const result = await worker.recognize(file);
+    if (!form.isConnected || token !== flightTicketRecognitionToken) return;
+    const parsed = parseFlightTicketText(result.data.text, { startDate: state.startDate, endDate: state.endDate });
+    const count = applyFlightTicketData(form, parsed);
+    if (!count) {
+      setFlightTicketStatus(form, "未找到可帶入的航班資料，請換一張較清楚的圖片。", { progress: 1, tone: "error" });
+      return;
+    }
+    setFlightTicketStatus(form, `已帶入 ${count} 項資料，請確認後再儲存。`, { progress: 1, tone: "success" });
+  } catch {
+    if (form.isConnected && token === flightTicketRecognitionToken) {
+      setFlightTicketStatus(form, "圖片辨識失敗，請確認網路後重新辨識。", { progress: 0, tone: "error" });
+    }
+  } finally {
+    await worker?.terminate?.().catch(() => {});
+    if (form.isConnected && token === flightTicketRecognitionToken) {
+      form.dataset.ticketBusy = "false";
+      if (retryButton) retryButton.disabled = false;
+    }
+  }
+}
+
+async function handleFlightTicketFile(input) {
+  const form = input?.closest("#flight-form");
+  const file = input?.files?.[0];
+  if (!form || !file) return;
+  if (!file.type.startsWith("image/")) return showToast("請選擇照片格式的機票圖片");
+  if (file.size > 15 * 1024 * 1024) return showToast("圖片請小於 15 MB");
+  flightTicketRecognitionToken += 1;
+  form.dataset.ticketBusy = "false";
+  pendingFlightTicketFile = file;
+  if (flightTicketPreviewUrl) URL.revokeObjectURL(flightTicketPreviewUrl);
+  flightTicketPreviewUrl = URL.createObjectURL(file);
+  const preview = form.querySelector("[data-flight-ticket-preview]");
+  const image = form.querySelector("[data-flight-ticket-image]");
+  const fileName = form.querySelector("[data-flight-ticket-name]");
+  const retryButton = form.querySelector("[data-recognize-flight-ticket]");
+  if (preview) preview.hidden = false;
+  if (image) image.src = flightTicketPreviewUrl;
+  if (fileName) fileName.textContent = file.name;
+  if (retryButton) retryButton.hidden = false;
+  await recognizeFlightTicket(form, file);
 }
 
 function flightItineraryDate(flight) {
@@ -2211,19 +2447,30 @@ function openFlightSheet(flightId = "") {
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet flight-form-sheet" id="flight-form" data-flight-id="${escapeHtml(flight.id)}">
         <div class="section-row"><div><p class="section-kicker">航班安排</p><h2>${flight.id ? "編輯航班" : "新增航班"}</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
+        <section class="flight-ticket-card" data-flight-ticket-card>
+          <div class="flight-ticket-intro"><span>辨</span><div><strong>從機票圖片自動填入</strong><small>照片只在此裝置辨識，不會儲存或分享。</small></div></div>
+          <input id="flight-ticket-image" class="flight-ticket-file" type="file" accept="image/*" data-flight-ticket-input />
+          <label class="flight-ticket-upload" for="flight-ticket-image">＋ 選擇或拍攝機票圖片</label>
+          <div class="flight-ticket-preview" data-flight-ticket-preview hidden>
+            <img data-flight-ticket-image alt="待辨識的機票圖片預覽" />
+            <div><strong data-flight-ticket-name>機票圖片</strong><span data-flight-ticket-status>準備辨識</span></div>
+            <button type="button" data-recognize-flight-ticket hidden>重新辨識</button>
+          </div>
+          <div class="flight-ticket-progress" data-flight-ticket-progress aria-hidden="true"><i></i></div>
+        </section>
         <div class="field"><label for="flight-direction">航程標記</label><select id="flight-direction" name="direction" data-flight-direction><option ${selectedDirection === "去程" ? "selected" : ""}>去程</option><option ${selectedDirection === "回程" ? "selected" : ""}>回程</option>${flight.id ? "" : "<option>來回</option>"}</select></div>
         <section class="flight-leg-fields">
           <div class="flight-segment-heading" data-flight-outbound-heading hidden><span>去程</span><strong>先填出發與抵達資料</strong></div>
           <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="departureCity" list="flight-city-options" data-flight-city-side="departure" autocomplete="off" required value="${escapeHtml(flight.departureCity)}" placeholder="選擇或輸入城市" /></div><div class="field compact-field"><label>機場</label><select name="departureCode" required>${airportOptionsMarkup(flight.departureCity, flight.departureCode)}</select></div></div>
-          <div class="field-grid flight-date-time-grid"><div class="field"><label>出發日期</label><input name="departureDate" type="date" required value="${escapeHtml(flight.departureDate)}" /></div><div class="field"><label>出發時間</label><input name="departureTime" type="time" required value="${escapeHtml(flight.departureTime)}" /></div></div>
+          <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "出發日期", name: "departureDate", type: "date", value: flight.departureDate })}${flightDateTimeInputMarkup({ label: "出發時間", name: "departureTime", type: "time", value: flight.departureTime })}</div>
           <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="arrivalCity" list="flight-city-options" data-flight-city-side="arrival" autocomplete="off" required value="${escapeHtml(flight.arrivalCity)}" placeholder="選擇或輸入城市" /></div><div class="field compact-field"><label>機場</label><select name="arrivalCode" required>${airportOptionsMarkup(flight.arrivalCity, flight.arrivalCode)}</select></div></div>
-          <div class="field-grid flight-date-time-grid"><div class="field"><label>抵達日期</label><input name="arrivalDate" type="date" required value="${escapeHtml(flight.arrivalDate)}" /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" required value="${escapeHtml(flight.arrivalTime)}" /></div></div>
+          <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "抵達日期", name: "arrivalDate", type: "date", value: flight.arrivalDate })}${flightDateTimeInputMarkup({ label: "抵達時間", name: "arrivalTime", type: "time", value: flight.arrivalTime })}</div>
         </section>
         <section class="flight-return-fields" data-flight-return-fields hidden>
           <div class="flight-segment-heading"><span>回程</span><strong data-flight-return-route>目的地 → 出發地</strong></div>
           <p class="field-note">回程會自動使用相反方向的城市與機場。</p>
-          <div class="field-grid flight-date-time-grid"><div class="field"><label>回程出發日期</label><input name="returnDepartureDate" type="date" value="${escapeHtml(state.endDate)}" /></div><div class="field"><label>回程出發時間</label><input name="returnDepartureTime" type="time" value="17:00" /></div></div>
-          <div class="field-grid flight-date-time-grid"><div class="field"><label>回程抵達日期</label><input name="returnArrivalDate" type="date" value="${escapeHtml(state.endDate)}" /></div><div class="field"><label>回程抵達時間</label><input name="returnArrivalTime" type="time" value="21:00" /></div></div>
+          <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "回程出發日期", name: "returnDepartureDate", type: "date", value: state.endDate, required: false })}${flightDateTimeInputMarkup({ label: "回程出發時間", name: "returnDepartureTime", type: "time", value: "17:00", required: false })}</div>
+          <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "回程抵達日期", name: "returnArrivalDate", type: "date", value: state.endDate, required: false })}${flightDateTimeInputMarkup({ label: "回程抵達時間", name: "returnArrivalTime", type: "time", value: "21:00", required: false })}</div>
         </section>
         <datalist id="flight-city-options">${cityOptions}</datalist>
         <p class="flight-airport-note">選擇城市後，機場欄位會自動列出該城市可用的機場。</p>
@@ -2917,6 +3164,10 @@ function openReorderSheet(key) {
 
 function closeSheet() {
   pendingTimePicker = null;
+  pendingFlightTicketFile = null;
+  flightTicketRecognitionToken += 1;
+  if (flightTicketPreviewUrl) URL.revokeObjectURL(flightTicketPreviewUrl);
+  flightTicketPreviewUrl = "";
   sheetRoot.innerHTML = "";
   document.body.classList.remove("transport-sheet-open");
 }
@@ -3086,6 +3337,11 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-add-flight]")) return canEdit() ? openFlightSheet() : guestOnlyMessage();
   const editFlight = event.target.closest("[data-edit-flight]");
   if (editFlight) return canEdit() ? openFlightSheet(editFlight.dataset.editFlight) : guestOnlyMessage();
+  const recognizeFlightTicketButton = event.target.closest("[data-recognize-flight-ticket]");
+  if (recognizeFlightTicketButton) {
+    if (!canEdit()) return guestOnlyMessage();
+    return recognizeFlightTicket(recognizeFlightTicketButton.closest("#flight-form"));
+  }
   const deleteFlight = event.target.closest("[data-delete-flight]");
   if (deleteFlight) {
     if (!canEdit()) return guestOnlyMessage();
@@ -3406,6 +3662,13 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-flight-ticket-input]")) {
+    handleFlightTicketFile(event.target);
+    return;
+  }
+
+  if (event.target.matches("[data-flight-native-control]")) syncFlightDateTimeDisplay(event.target);
+
   const flightForm = event.target.closest("#flight-form");
   if (flightForm && event.target.matches("[data-flight-direction]")) {
     updateFlightFormMode(flightForm);
@@ -3454,6 +3717,8 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-flight-native-control]")) syncFlightDateTimeDisplay(event.target);
+
   const flightForm = event.target.closest("#flight-form");
   if (flightForm && event.target.matches("[data-flight-city-side]")) {
     refreshFlightAirportField(flightForm, event.target.dataset.flightCitySide);

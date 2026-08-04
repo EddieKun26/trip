@@ -4,4 +4,6 @@
 - Google Maps browser-map availability depends on correct production referrer restrictions; Leaflet is the fallback when the key cannot load.
 - Google Maps shared-list import works only for publicly accessible lists. Private lists cannot be expanded server-side.
 - The local airport catalog is intentionally curated rather than exhaustive; unsupported cities need catalog additions.
+- Browser-based ticket OCR is optimized for airport codes, English month names, dates, and colon-formatted times. Low-resolution, handwritten, or heavily stylized tickets may need manual correction.
+- First-time ticket OCR requires an internet connection to download the browser recognition worker and English language data; later loads may use the browser cache.
 - Shared production data depends on Vercel/Upstash availability. Device-local state is not a substitute for the shared store.

@@ -298,9 +298,9 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
 
 test("flight form offers city-aware airports and creates round trips as two legs", () => {
   const section = sourceSection("const flightAirportCatalog", "function itineraryItemKey");
-  const { airportsForCity, airportOptionsMarkup } = new Function(
+  const { airportsForCity, airportOptionsMarkup, parseFlightTicketText } = new Function(
     "escapeHtml",
-    `${section}; return { airportsForCity, airportOptionsMarkup };`,
+    `${section}; return { airportsForCity, airportOptionsMarkup, parseFlightTicketText };`,
   )((value) => String(value));
 
   assert.deepEqual(airportsForCity("高雄").map((airport) => airport.code), ["KHH"]);
@@ -312,13 +312,36 @@ test("flight form offers city-aware airports and creates round trips as two legs
   assert.match(appSource, /direction: "回程"/);
   assert.match(appSource, /departureCity: baseFlight\.arrivalCity/);
   assert.match(appSource, /arrivalCity: baseFlight\.departureCity/);
+
+  const parsed = parseFlightTicketText(
+    "KHH NRT 20 SEP 2026 09:55 14:45 NRT KHH 26 SEP 2026 17:50 21:00",
+    { startDate: "2026-09-20", endDate: "2026-09-26" },
+  );
+  assert.equal(parsed.isRoundTrip, true);
+  assert.equal(parsed.fields.departureCode, "KHH");
+  assert.equal(parsed.fields.arrivalCode, "NRT");
+  assert.equal(parsed.fields.departureDate, "2026-09-20");
+  assert.equal(parsed.fields.returnDepartureDate, "2026-09-26");
+  assert.equal(parsed.fields.departureTime, "09:55");
+  assert.equal(parsed.fields.returnArrivalTime, "21:00");
 });
 
 test("flight and itinerary time fields fit and center on iPhone", () => {
   assert.match(stylesSource, /\.timeline-item\s*{[^}]*grid-template-columns:\s*72px minmax\(0, 1fr\) auto/s);
   assert.match(stylesSource, /\.time-button\s*{[^}]*width:\s*72px[^}]*place-items:\s*center/s);
   assert.match(stylesSource, /\.flight-date-time-grid\s*{[^}]*minmax\(0, 1\.45fr\) minmax\(118px, \.85fr\)/s);
-  assert.match(stylesSource, /\.flight-date-time-grid input\[type="date"\],[\s\S]*?min-inline-size:\s*0[\s\S]*?text-align:\s*center/s);
+  assert.match(stylesSource, /\.flight-form-grid\s*{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/s);
+  assert.match(stylesSource, /\.flight-native-control span\s*{[^}]*display:\s*grid[^}]*place-items:\s*center[^}]*line-height:\s*1/s);
+  assert.match(appSource, /data-flight-native-display/);
+});
+
+test("flight ticket images are recognized locally and used to prefill the form", () => {
+  const section = sourceSection("function openFlightSheet", "function openTransportSheet");
+  assert.match(section, /type="file" accept="image\/\*" data-flight-ticket-input/);
+  assert.match(section, /照片只在此裝置辨識，不會儲存或分享/);
+  assert.match(appSource, /tesseract\.js@5\/dist\/tesseract\.min\.js/);
+  assert.match(appSource, /worker\.recognize\(file\)/);
+  assert.match(appSource, /applyFlightTicketData\(form, parsed\)/);
 });
 
 test("place import placeholder is neutral", () => {

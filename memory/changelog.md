@@ -2,6 +2,9 @@
 
 ## 2026-08-04
 
+- Replaced top-aligned iPhone date/time text with centered app-rendered values while retaining native pickers.
+- Made flight city and airport columns equal width.
+- Added private, browser-side flight ticket image OCR with automatic form prefilling and explicit save confirmation.
 - Widened and centered itinerary time pills without changing their type size.
 - Fixed iPhone flight date/time overlap with bounded, centered fields.
 - Added city-aware airport selection.

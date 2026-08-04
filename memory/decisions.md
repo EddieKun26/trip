@@ -25,3 +25,5 @@
 - iPhone native form controls must have bounded grid tracks and at least 16px input text to avoid overlap and focus zoom.
 - Itinerary time pills keep their established type size; width and centering are adjusted instead.
 - Flight date/time controls remain side by side, with more room assigned to the date.
+- Native date/time inputs remain the interactive picker, but their browser-rendered text is visually replaced by an app-rendered centered label for consistent iPhone alignment.
+- Flight ticket OCR runs locally in the browser with a lazily loaded Tesseract.js worker. Images are not persisted or added to shared trip data; recognized fields always require user confirmation before saving.

@@ -14,8 +14,10 @@
 - Transport segments support regular and scheduled journeys, lines/stations, departure/arrival times, duration, fares, ticket status, travelers, booking links, and time-window validation.
 - Flights support outbound and return records. New round trips create two compatible legs automatically.
 - Flight airports are selected from city-aware options; common Taiwan, Japan, Korea, and regional airports are included.
+- Flight date/time values use centered app-rendered labels over native iPhone pickers, avoiding Safari's top-aligned text.
+- Flight ticket images can be selected or photographed, recognized locally in the browser, and used to prefill the flight form before confirmation.
 
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 27 tests passing as of 2026-08-04.
+- `node --test tests/*.test.mjs`: 28 tests passing as of 2026-08-04.

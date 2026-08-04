@@ -3270,43 +3270,201 @@ body.transport-sheet-open .app {
 }
 
 .flight-form-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(132px, .78fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .flight-date-time-grid {
   grid-template-columns: minmax(0, 1.45fr) minmax(118px, .85fr);
 }
 
-.flight-date-time-grid input[type="date"],
-.flight-date-time-grid input[type="time"] {
-  display: block;
+.flight-native-control {
+  position: relative;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+}
+
+.flight-native-control:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--mineral) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.flight-native-control input {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
   width: 100%;
-  inline-size: 100%;
-  min-inline-size: 0;
-  max-inline-size: 100%;
-  padding-inline: 8px;
-  -webkit-appearance: none;
-  appearance: none;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: .001;
+  cursor: pointer;
+}
+
+.flight-native-control span {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
   color: var(--ink);
   font-size: 16px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
   text-align: center;
+  white-space: nowrap;
 }
 
-.flight-date-time-grid input::-webkit-date-and-time-value,
-.flight-date-time-grid input::-webkit-datetime-edit {
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  text-align: center;
+.flight-ticket-card {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(64, 119, 122, .22);
+  border-radius: 17px;
+  background: rgba(229, 240, 238, .58);
 }
 
-.flight-date-time-grid input::-webkit-datetime-edit {
-  display: flex;
-  min-height: 46px;
+.flight-ticket-intro {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
+  gap: 9px;
+}
+
+.flight-ticket-intro > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--mineral);
+  color: white;
+  font-weight: 800;
+}
+
+.flight-ticket-intro div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.flight-ticket-intro strong {
+  font-size: 12px;
+}
+
+.flight-ticket-intro small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.flight-ticket-file {
+  display: none;
+}
+
+.flight-ticket-upload {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(64, 119, 122, .5);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.flight-ticket-preview {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.flight-ticket-preview[hidden] {
+  display: none;
+}
+
+.flight-ticket-preview img {
+  width: 42px;
+  height: 42px;
+  display: block;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.flight-ticket-preview > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.flight-ticket-preview strong,
+.flight-ticket-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flight-ticket-preview strong {
+  font-size: 10px;
+}
+
+.flight-ticket-preview span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.flight-ticket-preview button {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid rgba(64, 119, 122, .3);
+  border-radius: 10px;
+  background: white;
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.flight-ticket-preview button:disabled {
+  opacity: .45;
+}
+
+.flight-ticket-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(64, 119, 122, .12);
+}
+
+.flight-ticket-progress i {
+  width: var(--ticket-progress, 0%);
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--mineral);
+  transition: width 180ms ease;
+}
+
+.flight-ticket-card[data-ticket-tone="success"] {
+  border-color: rgba(54, 129, 91, .38);
+  background: rgba(226, 241, 231, .64);
+}
+
+.flight-ticket-card[data-ticket-tone="error"] {
+  border-color: rgba(200, 69, 45, .34);
+  background: rgba(248, 226, 220, .58);
 }
 
 .flight-segment-heading {
