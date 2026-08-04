@@ -168,6 +168,11 @@ test("transport UI supports compact and scheduled cards, route links, members, a
   assert.match(appSource, /交通待確認/);
   assert.match(stylesSource, /\.transport-sheet\s*{[^}]*overflow:\s*hidden/s);
   assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-y:\s*auto/s);
+  assert.match(stylesSource, /\.transport-sheet-body\s*{[^}]*overflow-x:\s*hidden/s);
+  assert.match(stylesSource, /\.transport-sheet \.field-grid\s*{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/s);
+  assert.match(stylesSource, /\.transport-time-grid\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+  assert.match(appSource, /document\.body\.classList\.add\("transport-sheet-open"\)/);
+  assert.match(appSource, /document\.body\.classList\.remove\("transport-sheet-open"\)/);
 });
 
 test("shared invite links prefill login and use the native share sheet", () => {

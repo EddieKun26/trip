@@ -2063,6 +2063,7 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
   const travelerOptions = members().map((member) => `
     <label class="transport-traveler"><input type="checkbox" name="travelers" value="${escapeHtml(member.id)}" ${travelerIds.has(member.id) ? "checked" : ""} ${disabled} /><span>${avatarMarkup(member.id, true)}${escapeHtml(member.name)}</span></label>`).join("");
   const directionsUrl = existing ? transportDirectionsUrl(existing) : "";
+  document.body.classList.add("transport-sheet-open");
   sheetRoot.innerHTML = `
     <div class="modal-backdrop transport-backdrop" data-dismiss-sheet>
       <form class="modal-sheet transport-sheet" id="transport-form" data-transport-id="${escapeHtml(transport.id)}" data-transport-date="${escapeHtml(date)}">
@@ -2084,7 +2085,7 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
           </div>
           <div class="transport-scheduled-fields ${transport.journeyType === "scheduled" ? "" : "hidden"}">
             <div class="field"><label>班次／車次</label><input name="serviceNumber" value="${escapeHtml(transport.serviceNumber)}" placeholder="N'EX 22 號、NOZOMI 36" ${disabled} /></div>
-            <div class="field-grid"><div class="field"><label>出發時間</label><input name="departureTime" type="time" value="${escapeHtml(transport.departureTime)}" ${disabled} /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" value="${escapeHtml(transport.arrivalTime)}" ${disabled} /></div></div>
+            <div class="field-grid transport-time-grid"><div class="field"><label>出發時間</label><input name="departureTime" type="time" value="${escapeHtml(transport.departureTime)}" ${disabled} /></div><div class="field"><label>抵達時間</label><input name="arrivalTime" type="time" value="${escapeHtml(transport.arrivalTime)}" ${disabled} /></div></div>
             <div class="field-grid"><div class="field"><label>車資</label><input name="fare" value="${escapeHtml(transport.fare)}" placeholder="¥3,250" ${disabled} /></div><div class="field"><label>購票狀態</label><select name="ticketStatus" ${disabled}>${["尚未決定", "不需購票", "尚未購票", "已購票"].map((status) => `<option ${transport.ticketStatus === status ? "selected" : ""}>${status}</option>`).join("")}</select></div></div>
             <div class="field"><label>搭乘成員</label><div class="transport-travelers">${travelerOptions || `<span class="field-note">旅程目前沒有成員資料</span>`}</div></div>
             <div class="field"><label>訂票／憑證連結</label><input name="bookingUrl" type="url" value="${escapeHtml(transport.bookingUrl)}" placeholder="https://…" ${disabled} /></div>
@@ -2681,6 +2682,7 @@ function openReorderSheet(key) {
 function closeSheet() {
   pendingTimePicker = null;
   sheetRoot.innerHTML = "";
+  document.body.classList.remove("transport-sheet-open");
 }
 
 let suppressReorderClick = false;

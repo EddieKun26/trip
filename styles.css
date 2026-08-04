@@ -1820,10 +1820,14 @@ body.itinerary-dragging .transport-between {
 }
 
 .transport-backdrop {
+  overflow: hidden;
   padding-inline: 14px;
+  overscroll-behavior: none;
 }
 
 .transport-sheet {
+  min-width: 0;
+  max-width: 390px;
   height: min(760px, calc(100dvh - 28px));
   max-height: calc(100dvh - 28px);
   display: flex;
@@ -1838,18 +1842,52 @@ body.itinerary-dragging .transport-between {
 }
 
 .transport-sheet-body {
+  width: 100%;
+  max-width: 100%;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   padding: 0 2px 4px;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+}
+
+body.transport-sheet-open,
+body.transport-sheet-open .app {
+  overflow: hidden;
+}
+
+.transport-sheet .field-grid {
+  width: 100%;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.transport-sheet .field,
+.transport-scheduled-fields {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .transport-sheet .field input,
 .transport-sheet .field select,
 .transport-sheet .field textarea {
+  min-width: 0;
+  max-width: 100%;
   font-size: 16px;
+}
+
+.transport-sheet input[type="time"] {
+  width: 100%;
+  min-inline-size: 0;
+}
+
+.transport-sheet input[type="time"]::-webkit-date-and-time-value,
+.transport-sheet input[type="time"]::-webkit-datetime-edit {
+  min-width: 0;
+  text-align: left;
 }
 
 .transport-sheet .field textarea {
@@ -3171,6 +3209,10 @@ body.itinerary-dragging .transport-between {
     border: 0;
     border-radius: 0;
     box-shadow: none;
+  }
+
+  .transport-time-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .screen.map-screen {
