@@ -3,6 +3,7 @@
 ## Implemented
 
 - Public responsive web app optimized for iPhone 15 Pro.
+- Overview is a compact decision dashboard with trip status, readiness, planning metrics, prioritized next actions, and the next flight.
 - Four-digit PIN identities persist across devices; guest mode is read-only.
 - Multiple private trips per member, invite-code joining, trip switching, member removal, leaving a trip, and native share links.
 - Shared Redis-backed trip data with revision-aware updates.
@@ -11,7 +12,8 @@
 - Place details include photos, Google Maps link, votes, itinerary assignment, business hours, phone, and editable notes.
 - Planning map and day map are independent. The planning map has an optional device-only live-location layer with an accuracy radius; day maps support per-day colors, ordering badges, route lines, airports, and red dashed flight segments.
 - Daily itinerary supports time-wheel confirmation, chronological sorting, touch drag reordering, swipe deletion, add-place selection, and transport segments between adjacent items.
-- Transport segments support regular and scheduled journeys, lines/stations, departure/arrival times, duration, fares, ticket status, travelers, booking links, and time-window validation.
+- Transport segments adapt fields to walking, subway, train, bus, taxi, driving, ferry, and other modes. Walking pre-fills a coordinate-based time estimate; fixed-schedule, fare, traveler, and booking fields stay collapsed until “指定票券” is enabled.
+- One-level undo restores the latest reversible trip edit and is available from the success toast and Overview.
 - Flights support outbound and return records. New round trips create two compatible legs automatically.
 - Flight airports are selected from city-aware options; common Taiwan, Japan, Korea, and regional airports are included.
 - Flight date/time values use centered app-rendered labels over native iPhone pickers, avoiding Safari's top-aligned text.
@@ -20,4 +22,4 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 29 tests passing as of 2026-08-05.
+- `node --test tests/*.test.mjs`: 31 tests passing as of 2026-08-05.

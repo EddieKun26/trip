@@ -176,7 +176,10 @@ test("transport segments use stable itinerary IDs and become review items after 
 
 test("transport UI supports compact and scheduled cards, route links, members, and confirmed deletion", () => {
   assert.match(appSource, /function transportBetweenMarkup/);
-  assert.match(appSource, /指定班次／需購票/);
+  assert.match(appSource, /data-toggle-transport-ticket/);
+  assert.match(appSource, /班次、票價與訂票連結需要時才展開/);
+  assert.match(appSource, /function estimatedWalkingMinutes/);
+  assert.match(appSource, /data-auto-duration/);
   assert.match(appSource, /name="travelers"/);
   assert.match(appSource, /data-open-transport-route/);
   assert.match(appSource, /data-request-delete-transport/);
@@ -195,6 +198,22 @@ test("transport UI supports compact and scheduled cards, route links, members, a
   assert.match(appSource, /data-transport-save/);
   assert.match(appSource, /document\.body\.classList\.add\("transport-sheet-open"\)/);
   assert.match(appSource, /document\.body\.classList\.remove\("transport-sheet-open"\)/);
+});
+
+test("overview is a decision dashboard and one-level undo is available", () => {
+  const overviewSection = sourceSection("function overviewTripStatus", "function placesScreen");
+  assert.match(overviewSection, /準備度/);
+  assert.match(overviewSection, /接下來處理/);
+  assert.match(overviewSection, /下一個航班/);
+  assert.match(appSource, /function reversibleTripSnapshot/);
+  assert.match(appSource, /function restoreLastAction/);
+  assert.match(appSource, /data-undo-last/);
+  assert.match(stylesSource, /\.toast button/);
+});
+
+test("the sticky place action is opaque and place notes avoid iPhone focus zoom", () => {
+  assert.match(stylesSource, /\.list-footer\s*{[^}]*z-index:\s*12[^}]*background:\s*var\(--paper\)/s);
+  assert.match(stylesSource, /\.place-note-card textarea\s*{[^}]*font-size:\s*16px/s);
 });
 
 test("transport timing must stay ordered and inside adjacent itinerary times", () => {

@@ -2,6 +2,11 @@
 
 ## 2026-08-05
 
+- Rebuilt Overview as a trip decision dashboard with readiness, planning metrics, prioritized next actions, and a compact next-flight card while preserving the existing editorial style.
+- Added mode-adaptive transport entry. Walking now pre-fills a coordinate-based estimate, simple transport cards show only mode and duration, and scheduled ticket fields expand only on request.
+- Added one-level undo for reversible trip edits, exposed in success toasts and Overview.
+- Fixed the sticky add-place action so list rows no longer show through it while scrolling.
+- Raised place-note input text to 16px to prevent iPhone Safari focus zoom.
 - Added an optional planning-map live-location switch with a blue position marker and accuracy radius for Google Maps and Leaflet.
 - Kept live location device-only and stopped geolocation tracking when disabled, leaving the planning map, or closing the page.
 - Moved the live-location switch into the planning-map legend row so it no longer covers Google Maps controls.

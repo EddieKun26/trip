@@ -110,7 +110,7 @@ button {
 }
 
 .overview-screen .trip-title-button h1 {
-  max-width: 155px;
+  max-width: 140px;
   overflow: hidden;
   font-size: clamp(30px, 8vw, 38px);
   text-overflow: ellipsis;
@@ -118,7 +118,7 @@ button {
 }
 
 .overview-screen .subtitle {
-  max-width: 155px;
+  max-width: 140px;
   overflow: hidden;
   font-size: 19px;
   text-overflow: ellipsis;
@@ -131,6 +131,14 @@ button {
 
 .overview-screen .header-actions .profile-button {
   padding-left: 9px;
+}
+
+.overview-screen .header-actions {
+  gap: 5px;
+}
+
+.overview-screen .share-button {
+  min-width: 48px;
 }
 
 .overview-screen .flight-section {
@@ -194,6 +202,234 @@ button {
   flex: 0 0 auto;
   min-height: 44px;
   margin-top: 7px;
+}
+
+.overview-undo-button {
+  width: 36px;
+  height: 44px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 250, 242, 0.8);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 23px;
+  font-weight: 800;
+}
+
+.overview-status-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  padding: 14px 15px 12px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 250, 242, 0.74);
+}
+
+.overview-status-card > div:first-child,
+.overview-flight-brief > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.overview-status-card small,
+.overview-status-card span,
+.overview-flight-brief small,
+.overview-flight-brief span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.overview-status-card > div:first-child > strong {
+  font-family: "Songti TC", "Noto Serif TC", serif;
+  font-size: 25px;
+  line-height: 1.05;
+}
+
+.overview-readiness {
+  display: grid;
+  align-content: center;
+  justify-items: end;
+}
+
+.overview-readiness > strong {
+  color: var(--accent);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.overview-readiness > strong small {
+  color: inherit;
+  font-size: 11px;
+}
+
+.overview-progress {
+  height: 5px;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e9dfd2;
+}
+
+.overview-progress i {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: rgba(255, 250, 242, 0.56);
+}
+
+.overview-metrics button {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 6px 3px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+}
+
+.overview-metrics button:last-child {
+  border-right: 0;
+}
+
+.overview-metrics strong {
+  color: var(--mineral);
+  font-size: 17px;
+}
+
+.overview-metrics span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-next-section {
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.overview-next-section .section-row {
+  margin-bottom: 4px;
+}
+
+.overview-next-section .section-row h2 {
+  margin: 1px 0 0;
+  font-size: 18px;
+}
+
+.overview-next-section .section-kicker {
+  font-size: 9px;
+}
+
+.overview-action-list {
+  display: grid;
+  gap: 5px;
+}
+
+.overview-action-card {
+  min-width: 0;
+  min-height: 49px;
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: rgba(255, 250, 242, 0.72);
+  cursor: pointer;
+  text-align: left;
+}
+
+.overview-action-card > span:first-child {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.overview-action-card > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.overview-action-card strong,
+.overview-action-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-action-card strong {
+  font-size: 12px;
+}
+
+.overview-action-card small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.overview-action-card > b {
+  color: var(--accent);
+  font-size: 18px;
+}
+
+.overview-flight-brief {
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #eee7dc;
+}
+
+.overview-flight-brief strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-flight-brief button {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid rgba(64, 119, 122, 0.25);
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .screen.map-screen {
@@ -670,9 +906,19 @@ h2 {
 
 .list-footer {
   position: sticky;
+  z-index: 12;
   bottom: 0;
-  padding: 14px 0 4px;
-  background: linear-gradient(transparent, var(--paper) 24%);
+  isolation: isolate;
+  margin-inline: -3px;
+  padding: 16px 3px 5px;
+  background: var(--paper);
+  box-shadow: 0 -14px 20px rgba(246, 241, 232, 0.98), 0 12px 0 var(--paper);
+  transform: translateZ(0);
+}
+
+.list-footer .primary-button {
+  position: relative;
+  z-index: 1;
 }
 
 .map-toolbar {
@@ -2035,6 +2281,91 @@ body.transport-sheet-open .app {
   display: none;
 }
 
+.transport-sheet [hidden] {
+  display: none !important;
+}
+
+.transport-ticket-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(238, 231, 220, 0.62);
+}
+
+.transport-ticket-control > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.transport-ticket-control strong {
+  font-size: 12px;
+}
+
+.transport-ticket-control small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.transport-ticket-control button {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid rgba(64, 119, 122, 0.32);
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.transport-ticket-control button.active {
+  border-color: var(--mineral);
+  background: var(--mineral);
+  color: white;
+}
+
+.transport-simple-mode .transport-primary-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.duration-input {
+  position: relative;
+}
+
+.duration-input input {
+  padding-right: 50px !important;
+  font-size: 18px !important;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.duration-input > span {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.transport-duration-field .field-note {
+  min-height: 15px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
 .transport-warning {
   display: grid;
   gap: 2px;
@@ -2907,9 +3238,10 @@ body.transport-sheet-open .app {
   background: white;
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.5;
   resize: vertical;
+  touch-action: manipulation;
 }
 
 .place-note-card p {
@@ -3101,6 +3433,23 @@ body.transport-sheet-open .app {
   box-shadow: var(--shadow);
   transform: translateX(-50%);
   animation: toast-in 180ms ease-out;
+}
+
+.toast span {
+  vertical-align: middle;
+}
+
+.toast button {
+  min-height: 30px;
+  margin: -7px -10px -7px 10px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--paper-2);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 @keyframes toast-in {

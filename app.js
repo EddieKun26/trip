@@ -258,6 +258,9 @@ let pendingFlightTicketFile = null;
 let flightTicketPreviewUrl = "";
 let flightTicketRecognitionToken = 0;
 let flightOcrLoader = null;
+let undoSnapshot = null;
+let undoBaseline = "";
+let offerUndoWithNextToast = false;
 
 const airportCoordinateCache = {
   KHH: { latitude: 22.5771, longitude: 120.3500 },
@@ -300,7 +303,61 @@ function isTripOwner() {
   return Boolean(state.ownerId && state.ownerId === currentMemberId());
 }
 
-function persist({ sync = true } = {}) {
+function cloneValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function reversibleTripSnapshot() {
+  return {
+    flights: cloneValue(state.flights || []),
+    places: cloneValue(state.places || []),
+    deletedPlaces: cloneValue(state.deletedPlaces || []),
+    votes: cloneValue(state.votes || {}),
+    itinerary: cloneValue(state.itinerary || {}),
+    transports: cloneValue(state.transports || []),
+  };
+}
+
+function resetUndoBaseline({ clear = false } = {}) {
+  undoBaseline = JSON.stringify(reversibleTripSnapshot());
+  if (clear) {
+    undoSnapshot = null;
+    offerUndoWithNextToast = false;
+  }
+}
+
+function restoreLastAction() {
+  if (!undoSnapshot || !canEdit()) return false;
+  const snapshot = cloneValue(undoSnapshot);
+  state.flights = snapshot.flights || [];
+  state.places = snapshot.places || [];
+  state.deletedPlaces = snapshot.deletedPlaces || [];
+  state.votes = snapshot.votes || {};
+  state.itinerary = snapshot.itinerary || {};
+  state.transports = snapshot.transports || [];
+  undoSnapshot = null;
+  offerUndoWithNextToast = false;
+  ensureItineraryItemIds();
+  reconcileTransportSegments();
+  resetUndoBaseline();
+  persist({ recordUndo: false });
+  closeSheet();
+  render({ preserveScroll: true });
+  showToast("已復原上一個動作", { allowUndo: false });
+  return true;
+}
+
+function persist({ sync = true, recordUndo = sync, resetUndo = false } = {}) {
+  const nextSnapshot = reversibleTripSnapshot();
+  const nextBaseline = JSON.stringify(nextSnapshot);
+  if (resetUndo) {
+    undoSnapshot = null;
+    offerUndoWithNextToast = false;
+  } else if (recordUndo && canEdit() && undoBaseline && nextBaseline !== undoBaseline) {
+    undoSnapshot = JSON.parse(undoBaseline);
+    offerUndoWithNextToast = true;
+  }
+  undoBaseline = nextBaseline;
   if (state.profile) {
     localStorage.setItem("tokyo-profile-v1", JSON.stringify(state.profile));
   }
@@ -911,6 +968,41 @@ function itineraryBoundaryTime(item, role) {
   return clockMinutes(value) === null ? "" : value;
 }
 
+function itineraryEndpointCoordinates(item, role) {
+  if (!item) return null;
+  if (item.type === "flight") {
+    const flight = state.flights.find((candidate) => candidate.id === item.flightId);
+    const code = role === "from" ? flight?.arrivalCode : flight?.departureCode;
+    return airportCoordinateCache[String(code || "").toUpperCase()] || null;
+  }
+  const place = state.places.find((candidate) => candidate.name === item.name);
+  return Number.isFinite(place?.latitude) && Number.isFinite(place?.longitude)
+    ? { latitude: place.latitude, longitude: place.longitude }
+    : null;
+}
+
+function distanceKilometers(first, second) {
+  if (!first || !second) return null;
+  const radians = (value) => (value * Math.PI) / 180;
+  const latitudeDelta = radians(second.latitude - first.latitude);
+  const longitudeDelta = radians(second.longitude - first.longitude);
+  const latitudeA = radians(first.latitude);
+  const latitudeB = radians(second.latitude);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function estimatedWalkingMinutes(pair) {
+  const distance = distanceKilometers(
+    itineraryEndpointCoordinates(pair?.from, "from"),
+    itineraryEndpointCoordinates(pair?.to, "to"),
+  );
+  if (!Number.isFinite(distance)) return "";
+  const minutes = (distance * 1.22 * 60) / 4.8;
+  return Math.max(3, Math.min(1440, Math.round(minutes / 5) * 5));
+}
+
 function transportTimeWindow(pair) {
   const startLabel = itineraryBoundaryTime(pair?.from, "from");
   const endLabel = itineraryBoundaryTime(pair?.to, "to");
@@ -1082,12 +1174,14 @@ function moveItineraryItem(date, key, direction) {
   return true;
 }
 
-function showToast(message) {
-  toastRoot.innerHTML = `<div class="toast">${escapeHtml(message)}</div>`;
+function showToast(message, { allowUndo = offerUndoWithNextToast } = {}) {
+  const showUndo = Boolean(allowUndo && undoSnapshot && canEdit());
+  offerUndoWithNextToast = false;
+  toastRoot.innerHTML = `<div class="toast"><span>${escapeHtml(message)}</span>${showUndo ? `<button type="button" data-undo-last>復原</button>` : ""}</div>`;
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => {
     toastRoot.innerHTML = "";
-  }, 2200);
+  }, showUndo ? 5200 : 2200);
 }
 
 function sharedTripPayload() {
@@ -1127,6 +1221,7 @@ function applySharedTrip(payload) {
   dateMeta = buildDateMeta(state.startDate, state.endDate);
   syncFlightItineraryItems();
   if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
+  resetUndoBaseline({ clear: true });
   return true;
 }
 
@@ -1293,7 +1388,7 @@ async function loadSharedTrip({ quiet = false, force = false } = {}) {
     if (!force && (Number(payload.revision) || 0) <= state.sharedRevision) return;
     if (!force && state.activeTab === "places" && state.placesMode === "map" && Date.now() < mapInteractionUntil) return;
     if (applySharedTrip(payload)) {
-      persist({ sync: false });
+      persist({ sync: false, resetUndo: true });
       render({ preserveScroll: true });
     }
   } catch {
@@ -1355,15 +1450,55 @@ function flightMarkup(flight) {
     </button>`;
 }
 
+function overviewTripStatus() {
+  const day = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const start = new Date(`${state.startDate}T00:00:00`).getTime();
+  const end = new Date(`${state.endDate}T00:00:00`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return { eyebrow: "旅程規劃中", title: "日期尚未完整設定" };
+  if (todayAtMidnight < start) return { eyebrow: "距離出發", title: `${Math.ceil((start - todayAtMidnight) / day)} 天` };
+  if (todayAtMidnight <= end) return { eyebrow: "旅程進行中", title: `第 ${Math.floor((todayAtMidnight - start) / day) + 1} 天` };
+  return { eyebrow: "旅程已結束", title: "回憶整理中" };
+}
+
+function overviewPlanningSummary() {
+  const scheduledItems = dateMeta.flatMap(([date]) => state.itinerary[date] || []);
+  const scheduledPlaces = scheduledItems.filter((item) => item.type !== "flight");
+  const scheduledNames = new Set(scheduledPlaces.map((item) => item.name));
+  const plannedDays = dateMeta.filter(([date]) => (state.itinerary[date] || []).some((item) => item.type !== "flight")).length;
+  const favoritePlaces = state.places.filter((place) => placeVoters(place.name).length > 0);
+  const unplannedFavorites = favoritePlaces.filter((place) => !scheduledNames.has(place.name));
+  const lodgingCount = state.places.filter((place) => place.kind === "lodging").length;
+  const pairs = dateMeta.flatMap(([date]) => itineraryAdjacentPairs(date).map((pair) => ({ date, ...pair })));
+  const missingTransport = pairs.filter(({ date, from, to }) => !transportForPair(date, itineraryItemKey(from), itineraryItemKey(to))).length;
+  const checks = [state.flights.length > 0, lodgingCount > 0, scheduledPlaces.length > 0, pairs.length > 0 && missingTransport === 0];
+  const actions = [];
+  if (!state.flights.length) actions.push({ icon: "✈", title: "加入航班資料", detail: "讓去回程自動出現在每日行程", action: "flight" });
+  if (!lodgingCount) actions.push({ icon: "◇", title: "住宿尚未決定", detail: "加入住宿後可直接比較景點距離", action: "lodging" });
+  if (!scheduledPlaces.length) actions.push({ icon: "□", title: "開始安排每日行程", detail: "從收藏地點挑選第一天行程", action: "itinerary" });
+  if (unplannedFavorites.length) actions.push({ icon: "★", title: `${unplannedFavorites.length} 個推薦地點尚未安排`, detail: "優先處理旅伴已投票的地點", action: "favorites" });
+  if (missingTransport) actions.push({ icon: "↗", title: `${missingTransport} 段交通尚未設定`, detail: "補齊相鄰景點之間的移動方式", action: "itinerary" });
+  if (!actions.length) actions.push({ icon: "✓", title: "主要規劃已完成", detail: "可再確認營業時間與訂票狀態", action: "itinerary" });
+  return {
+    scheduledPlaces,
+    plannedDays,
+    favoritePlaces,
+    lodgingCount,
+    missingTransport,
+    readiness: Math.round((checks.filter(Boolean).length / checks.length) * 100),
+    actions: actions.slice(0, 3),
+  };
+}
+
 function overviewScreen() {
-  const cards = state.places
-    .map(
-      (place) => `
-        <button class="preview-card" style="--swatch:${place.swatch}" data-open-place="${escapeHtml(place.name)}">
-          <strong>${escapeHtml(place.name)}</strong>
-        </button>`,
-    )
-    .join("");
+  const status = overviewTripStatus();
+  const summary = overviewPlanningSummary();
+  const nextFlight = [...state.flights].sort((a, b) => `${a.departureDate} ${a.departureTime}`.localeCompare(`${b.departureDate} ${b.departureTime}`))[0];
+  const actionCards = summary.actions.map((item) => `
+    <button class="overview-action-card" type="button" data-overview-action="${item.action}">
+      <span>${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span><b>›</b>
+    </button>`).join("");
 
   return `
     <section class="screen overview-screen">
@@ -1374,6 +1509,7 @@ function overviewScreen() {
           <p class="subtitle">${escapeHtml(tripDateLabel(state.startDate))}–${escapeHtml(tripDateLabel(state.endDate))} · ${escapeHtml(state.destination)}</p>
         </div>
         <div class="header-actions">
+          ${canEdit() && undoSnapshot ? `<button class="overview-undo-button" type="button" data-undo-last aria-label="復原上一個動作">↶</button>` : ""}
           ${state.isGuest ? "" : shareButtonMarkup()}
           <button class="profile-button" type="button" data-edit-profile aria-label="查看旅程成員與帳戶">
             ${state.isGuest ? `<span class="member-avatar guest">訪</span>` : avatarMarkup(currentMemberId())}
@@ -1382,20 +1518,28 @@ function overviewScreen() {
         </div>
       </header>
 
-      <section class="flight-section">
-        <div class="section-row"><h2>✈ 航班</h2>${canEdit() ? `<button class="icon-button" type="button" data-add-flight aria-label="新增航班">＋</button>` : ""}</div>
-        <div class="flight-card">${state.flights.length ? state.flights.map(flightMarkup).join("") : `<div class="flight-empty"><span>尚未加入航班</span>${canEdit() ? `<button type="button" data-add-flight>＋ 新增第一個航班</button>` : ""}</div>`}</div>
+      <section class="overview-status-card">
+        <div><small>${escapeHtml(status.eyebrow)}</small><strong>${escapeHtml(status.title)}</strong><span>${escapeHtml(state.destination)} · ${dateMeta.length} 天</span></div>
+        <div class="overview-readiness"><strong>${summary.readiness}<small>%</small></strong><span>準備度</span></div>
+        <div class="overview-progress" aria-label="旅程準備度 ${summary.readiness}%"><i style="width:${summary.readiness}%"></i></div>
       </section>
 
-      <section class="saved-preview">
-        <div class="section-row">
-          <h2>已收藏 ${state.places.length} 個地點</h2>
-          <button class="icon-button" type="button" data-go-tab="places" aria-label="查看所有地點">→</button>
-        </div>
-        <div class="preview-rail">${cards}</div>
+      <div class="overview-metrics" aria-label="規劃摘要">
+        <button type="button" data-overview-action="favorites"><strong>${state.places.length}</strong><span>收藏地點</span></button>
+        <button type="button" data-overview-action="itinerary"><strong>${summary.scheduledPlaces.length}</strong><span>已排行程</span></button>
+        <button type="button" data-overview-action="itinerary"><strong>${summary.plannedDays}/${dateMeta.length}</strong><span>完成天數</span></button>
+        <button type="button" data-overview-action="favorites"><strong>${summary.favoritePlaces.length}</strong><span>成員推薦</span></button>
+      </div>
+
+      <section class="overview-next-section">
+        <div class="section-row"><div><p class="section-kicker">共同決策</p><h2>接下來處理</h2></div></div>
+        <div class="overview-action-list">${actionCards}</div>
       </section>
 
-      <button class="primary-button" type="button" data-go-tab="places">繼續規劃　→</button>
+      <section class="overview-flight-brief">
+        <div><small>下一個航班</small>${nextFlight ? `<strong>${escapeHtml(nextFlight.departureCity)} → ${escapeHtml(nextFlight.arrivalCity)}</strong><span>${escapeHtml(tripDateLabel(nextFlight.departureDate))} · ${escapeHtml(nextFlight.departureTime || "時間待補")}</span>` : `<strong>尚未加入航班</strong><span>可從機票照片自動辨識</span>`}</div>
+        <button type="button" ${nextFlight ? `data-edit-flight="${escapeHtml(nextFlight.id)}"` : "data-add-flight"}>${nextFlight ? "查看" : "新增"} ›</button>
+      </section>
     </section>`;
 }
 
@@ -2142,7 +2286,7 @@ async function ensureMapCoordinates() {
       place.areaOriginal = resolved.areaOriginal || place.areaOriginal || place.area;
       updated = true;
     });
-    if (updated) persist();
+    if (updated) persist({ recordUndo: false });
     return updated;
   } catch {
     return false;
@@ -2278,7 +2422,7 @@ function transportBetweenMarkup(date, item, nextItem) {
     <article class="transport-card compact" style="--transport-color:${mode.color}">
       <button class="transport-card-copy" type="button" data-edit-transport="${escapeHtml(transport.id)}">
         <span class="transport-icon">${mode.icon}</span>
-        <span><strong>${escapeHtml(transport.line || mode.label)} · ${escapeHtml(duration)}</strong><small>${escapeHtml(transportSecondaryLine(transport))}</small></span>
+        <span><strong>${escapeHtml(mode.label)} · ${escapeHtml(duration)}</strong></span>
       </button>
       ${routeButton}
     </article>
@@ -2529,7 +2673,7 @@ async function ensurePlaceDetails(place) {
       photos: resolved.photos || place.photos || [],
       photosLoaded: true,
     });
-    persist();
+    persist({ recordUndo: false });
     if (document.querySelector(`[data-detail-place="${CSS.escape(place.name)}"]`)) openPlaceSheet(place.name);
   } catch {
     // The existing text details remain available when Google Places is temporarily unavailable.
@@ -2684,6 +2828,66 @@ function openFlightSheet(flightId = "") {
   updateFlightFormMode(sheetRoot.querySelector("#flight-form"));
 }
 
+const transportFieldProfiles = {
+  walk: { stations: false, line: false, note: false, ticket: false },
+  subway: { stations: true, line: true, note: true, ticket: true, departure: "進站車站", arrival: "下車車站", route: "路線名稱", routePlaceholder: "東京 Metro 銀座線" },
+  train: { stations: true, line: true, note: true, ticket: true, departure: "出發車站", arrival: "抵達車站", route: "路線名稱", routePlaceholder: "JR 山手線" },
+  bus: { stations: true, line: true, note: true, ticket: true, departure: "上車站牌", arrival: "下車站牌", route: "公車路線", routePlaceholder: "都營巴士 都01" },
+  taxi: { stations: false, line: false, note: true, ticket: false },
+  drive: { stations: false, line: false, note: true, ticket: false },
+  ferry: { stations: true, line: true, note: true, ticket: true, departure: "出發碼頭", arrival: "抵達碼頭", route: "航線名稱", routePlaceholder: "水上巴士航線" },
+  other: { stations: true, line: true, note: true, ticket: true, departure: "出發位置", arrival: "抵達位置", route: "交通名稱", routePlaceholder: "接駁車或包車" },
+};
+
+function updateTransportFormMode(form, { refreshEstimate = false } = {}) {
+  if (!form) return;
+  const mode = String(form.elements.mode?.value || "walk");
+  const profile = transportFieldProfiles[mode] || transportFieldProfiles.other;
+  const journeyTypeInput = form.elements.journeyType;
+  const ticketButton = form.querySelector("[data-toggle-transport-ticket]");
+  const ticketControl = form.querySelector("[data-transport-ticket-control]");
+  const scheduledFields = form.querySelector(".transport-scheduled-fields");
+  const durationInput = form.elements.durationMinutes;
+  const durationNote = form.querySelector("[data-transport-duration-note]");
+
+  form.querySelector("[data-transport-station-fields]")?.toggleAttribute("hidden", !profile.stations);
+  form.querySelector("[data-transport-line-field]")?.toggleAttribute("hidden", !profile.line);
+  form.querySelector("[data-transport-note-field]")?.toggleAttribute("hidden", !profile.note);
+  ticketControl?.toggleAttribute("hidden", !profile.ticket);
+  if (!profile.ticket && journeyTypeInput) journeyTypeInput.value = "regular";
+
+  const departureLabel = form.querySelector("[data-transport-departure-label]");
+  const arrivalLabel = form.querySelector("[data-transport-arrival-label]");
+  const routeLabel = form.querySelector("[data-transport-line-label]");
+  if (departureLabel) departureLabel.textContent = profile.departure || "上車站／起點";
+  if (arrivalLabel) arrivalLabel.textContent = profile.arrival || "下車站／終點";
+  if (routeLabel) routeLabel.textContent = profile.route || "路線名稱";
+  if (form.elements.line) form.elements.line.placeholder = profile.routePlaceholder || "路線或交通名稱";
+
+  if (mode === "walk") {
+    const pair = itineraryAdjacentPairs(form.dataset.transportDate)[Number(form.elements.pairIndex?.value)];
+    const estimate = estimatedWalkingMinutes(pair);
+    if (durationInput && estimate && (refreshEstimate || durationInput.dataset.autoDuration === "true" || !durationInput.value)) {
+      durationInput.value = estimate;
+      durationInput.dataset.autoDuration = "true";
+    }
+    if (durationNote) durationNote.textContent = estimate ? "依兩地座標估計步行時間，可再手動微調。" : "尚無完整座標，請手動填入步行時間。";
+  } else {
+    if (durationInput?.dataset.autoDuration === "true" && refreshEstimate) durationInput.value = "";
+    if (durationInput) durationInput.dataset.autoDuration = "false";
+    if (durationNote) durationNote.textContent = "填入預估的移動時間。";
+  }
+
+  const scheduled = profile.ticket && journeyTypeInput?.value === "scheduled";
+  form.classList.toggle("transport-simple-mode", !profile.line);
+  scheduledFields?.classList.toggle("hidden", !scheduled);
+  ticketButton?.classList.toggle("active", scheduled);
+  ticketButton?.setAttribute("aria-pressed", String(Boolean(scheduled)));
+  if (ticketButton) ticketButton.textContent = scheduled ? "✓ 已指定票券" : "＋ 指定票券";
+  form.dataset.transportMode = mode;
+  updateTransportFormValidation(form);
+}
+
 function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "", toItemId = "" } = {}) {
   ensureItineraryItemIds();
   reconcileTransportSegments(date);
@@ -2731,17 +2935,19 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
         <div class="transport-sheet-body">
           ${transport.needsReview ? `<div class="transport-warning"><strong>交通待確認</strong><span>原本的兩站已不相鄰，請重新選擇連接位置。</span></div>` : ""}
           <div class="field"><label>連接哪兩個行程</label><select name="pairIndex" ${disabled}>${pairOptions}</select></div>
-          <div class="field-grid">
-            <div class="field"><label>呈現方式</label><select name="journeyType" data-transport-kind ${disabled}><option value="regular" ${transport.journeyType !== "scheduled" ? "selected" : ""}>一般移動</option><option value="scheduled" ${transport.journeyType === "scheduled" ? "selected" : ""}>指定班次／需購票</option></select></div>
-            <div class="field"><label>交通工具</label><select name="mode" ${disabled}>${modeOptions}</select></div>
+          <div class="field"><label>交通工具</label><select name="mode" data-transport-mode ${disabled}>${modeOptions}</select></div>
+          <input type="hidden" name="journeyType" data-transport-kind value="${transport.journeyType === "scheduled" ? "scheduled" : "regular"}" />
+          <div class="transport-ticket-control" data-transport-ticket-control>
+            <span><strong>有固定班次或已購票？</strong><small>班次、票價與訂票連結需要時才展開。</small></span>
+            <button type="button" data-toggle-transport-ticket aria-pressed="${transport.journeyType === "scheduled"}" ${disabled}>＋ 指定票券</button>
           </div>
-          <div class="field-grid">
-            <div class="field"><label>上車站／起點</label><input name="departureStation" value="${escapeHtml(transport.departureStation)}" placeholder="新宿站" ${disabled} /></div>
-            <div class="field"><label>下車站／終點</label><input name="arrivalStation" value="${escapeHtml(transport.arrivalStation)}" placeholder="澀谷站" ${disabled} /></div>
+          <div class="field-grid" data-transport-station-fields>
+            <div class="field"><label data-transport-departure-label>上車站／起點</label><input name="departureStation" value="${escapeHtml(transport.departureStation)}" placeholder="新宿站" ${disabled} /></div>
+            <div class="field"><label data-transport-arrival-label>下車站／終點</label><input name="arrivalStation" value="${escapeHtml(transport.arrivalStation)}" placeholder="澀谷站" ${disabled} /></div>
           </div>
-          <div class="field-grid">
-            <div class="field"><label>路線名稱</label><input name="line" value="${escapeHtml(transport.line)}" placeholder="JR 山手線" ${disabled} /></div>
-            <div class="field"><label>所需時間</label><input name="durationMinutes" type="number" inputmode="numeric" min="1" max="1440" value="${escapeHtml(transport.durationMinutes)}" placeholder="18" ${disabled} /></div>
+          <div class="field-grid transport-primary-fields">
+            <div class="field" data-transport-line-field><label data-transport-line-label>路線名稱</label><input name="line" value="${escapeHtml(transport.line)}" placeholder="JR 山手線" ${disabled} /></div>
+            <div class="field transport-duration-field"><label>所需時間</label><div class="duration-input"><input name="durationMinutes" type="number" inputmode="numeric" min="1" max="1440" value="${escapeHtml(transport.durationMinutes)}" data-auto-duration="${!transport.id && transport.mode === "walk" ? "true" : "false"}" placeholder="18" ${disabled} /><span>分鐘</span></div><small class="field-note" data-transport-duration-note></small></div>
           </div>
           <div class="transport-scheduled-fields ${transport.journeyType === "scheduled" ? "" : "hidden"}">
             <div class="field"><label>班次／車次</label><input name="serviceNumber" value="${escapeHtml(transport.serviceNumber)}" placeholder="N'EX 22 號、NOZOMI 36" ${disabled} /></div>
@@ -2752,7 +2958,7 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
             <div class="field"><label>搭乘成員</label><div class="transport-travelers">${travelerOptions || `<span class="field-note">旅程目前沒有成員資料</span>`}</div></div>
             <div class="field"><label>訂票／憑證連結</label><input name="bookingUrl" type="url" value="${escapeHtml(transport.bookingUrl)}" placeholder="https://…" ${disabled} /></div>
           </div>
-          <div class="field"><label>交通備註</label><textarea name="note" maxlength="500" placeholder="例如：從南口進站、需先劃位、行李較多…" ${disabled}>${escapeHtml(transport.note)}</textarea></div>
+          <div class="field" data-transport-note-field><label>交通備註</label><textarea name="note" maxlength="500" placeholder="例如：從南口進站、需先劃位、行李較多…" ${disabled}>${escapeHtml(transport.note)}</textarea></div>
           ${directionsUrl ? `<button class="transport-google-button" type="button" data-open-transport-route="${escapeHtml(transport.id)}">在 Google Maps 查看路線 ↗</button>` : ""}
           ${transport.bookingUrl ? `<button class="transport-booking-button" type="button" data-open-booking-url="${escapeHtml(transport.id)}">開啟訂票／憑證連結 ↗</button>` : ""}
         </div>
@@ -2761,7 +2967,7 @@ function openTransportSheet({ id = "", date = state.selectedDate, fromItemId = "
         </div>
       </form>
     </div>`;
-  updateTransportFormValidation(sheetRoot.querySelector("#transport-form"));
+  updateTransportFormMode(sheetRoot.querySelector("#transport-form"), { refreshEstimate: !transport.id });
 }
 
 function openTransportDeleteConfirmation(id) {
@@ -3414,6 +3620,25 @@ document.addEventListener("click", async (event) => {
   const goTab = event.target.closest("[data-go-tab]");
   if (goTab) return setTab(goTab.dataset.goTab);
 
+  if (event.target.closest("[data-undo-last]")) return restoreLastAction();
+
+  const overviewAction = event.target.closest("[data-overview-action]");
+  if (overviewAction) {
+    const action = overviewAction.dataset.overviewAction;
+    if (action === "flight") return canEdit() ? openFlightSheet() : guestOnlyMessage();
+    if (action === "lodging") {
+      state.placeKind = "lodging";
+      state.placesMode = "list";
+      return setTab("places");
+    }
+    if (action === "favorites") {
+      state.placeKind = "all";
+      state.placesMode = "list";
+      return setTab("places");
+    }
+    return setTab("itinerary");
+  }
+
   const mode = event.target.closest("[data-places-mode]");
   if (mode) {
     state.placesMode = mode.dataset.placesMode;
@@ -3679,6 +3904,16 @@ document.addEventListener("click", async (event) => {
   const editTransport = event.target.closest("[data-edit-transport]");
   if (editTransport) return openTransportSheet({ id: editTransport.dataset.editTransport });
 
+  const toggleTransportTicket = event.target.closest("[data-toggle-transport-ticket]");
+  if (toggleTransportTicket) {
+    const transportForm = toggleTransportTicket.closest("#transport-form");
+    if (!transportForm || !canEdit()) return guestOnlyMessage();
+    const input = transportForm.elements.journeyType;
+    input.value = input.value === "scheduled" ? "regular" : "scheduled";
+    updateTransportFormMode(transportForm);
+    return;
+  }
+
   const transportRoute = event.target.closest("[data-open-transport-route]");
   if (transportRoute) {
     const transport = (state.transports || []).find((item) => item.id === transportRoute.dataset.openTransportRoute);
@@ -3890,16 +4125,18 @@ document.addEventListener("change", (event) => {
     return;
   }
 
-  if (event.target.matches("[data-transport-kind]")) {
+  if (event.target.matches("[data-transport-mode]")) {
     const transportForm = event.target.closest("#transport-form");
-    const scheduledFields = transportForm?.querySelector(".transport-scheduled-fields");
-    scheduledFields?.classList.toggle("hidden", event.target.value !== "scheduled");
-    updateTransportFormValidation(transportForm);
+    updateTransportFormMode(transportForm, { refreshEstimate: true });
     return;
   }
 
   const transportForm = event.target.closest("#transport-form");
-  if (transportForm && event.target.matches('[name="pairIndex"], [name="departureTime"], [name="arrivalTime"], [name="durationMinutes"]')) {
+  if (transportForm && event.target.matches('[name="pairIndex"]')) {
+    updateTransportFormMode(transportForm, { refreshEstimate: transportForm.elements.mode?.value === "walk" });
+    return;
+  }
+  if (transportForm && event.target.matches('[name="departureTime"], [name="arrivalTime"], [name="durationMinutes"]')) {
     updateTransportFormValidation(transportForm);
     return;
   }
@@ -3937,6 +4174,7 @@ document.addEventListener("input", (event) => {
 
   const transportForm = event.target.closest("#transport-form");
   if (transportForm && event.target.matches('[name="departureTime"], [name="arrivalTime"], [name="durationMinutes"]')) {
+    if (event.target.matches('[name="durationMinutes"]')) event.target.dataset.autoDuration = "false";
     updateTransportFormValidation(transportForm);
   }
 });
@@ -4080,6 +4318,8 @@ document.addEventListener("submit", async (event) => {
     if (conflict) return showToast("這兩個行程之間已經有交通安排");
     const previous = (state.transports || []).find((transport) => transport.id === id);
     const durationValue = Number(form.get("durationMinutes"));
+    const mode = String(form.get("mode") || "walk");
+    const fieldProfile = transportFieldProfiles[mode] || transportFieldProfiles.other;
     const transport = {
       ...(previous || {}),
       id,
@@ -4089,11 +4329,11 @@ document.addEventListener("submit", async (event) => {
       fromLabel: itineraryItemLabel(pair.from),
       toLabel: itineraryItemLabel(pair.to),
       journeyType,
-      mode: String(form.get("mode") || "walk"),
+      mode,
       durationMinutes: Number.isFinite(durationValue) && durationValue > 0 ? Math.min(1440, Math.round(durationValue)) : "",
-      departureStation: String(form.get("departureStation") || "").trim().slice(0, 80),
-      arrivalStation: String(form.get("arrivalStation") || "").trim().slice(0, 80),
-      line: String(form.get("line") || "").trim().slice(0, 80),
+      departureStation: fieldProfile.stations ? String(form.get("departureStation") || "").trim().slice(0, 80) : "",
+      arrivalStation: fieldProfile.stations ? String(form.get("arrivalStation") || "").trim().slice(0, 80) : "",
+      line: fieldProfile.line ? String(form.get("line") || "").trim().slice(0, 80) : "",
       serviceNumber: journeyType === "scheduled" ? String(form.get("serviceNumber") || "").trim().slice(0, 80) : "",
       departureTime: journeyType === "scheduled" ? String(form.get("departureTime") || "") : "",
       arrivalTime: journeyType === "scheduled" ? String(form.get("arrivalTime") || "") : "",
@@ -4101,7 +4341,7 @@ document.addEventListener("submit", async (event) => {
       ticketStatus: journeyType === "scheduled" ? String(form.get("ticketStatus") || "尚未決定") : "",
       travelers: journeyType === "scheduled" ? form.getAll("travelers").map(String).slice(0, 30) : [],
       bookingUrl: journeyType === "scheduled" ? String(form.get("bookingUrl") || "").trim().slice(0, 500) : "",
-      note: String(form.get("note") || "").trim().slice(0, 500),
+      note: fieldProfile.note ? String(form.get("note") || "").trim().slice(0, 500) : "",
       needsReview: false,
       addedBy: previous?.addedBy || currentMemberId(),
       addedByName: previous?.addedByName || state.profile.nickname,
@@ -4363,7 +4603,7 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
-persist({ sync: false });
+persist({ sync: false, resetUndo: true });
 render();
 if (!state.profile && !state.isGuest) openProfileSheet(true);
 if (state.profile) {

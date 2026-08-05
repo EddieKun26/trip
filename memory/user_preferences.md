@@ -3,6 +3,8 @@
 - Communicate in Traditional Chinese.
 - Design primarily for iPhone 15 Pro and avoid horizontal overflow, unexpected focus zoom, and unnecessary full-page scrolling.
 - Prefer compact, direct interfaces with important content visible without extra navigation.
+- Keep transport cards minimal; reveal ticket, fare, timetable, and booking details only after the user explicitly enables a scheduled ticket.
+- Provide a simple one-step undo for recent edits.
 - Keep planning maps and day maps functionally separate.
 - Keep custom map controls outside the map canvas when possible so they do not cover Google Maps controls.
 - Use Chinese display names while retaining local-language place/area names where helpful.

@@ -6,4 +6,5 @@
 - The local airport catalog is intentionally curated rather than exhaustive; unsupported cities need catalog additions.
 - Browser-based ticket OCR is optimized for airport codes, English month names, dates, and colon-formatted times. Low-resolution, handwritten, or heavily stylized tickets may need manual correction.
 - First-time ticket OCR requires an internet connection to download the browser recognition worker and English language data; later loads may use the browser cache.
+- Walking time is currently estimated from the two saved coordinates with a walking-route factor. It is not live Google routing and may need manual adjustment for barriers, station interiors, or inaccessible paths.
 - Shared production data depends on Vercel/Upstash availability. Device-local state is not a substitute for the shared store.
