@@ -204,11 +204,43 @@ test("overview is a decision dashboard and one-level undo is available", () => {
   const overviewSection = sourceSection("function overviewTripStatus", "function placesScreen");
   assert.match(overviewSection, /準備度/);
   assert.match(overviewSection, /接下來處理/);
-  assert.match(overviewSection, /下一個航班/);
+  assert.match(overviewSection, /overview-flight-section/);
+  assert.match(overviewSection, /data-add-flight/);
   assert.match(appSource, /function reversibleTripSnapshot/);
   assert.match(appSource, /function restoreLastAction/);
   assert.match(appSource, /data-undo-last/);
   assert.match(stylesSource, /\.toast button/);
+});
+
+test("overview titles stay complete and undo is available across pages and edit sheets", () => {
+  const titleRule = stylesSource.slice(stylesSource.indexOf(".overview-screen .trip-title-button h1"), stylesSource.indexOf(".overview-screen .subtitle"));
+  assert.doesNotMatch(titleRule, /text-overflow:\s*ellipsis/);
+  assert.match(titleRule, /white-space:\s*normal/);
+  assert.match(appSource, /function decorateEditableSheetUndo/);
+  assert.match(appSource, /sheetUndoObserver\.observe/);
+  assert.match(appSource, /undoButtonMarkup\(\"overview-undo-button\"\)/);
+  assert.match(appSource, /map-toolbar[\s\S]*undoButtonMarkup\(\)/);
+  assert.match(appSource, /每日行程[\s\S]*undoButtonMarkup\(\)/);
+});
+
+test("place list keeps only the bottom add action and fully masks swipe deletion", () => {
+  const placesSection = sourceSection("function placesScreen", "function kindLabel");
+  assert.equal((placesSection.match(/data-add-place/g) || []).length, 1);
+  assert.doesNotMatch(placesSection, /round-button/);
+  assert.match(stylesSource, /\.place-thumb\s*{[^}]*border:\s*0/s);
+  assert.match(stylesSource, /\.swipe-delete\s*{[^}]*visibility:\s*hidden/s);
+  assert.match(stylesSource, /\.swipe-row\.delete-visible \.swipe-delete/);
+  assert.match(stylesSource, /\.reaction-button\s*{[^}]*place-content:\s*center[^}]*place-items:\s*center/s);
+});
+
+test("day route lines terminate at pins and transport legend stays off the map", () => {
+  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
+  assert.doesNotMatch(mapSection, /transportLegend|transport-route-legend/);
+  assert.match(appSource, /state\.mapView === \"day\"\) return places\.map\(\(place\) => \(\{ \.\.\.place, pinOffsetX: 0, pinOffsetY: 0 \}\)\)/);
+  assert.match(appSource, /iconAnchor: \[32 - \(place\.pinOffsetX \|\| 0\), 42 - \(place\.pinOffsetY \|\| 0\)\]/);
+  assert.match(stylesSource, /\.google-html-marker\s*{[^}]*height:\s*42px/s);
+  assert.match(stylesSource, /\.map-live-location-icon::before/);
+  assert.match(stylesSource, /\.map-live-location-icon::after/);
 });
 
 test("the sticky place action is opaque and place notes avoid iPhone focus zoom", () => {

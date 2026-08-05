@@ -295,6 +295,33 @@ function canEdit() {
   return Boolean(state.profile) && !state.isGuest && Boolean(state.tripId) && state.trips.some((trip) => trip.id === state.tripId);
 }
 
+function undoButtonMarkup(className = "page-undo-button") {
+  if (!canEdit()) return "";
+  return `<button class="${className}" type="button" data-undo-last aria-label="復原上一個動作" ${undoSnapshot ? "" : "disabled"}>↶</button>`;
+}
+
+function syncUndoButtons() {
+  document.querySelectorAll("[data-undo-last]").forEach((button) => {
+    button.disabled = !undoSnapshot || !canEdit();
+  });
+}
+
+function decorateEditableSheetUndo() {
+  const sheet = sheetRoot.querySelector(".modal-sheet");
+  if (!sheet || !canEdit() || sheet.querySelector("[data-sheet-undo]")) return;
+  const editable = sheet.matches("form") || sheet.querySelector("form, [data-confirm-time], [data-move-item]");
+  if (!editable) return;
+  const button = document.createElement("button");
+  button.className = "sheet-undo-button";
+  button.type = "button";
+  button.dataset.undoLast = "";
+  button.dataset.sheetUndo = "";
+  button.setAttribute("aria-label", "復原上一個動作");
+  button.textContent = "↶";
+  button.disabled = !undoSnapshot;
+  sheet.append(button);
+}
+
 function currentMemberId() {
   return state.profile?.id || "";
 }
@@ -372,7 +399,11 @@ function persist({ sync = true, recordUndo = sync, resetUndo = false } = {}) {
       saveSharedTrip();
     }, 120);
   }
+  syncUndoButtons();
 }
+
+const sheetUndoObserver = new MutationObserver(decorateEditableSheetUndo);
+sheetUndoObserver.observe(sheetRoot, { childList: true, subtree: true });
 
 function members() {
   const palette = ["coral", "teal", "ochre"];
@@ -1494,7 +1525,6 @@ function overviewPlanningSummary() {
 function overviewScreen() {
   const status = overviewTripStatus();
   const summary = overviewPlanningSummary();
-  const nextFlight = [...state.flights].sort((a, b) => `${a.departureDate} ${a.departureTime}`.localeCompare(`${b.departureDate} ${b.departureTime}`))[0];
   const actionCards = summary.actions.map((item) => `
     <button class="overview-action-card" type="button" data-overview-action="${item.action}">
       <span>${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span><b>›</b>
@@ -1509,7 +1539,7 @@ function overviewScreen() {
           <p class="subtitle">${escapeHtml(tripDateLabel(state.startDate))}–${escapeHtml(tripDateLabel(state.endDate))} · ${escapeHtml(state.destination)}</p>
         </div>
         <div class="header-actions">
-          ${canEdit() && undoSnapshot ? `<button class="overview-undo-button" type="button" data-undo-last aria-label="復原上一個動作">↶</button>` : ""}
+          ${undoButtonMarkup("overview-undo-button")}
           ${state.isGuest ? "" : shareButtonMarkup()}
           <button class="profile-button" type="button" data-edit-profile aria-label="查看旅程成員與帳戶">
             ${state.isGuest ? `<span class="member-avatar guest">訪</span>` : avatarMarkup(currentMemberId())}
@@ -1524,6 +1554,11 @@ function overviewScreen() {
         <div class="overview-progress" aria-label="旅程準備度 ${summary.readiness}%"><i style="width:${summary.readiness}%"></i></div>
       </section>
 
+      <section class="flight-section overview-flight-section">
+        <div class="section-row"><h2>✈ 航班</h2>${canEdit() ? `<button class="icon-button" type="button" data-add-flight aria-label="新增航班">＋</button>` : ""}</div>
+        <div class="flight-card">${state.flights.length ? state.flights.map(flightMarkup).join("") : `<div class="flight-empty"><span>尚未加入航班</span>${canEdit() ? `<button type="button" data-add-flight>＋ 新增第一個航班</button>` : ""}</div>`}</div>
+      </section>
+
       <div class="overview-metrics" aria-label="規劃摘要">
         <button type="button" data-overview-action="favorites"><strong>${state.places.length}</strong><span>收藏地點</span></button>
         <button type="button" data-overview-action="itinerary"><strong>${summary.scheduledPlaces.length}</strong><span>已排行程</span></button>
@@ -1534,11 +1569,6 @@ function overviewScreen() {
       <section class="overview-next-section">
         <div class="section-row"><div><p class="section-kicker">共同決策</p><h2>接下來處理</h2></div></div>
         <div class="overview-action-list">${actionCards}</div>
-      </section>
-
-      <section class="overview-flight-brief">
-        <div><small>下一個航班</small>${nextFlight ? `<strong>${escapeHtml(nextFlight.departureCity)} → ${escapeHtml(nextFlight.arrivalCity)}</strong><span>${escapeHtml(tripDateLabel(nextFlight.departureDate))} · ${escapeHtml(nextFlight.departureTime || "時間待補")}</span>` : `<strong>尚未加入航班</strong><span>可從機票照片自動辨識</span>`}</div>
-        <button type="button" ${nextFlight ? `data-edit-flight="${escapeHtml(nextFlight.id)}"` : "data-add-flight"}>${nextFlight ? "查看" : "新增"} ›</button>
       </section>
     </section>`;
 }
@@ -1585,7 +1615,7 @@ function placesScreen() {
     <section class="screen">
       <header class="title-row">
         <div><h1>收藏地點</h1><p class="meta">${visiblePlaces.length} 個${state.placeKind === "all" ? "地點" : kindLabel(state.placeKind)}</p></div>
-        ${canEdit() ? `<button class="round-button" type="button" data-add-place aria-label="新增地點">＋</button>` : `<span class="readonly-badge">訪客唯讀</span>`}
+        ${canEdit() ? undoButtonMarkup() : `<span class="readonly-badge">訪客唯讀</span>`}
       </header>
       ${placesSegment("list")}
       ${placeKindTabs()}
@@ -1806,6 +1836,7 @@ function googleSegmentIcons(segment, style) {
 }
 
 function offsetOverlappingMapPins(places) {
+  if (state.mapView === "day") return places.map((place) => ({ ...place, pinOffsetX: 0, pinOffsetY: 0 }));
   return places.map((place) => {
     const peers = places.filter((candidate) =>
       Math.abs((candidate.x ?? 0) - (place.x ?? 0)) < 7 &&
@@ -1852,9 +1883,6 @@ function mapScreen() {
   const flightLegend = state.mapView === "day" && projectedPlaces.some((place) => place.isAirport)
     ? `<span class="flight-route-legend"><i></i>紅色虛線為航班</span>`
     : "";
-  const transportLegend = state.mapView === "day" && mapRouteSegments(projectedPlaces).some((segment) => segment.transport)
-    ? `<span class="transport-route-legend">🚶 🚇 🚌 🚕　圖示為已設定交通</span>`
-    : "";
   const mapTitle = state.mapView === "planning"
     ? "規劃地圖"
     : state.mapDate === "all" ? "所有日期路線" : `${state.mapDate} 當日地圖`;
@@ -1863,6 +1891,7 @@ function mapScreen() {
     <section class="screen map-screen">
       <div class="map-toolbar">
         <div><h2 style="margin:0">${mapTitle}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
+        ${undoButtonMarkup()}
       </div>
       <div style="margin-top:14px">${placesSegment("map")}</div>
       <div class="map-purpose-tabs" aria-label="地圖用途">
@@ -1880,7 +1909,7 @@ function mapScreen() {
         </select></label>
       </div>
       <div class="map-legend" aria-label="圖釘狀態">
-        ${state.mapView === "day" ? `${dayLegend}${flightLegend}${transportLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
+        ${state.mapView === "day" ? `${dayLegend}${flightLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
         ${state.mapView === "planning" ? `
           <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
             <span class="map-live-location-icon" aria-hidden="true">⌖</span>
@@ -2250,8 +2279,8 @@ function renderLeafletInteractiveMap(host, places) {
     const icon = L.divIcon({
       className: "trip-div-icon",
       html: markerHtml(place),
-      iconSize: [64, 58],
-      iconAnchor: [32 - (place.pinOffsetX || 0), 54 - (place.pinOffsetY || 0)],
+      iconSize: [64, 42],
+      iconAnchor: [32 - (place.pinOffsetX || 0), 42 - (place.pinOffsetY || 0)],
     });
     L.marker(point, { icon, title: place.name })
       .addTo(activeLeafletMap)
@@ -2507,7 +2536,7 @@ function itineraryScreen() {
     <section class="screen">
       <header class="title-row">
         <div><h1>每日行程</h1><p class="meta">先排區域，再調整時間</p></div>
-        ${state.isGuest ? "" : shareButtonMarkup()}
+        ${state.isGuest ? "" : `<div class="header-actions">${undoButtonMarkup()}${shareButtonMarkup()}</div>`}
       </header>
       <div class="date-strip">${dates}</div>
       <div class="day-area">
@@ -4011,8 +4040,12 @@ document.addEventListener("pointerdown", (event) => {
   if (!surface || event.target.closest("[data-drag-key]")) return;
 
   document.querySelectorAll("[data-swipe-item].revealed").forEach((item) => {
-    if (item !== surface) item.classList.remove("revealed");
+    if (item !== surface) {
+      item.classList.remove("revealed");
+      item.closest(".swipe-row")?.classList.remove("delete-visible");
+    }
   });
+  surface.closest(".swipe-row")?.classList.toggle("delete-visible", surface.classList.contains("revealed"));
   swipeDrag = {
     surface,
     pointerId: event.pointerId,
@@ -4037,6 +4070,7 @@ document.addEventListener("pointermove", (event) => {
   if (swipeDrag.axis !== "horizontal") return;
   swipeDrag.offset = Math.max(-84, Math.min(0, swipeDrag.startOffset + deltaX));
   swipeDrag.surface.style.transform = `translateX(${swipeDrag.offset}px)`;
+  swipeDrag.surface.closest(".swipe-row")?.classList.toggle("delete-visible", swipeDrag.offset < -4);
   event.preventDefault();
 });
 
@@ -4046,7 +4080,9 @@ function finishSwipe(event) {
   swipeDrag = null;
   current.surface.style.removeProperty("transform");
   if (current.axis !== "horizontal") return;
-  current.surface.classList.toggle("revealed", current.offset < -42);
+  const revealed = current.offset < -42;
+  current.surface.classList.toggle("revealed", revealed);
+  current.surface.closest(".swipe-row")?.classList.toggle("delete-visible", revealed);
   suppressSwipeClick = true;
   window.setTimeout(() => {
     suppressSwipeClick = false;

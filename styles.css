@@ -93,9 +93,8 @@ button {
 }
 
 .overview-screen {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
+  min-height: 100%;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   padding: 14px 18px 14px;
@@ -106,23 +105,24 @@ button {
 }
 
 .overview-screen .title-row > div:first-child {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .overview-screen .trip-title-button h1 {
-  max-width: 140px;
-  overflow: hidden;
+  max-width: none;
   font-size: clamp(30px, 8vw, 38px);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .overview-screen .subtitle {
-  max-width: 140px;
-  overflow: hidden;
-  font-size: 19px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: none;
+  font-size: 17px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .overview-screen .header-actions .profile-button > .member-avatar {
@@ -143,6 +143,10 @@ button {
 
 .overview-screen .flight-section {
   margin-top: 6px;
+}
+
+.overview-flight-section {
+  flex: 0 0 auto;
 }
 
 .overview-screen .section-row h2 {
@@ -217,6 +221,38 @@ button {
   cursor: pointer;
   font-size: 23px;
   font-weight: 800;
+}
+
+.page-undo-button,
+.sheet-undo-button {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.9);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.sheet-undo-button {
+  position: absolute;
+  z-index: 4;
+  top: 20px;
+  right: 68px;
+}
+
+.overview-undo-button:disabled,
+.page-undo-button:disabled,
+.sheet-undo-button:disabled {
+  cursor: default;
+  opacity: 0.34;
 }
 
 .overview-status-card {
@@ -792,6 +828,14 @@ h2 {
   color: white;
   cursor: pointer;
   font-weight: 800;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+}
+
+.swipe-row.delete-visible .swipe-delete {
+  opacity: 1;
+  visibility: visible;
 }
 
 .swipe-surface {
@@ -801,6 +845,12 @@ h2 {
   touch-action: pan-y;
   transition: transform 190ms ease;
   will-change: transform;
+}
+
+.place-row.swipe-surface {
+  width: 100%;
+  isolation: isolate;
+  box-shadow: 10px 0 0 var(--paper);
 }
 
 .swipe-surface.revealed {
@@ -828,6 +878,8 @@ h2 {
 .place-thumb {
   width: 54px;
   height: 54px;
+  padding: 0;
+  border: 0;
   border-radius: 15px;
   font-size: 19px;
 }
@@ -876,9 +928,15 @@ h2 {
 }
 
 .reaction-button {
+  display: grid;
+  grid-template-columns: auto auto;
+  place-content: center;
+  place-items: center;
+  gap: 3px;
   min-width: 47px;
   height: 42px;
-  padding: 0 8px;
+  margin-right: 4px;
+  padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 15px;
   background: rgba(255, 250, 242, 0.88);
@@ -888,12 +946,12 @@ h2 {
 
 .reaction-button span,
 .reaction-button b {
-  display: inline-block;
-  vertical-align: middle;
+  display: block;
+  line-height: 1;
 }
 
 .reaction-button b {
-  margin-left: 3px;
+  margin: 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -1115,7 +1173,7 @@ h2 {
 .google-html-marker {
   position: absolute;
   width: 64px;
-  height: 58px;
+  height: 42px;
   transform: translate(-50%, -100%);
 }
 
@@ -1158,6 +1216,7 @@ h2 {
 }
 
 .map-live-location-icon {
+  position: relative;
   width: 18px;
   height: 18px;
   display: grid;
@@ -1165,8 +1224,25 @@ h2 {
   border-radius: 50%;
   background: #eceae5;
   color: #5f6566;
-  font-size: 14px;
+  font-size: 0;
   line-height: 1;
+}
+
+.map-live-location-icon::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.map-live-location-icon::after {
+  content: "";
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .map-live-location-toggle.active {
@@ -1213,7 +1289,7 @@ h2 {
   color: white;
   box-shadow: 0 5px 14px rgba(45, 35, 29, 0.3);
   cursor: pointer;
-  transform: translateY(-8px) rotate(-2deg);
+  transform: rotate(-2deg);
 }
 
 .google-place-pin span {
@@ -2119,6 +2195,7 @@ body.itinerary-dragging .transport-between {
 }
 
 .modal-sheet {
+  position: relative;
   width: min(390px, 100%);
   max-height: 80dvh;
   overflow-y: auto;

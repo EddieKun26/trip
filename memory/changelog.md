@@ -2,7 +2,12 @@
 
 ## 2026-08-05
 
-- Rebuilt Overview as a trip decision dashboard with readiness, planning metrics, prioritized next actions, and a compact next-flight card while preserving the existing editorial style.
+- Restored the complete flight list and add-flight entry point to Overview, and allowed full trip titles and dates to wrap instead of truncating.
+- Removed the duplicate top-right add-place button; the Places list now uses only its persistent bottom action.
+- Removed the default button border from place icons, centered recommendation controls, and fully concealed swipe-delete layers until a left swipe begins.
+- Centered the planning-map live-location glyph, anchored day-map pins directly to route endpoints, and removed the redundant transport legend while retaining route transport icons.
+- Expanded one-level undo controls to every main page and automatically added them to editable sheets.
+- Rebuilt Overview as a trip decision dashboard with readiness, planning metrics, and prioritized next actions while preserving the existing editorial style.
 - Added mode-adaptive transport entry. Walking now pre-fills a coordinate-based estimate, simple transport cards show only mode and duration, and scheduled ticket fields expand only on request.
 - Added one-level undo for reversible trip edits, exposed in success toasts and Overview.
 - Fixed the sticky add-place action so list rows no longer show through it while scrolling.
