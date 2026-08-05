@@ -1474,9 +1474,10 @@ function emptyGuestScreen() {
 function flightMarkup(flight) {
   return `
     <button class="flight-leg editable-flight" type="button" ${canEdit() ? `data-edit-flight="${escapeHtml(flight.id)}"` : "data-guest-action"}>
-      <div class="airport"><strong>${escapeHtml(flight.departureCity || "出發地")}</strong><span>${escapeHtml(flight.departureCode || "---")} · ${escapeHtml(flight.departureTime || "--:--")}</span></div>
-      <div class="flight-arrow"><span class="plane">✈</span><span>${escapeHtml(flight.direction || tripDateLabel(flight.departureDate))}</span></div>
-      <div class="airport"><strong>${escapeHtml(flight.arrivalCity || "抵達地")}</strong><span>${escapeHtml(flight.arrivalCode || "---")} · ${escapeHtml(flight.arrivalTime || "--:--")}</span></div>
+      <span class="flight-direction-badge">${escapeHtml(flight.direction || tripDateLabel(flight.departureDate))}</span>
+      <div class="airport departure-airport"><strong>${escapeHtml(flight.departureCity || "出發地")}</strong><span>${escapeHtml(flight.departureCode || "---")} · ${escapeHtml(flight.departureTime || "--:--")}</span></div>
+      <div class="flight-arrow" aria-hidden="true"><span class="plane">✈</span></div>
+      <div class="airport arrival-airport"><strong>${escapeHtml(flight.arrivalCity || "抵達地")}</strong><span>${escapeHtml(flight.arrivalCode || "---")} · ${escapeHtml(flight.arrivalTime || "--:--")}</span></div>
       <span class="flight-travelers">${escapeHtml(flight.travelers || "尚未註記乘客")}</span>
     </button>`;
 }
@@ -2837,9 +2838,9 @@ function openFlightSheet(flightId = "") {
         <div class="field"><label for="flight-direction">航程標記</label><select id="flight-direction" name="direction" data-flight-direction><option ${selectedDirection === "去程" ? "selected" : ""}>去程</option><option ${selectedDirection === "回程" ? "selected" : ""}>回程</option>${flight.id ? "" : "<option>來回</option>"}</select></div>
         <section class="flight-leg-fields">
           <div class="flight-segment-heading" data-flight-outbound-heading hidden><span>去程</span><strong>先填出發與抵達資料</strong></div>
-          <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="departureCity" list="flight-city-options" data-flight-city-side="departure" autocomplete="off" required value="${escapeHtml(flight.departureCity)}" placeholder="選擇或輸入城市" /></div><div class="field compact-field"><label>機場</label><select name="departureCode" required>${airportOptionsMarkup(flight.departureCity, flight.departureCode)}</select></div></div>
+          <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="departureCity" list="flight-city-options" data-flight-city-side="departure" autocomplete="off" required value="${escapeHtml(flight.departureCity)}" placeholder="選擇城市" /></div><div class="field compact-field"><label>機場</label><select name="departureCode" required>${airportOptionsMarkup(flight.departureCity, flight.departureCode)}</select></div></div>
           <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "出發日期", name: "departureDate", type: "date", value: flight.departureDate })}${flightDateTimeInputMarkup({ label: "出發時間", name: "departureTime", type: "time", value: flight.departureTime })}</div>
-          <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="arrivalCity" list="flight-city-options" data-flight-city-side="arrival" autocomplete="off" required value="${escapeHtml(flight.arrivalCity)}" placeholder="選擇或輸入城市" /></div><div class="field compact-field"><label>機場</label><select name="arrivalCode" required>${airportOptionsMarkup(flight.arrivalCity, flight.arrivalCode)}</select></div></div>
+          <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="arrivalCity" list="flight-city-options" data-flight-city-side="arrival" autocomplete="off" required value="${escapeHtml(flight.arrivalCity)}" placeholder="選擇城市" /></div><div class="field compact-field"><label>機場</label><select name="arrivalCode" required>${airportOptionsMarkup(flight.arrivalCity, flight.arrivalCode)}</select></div></div>
           <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "抵達日期", name: "arrivalDate", type: "date", value: flight.arrivalDate })}${flightDateTimeInputMarkup({ label: "抵達時間", name: "arrivalTime", type: "time", value: flight.arrivalTime })}</div>
         </section>
         <section class="flight-return-fields" data-flight-return-fields hidden>

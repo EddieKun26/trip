@@ -155,8 +155,9 @@ button {
 }
 
 .overview-screen .flight-leg {
-  gap: 8px;
-  padding: 9px 12px 22px;
+  grid-template-columns: 34px minmax(0, 1fr) 20px minmax(0, 1fr);
+  gap: 5px 7px;
+  padding: 8px 10px;
 }
 
 .overview-screen .airport strong {
@@ -171,9 +172,14 @@ button {
   font-size: 17px;
 }
 
+.overview-screen .flight-direction-badge {
+  font-size: 11px;
+}
+
 .overview-screen .flight-travelers {
+  min-height: 25px;
   padding-top: 4px;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .map-date-disabled {
@@ -679,7 +685,10 @@ h2 {
 
 .flight-leg {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 44px minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas:
+    "direction departure arrow arrival"
+    "direction travelers travelers travelers";
   align-items: center;
   gap: 12px;
   padding: 20px;
@@ -691,16 +700,26 @@ h2 {
 
 .airport {
   display: grid;
+  min-width: 0;
   gap: 3px;
 }
 
-.airport:last-child {
+.departure-airport {
+  grid-area: departure;
+}
+
+.arrival-airport {
+  grid-area: arrival;
   text-align: right;
 }
 
 .airport strong {
+  display: block;
+  overflow: hidden;
   font-family: "Songti TC", "Noto Serif TC", serif;
   font-size: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .airport span,
@@ -710,6 +729,7 @@ h2 {
 }
 
 .flight-arrow {
+  grid-area: arrow;
   display: grid;
   justify-items: center;
   gap: 2px;
@@ -719,6 +739,19 @@ h2 {
 .flight-arrow .plane {
   font-size: 22px;
   transform: rotate(10deg);
+}
+
+.flight-direction-badge {
+  grid-area: direction;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding-right: 8px;
+  border-right: 1px dashed var(--line);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .saved-preview {
@@ -3610,11 +3643,16 @@ body.transport-sheet-open .app {
 }
 
 .flight-travelers {
-  grid-column: 1 / -1;
+  grid-area: travelers;
+  display: flex;
+  align-items: center;
+  min-height: 29px;
   padding-top: 8px;
   border-top: 1px dashed var(--line);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
   text-align: left;
 }
 
@@ -3764,7 +3802,12 @@ body.transport-sheet-open .app {
 }
 
 .flight-form-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, .78fr) minmax(0, 1.22fr);
+}
+
+.flight-form-grid .compact-field select {
+  padding-right: 28px;
+  padding-left: 10px;
 }
 
 .flight-date-time-grid {

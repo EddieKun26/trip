@@ -16,7 +16,8 @@
 - Time changes require explicit confirm/cancel and itinerary order follows confirmed times.
 - Keep itinerary time text at its current size; use a wider symmetric pill with centered text.
 - Flight entry should offer outbound, return, and round-trip modes, with city-aware airport choices.
-- Flight city and airport fields should have equal widths, and all date/time values must be centered both horizontally and vertically.
+- Flight city fields should be narrower than airport fields so full airport names remain visible, and all date/time values must be centered both horizontally and vertically.
+- Keep Overview flight rows compact, place outbound/return at the far left, and show passenger notes with larger vertically centered text.
 - Flight ticket photos should prefill fields after recognition but must not save without user confirmation.
 - Input placeholders must be neutral and must not expose a real user's Google Maps list name.
 - Ship the web version first; build a test iOS app only after the web product matures.

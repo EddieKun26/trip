@@ -397,9 +397,18 @@ test("flight and itinerary time fields fit and center on iPhone", () => {
   assert.match(stylesSource, /\.timeline-item\s*{[^}]*grid-template-columns:\s*72px minmax\(0, 1fr\) auto/s);
   assert.match(stylesSource, /\.time-button\s*{[^}]*width:\s*72px[^}]*place-items:\s*center/s);
   assert.match(stylesSource, /\.flight-date-time-grid\s*{[^}]*minmax\(0, 1\.45fr\) minmax\(118px, \.85fr\)/s);
-  assert.match(stylesSource, /\.flight-form-grid\s*{[^}]*minmax\(0, 1fr\) minmax\(0, 1fr\)/s);
+  assert.match(stylesSource, /\.flight-form-grid\s*{[^}]*minmax\(0, \.78fr\) minmax\(0, 1\.22fr\)/s);
   assert.match(stylesSource, /\.flight-native-control span\s*{[^}]*display:\s*grid[^}]*place-items:\s*center[^}]*line-height:\s*1/s);
   assert.match(appSource, /data-flight-native-display/);
+});
+
+test("overview flight cards keep direction left and passenger note vertically centered", () => {
+  const section = sourceSection("function flightMarkup", "function overviewTripStatus");
+  assert.match(section, /flight-direction-badge/);
+  assert.match(section, /departure-airport/);
+  assert.match(section, /arrival-airport/);
+  assert.match(stylesSource, /\.flight-leg\s*{[^}]*grid-template-areas:[^}]*"direction departure arrow arrival"[^}]*"direction travelers travelers travelers"/s);
+  assert.match(stylesSource, /\.flight-travelers\s*{[^}]*display:\s*flex[^}]*align-items:\s*center[^}]*font-size:\s*13px/s);
 });
 
 test("flight ticket images are recognized locally and used to prefill the form", () => {

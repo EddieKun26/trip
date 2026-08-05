@@ -16,10 +16,12 @@
 - One-level undo restores the latest reversible trip edit and is available from success toasts, every main page, and every editable sheet.
 - Flights support outbound and return records. New round trips create two compatible legs automatically.
 - Flight airports are selected from city-aware options; common Taiwan, Japan, Korea, and regional airports are included.
+- Overview flight cards use a compact layout with the outbound/return marker fixed at the far left and a larger vertically centered passenger note.
+- Flight forms allocate more horizontal space to airport selectors than city fields so full airport names remain readable on iPhone.
 - Flight date/time values use centered app-rendered labels over native iPhone pickers, avoiding Safari's top-aligned text.
 - Flight ticket images can be selected or photographed, recognized locally in the browser, and used to prefill the flight form before confirmation.
 
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 34 tests passing as of 2026-08-05.
+- `node --test tests/*.test.mjs`: 35 tests passing as of 2026-08-05.
