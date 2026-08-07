@@ -18,6 +18,10 @@
 - Kept live location device-only and stopped geolocation tracking when disabled, leaving the planning map, or closing the page.
 - Moved the live-location switch into the planning-map legend row so it no longer covers Google Maps controls.
 
+## 2026-08-07
+
+- Audited documented settings against source code, automated tests, deployment mirror, and public Vercel assets; no feature drift was found.
+
 ## 2026-08-04
 
 - Replaced top-aligned iPhone date/time text with centered app-rendered values while retaining native pickers.
