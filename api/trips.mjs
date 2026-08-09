@@ -6,6 +6,7 @@ const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const INVITE_PREFIX = "tokyo-family-trip:invite:";
 const MEMBER_TRIPS_PREFIX = "tokyo-family-trip:member-trips:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
+const SHOPPING_PREFIX = "tokyo-family-trip:shopping:";
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -228,6 +229,7 @@ export default async function tripsHandler(request, response) {
         trip.updatedBy = member.id;
         await redisCommand(["SET", `${TRIP_PREFIX}${trip.id}`, JSON.stringify(trip)]);
         await removeMemberTrip(memberId, trip.id);
+        await redisCommand(["DEL", `${SHOPPING_PREFIX}${memberId}:${trip.id}`]);
         return sendJson(response, 200, { trip: tripSummary(trip), removedMemberId: memberId });
       }
 
@@ -239,6 +241,7 @@ export default async function tripsHandler(request, response) {
         delete nextMembers[member.id];
         const remainingMemberIds = Object.keys(nextMembers);
         await removeMemberTrip(member.id, trip.id);
+        await redisCommand(["DEL", `${SHOPPING_PREFIX}${member.id}:${trip.id}`]);
         if (!remainingMemberIds.length) {
           await redisCommand(["DEL", `${TRIP_PREFIX}${trip.id}`]);
           await redisCommand(["DEL", `${INVITE_PREFIX}${trip.inviteCode}`]);

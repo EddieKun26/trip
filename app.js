@@ -179,6 +179,26 @@ const sharedInviteCode = String(new URLSearchParams(window.location.search).get(
   .toUpperCase()
   .slice(0, 6);
 
+const defaultShoppingCategories = [
+  { id: "souvenir", name: "伴手禮", builtIn: true },
+  { id: "appliance", name: "家電", builtIn: true },
+  { id: "daily", name: "日常", builtIn: true },
+  { id: "medicine", name: "藥品", builtIn: true },
+  { id: "skincare", name: "保養品", builtIn: true },
+];
+
+function emptyShoppingState() {
+  return {
+    scope: "private",
+    categories: defaultShoppingCategories.map((category) => ({ ...category })),
+    tags: [],
+    items: [],
+    photos: {},
+    revision: 0,
+    updatedAt: "",
+  };
+}
+
 const state = {
   tripId: localStorage.getItem("active-trip-v1") || "",
   trips: [],
@@ -229,6 +249,10 @@ const state = {
   ),
   itinerary: JSON.parse(localStorage.getItem("tokyo-itinerary") || "{}"),
   transports: [],
+  shopping: emptyShoppingState(),
+  shoppingLoaded: false,
+  shoppingFilter: "all",
+  shoppingStatus: "all",
 };
 
 const app = document.querySelector("#app");
@@ -258,6 +282,13 @@ let pendingFlightTicketFile = null;
 let flightTicketPreviewUrl = "";
 let flightTicketRecognitionToken = 0;
 let flightOcrLoader = null;
+let shoppingOcrLoader = null;
+let shoppingRecognitionToken = 0;
+let pendingShoppingScreenshotFile = null;
+let pendingShoppingPhotoDataUrl = "";
+let shoppingSaveBusy = false;
+let shoppingSavePending = false;
+let shoppingUndoSnapshot = null;
 let undoSnapshot = null;
 let undoBaseline = "";
 let offerUndoWithNextToast = false;
@@ -295,6 +326,10 @@ function canEdit() {
   return Boolean(state.profile) && !state.isGuest && Boolean(state.tripId) && state.trips.some((trip) => trip.id === state.tripId);
 }
 
+function canManageShopping() {
+  return Boolean(state.profile) && !state.isGuest && Boolean(state.tripId) && state.trips.some((trip) => trip.id === state.tripId);
+}
+
 function undoButtonMarkup(className = "page-undo-button") {
   if (!canEdit()) return "";
   return `<button class="${className}" type="button" data-undo-last aria-label="復原上一個動作" ${undoSnapshot ? "" : "disabled"}>↶</button>`;
@@ -308,7 +343,7 @@ function syncUndoButtons() {
 
 function decorateEditableSheetUndo() {
   const sheet = sheetRoot.querySelector(".modal-sheet");
-  if (!sheet || !canEdit() || sheet.querySelector("[data-sheet-undo]")) return;
+  if (!sheet || sheet.hasAttribute("data-shopping-sheet") || !canEdit() || sheet.querySelector("[data-sheet-undo]")) return;
   const editable = sheet.matches("form") || sheet.querySelector("form, [data-confirm-time], [data-move-item]");
   if (!editable) return;
   const button = document.createElement("button");
@@ -1297,6 +1332,82 @@ async function authenticateMember(nickname, pin) {
   return payload.member;
 }
 
+function shoppingPayload() {
+  return {
+    scope: "private",
+    categories: state.shopping.categories,
+    tags: state.shopping.tags,
+    items: state.shopping.items,
+    photos: state.shopping.photos,
+  };
+}
+
+function applyPrivateShopping(payload) {
+  if (!payload || !Array.isArray(payload.items)) return false;
+  state.shopping = {
+    scope: "private",
+    categories: Array.isArray(payload.categories) && payload.categories.length
+      ? payload.categories
+      : defaultShoppingCategories.map((category) => ({ ...category })),
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    items: payload.items,
+    photos: payload.photos && typeof payload.photos === "object" ? payload.photos : {},
+    revision: Number(payload.revision) || 0,
+    updatedAt: payload.updatedAt || "",
+  };
+  state.shoppingLoaded = true;
+  shoppingUndoSnapshot = null;
+  return true;
+}
+
+async function loadShopping({ quiet = false, force = false } = {}) {
+  if (!canManageShopping()) return;
+  const tripId = state.tripId;
+  try {
+    const response = await fetch(`/api/shopping?tripId=${encodeURIComponent(tripId)}`, { cache: "no-store" });
+    if (response.status === 401) return;
+    if (!response.ok) throw new Error("SHOPPING_LOAD_FAILED");
+    const payload = await response.json();
+    if (state.tripId !== tripId) return;
+    if (!force && state.shoppingLoaded && Number(payload.revision) <= Number(state.shopping.revision)) return;
+    applyPrivateShopping(payload);
+    if (state.activeTab === "shopping") render({ preserveScroll: true });
+  } catch {
+    if (!quiet) showToast("私人採買清單暫時無法載入");
+  }
+}
+
+async function saveShopping() {
+  if (!canManageShopping()) return;
+  if (shoppingSaveBusy) {
+    shoppingSavePending = true;
+    return;
+  }
+  shoppingSaveBusy = true;
+  const tripId = state.tripId;
+  try {
+    const response = await fetch(`/api/shopping?tripId=${encodeURIComponent(tripId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(shoppingPayload()),
+    });
+    if (!response.ok) throw new Error("SHOPPING_SAVE_FAILED");
+    const payload = await response.json();
+    if (state.tripId === tripId) {
+      state.shopping.revision = Number(payload.revision) || state.shopping.revision;
+      state.shopping.updatedAt = payload.updatedAt || state.shopping.updatedAt;
+    }
+  } catch {
+    showToast("私人採買清單暫時無法儲存，請稍後重試");
+  } finally {
+    shoppingSaveBusy = false;
+    if (shoppingSavePending) {
+      shoppingSavePending = false;
+      saveShopping();
+    }
+  }
+}
+
 async function loadTrips({ selectNewest = false } = {}) {
   if (!state.profile) return;
   const response = await fetch("/api/trips", { cache: "no-store" });
@@ -1315,7 +1426,12 @@ async function loadTrips({ selectNewest = false } = {}) {
   const nextId = state.trips.some((trip) => trip.id === preferred) ? preferred : state.trips[0]?.id || "";
   state.tripId = nextId;
   state.sharedRevision = 0;
-  if (nextId) await loadSharedTrip({ quiet: true, force: true });
+  if (nextId) {
+    await loadSharedTrip({ quiet: true, force: true });
+    state.shoppingLoaded = false;
+    state.shopping = emptyShoppingState();
+    await loadShopping({ quiet: true, force: true });
+  }
   else render();
 }
 
@@ -1332,9 +1448,14 @@ async function switchTrip(tripId) {
   state.mapCategory = "all";
   state.mapView = "planning";
   state.mapDate = "all";
+  state.shoppingLoaded = false;
+  state.shopping = emptyShoppingState();
+  state.shoppingFilter = "all";
+  shoppingUndoSnapshot = null;
   localStorage.setItem("active-trip-v1", tripId);
   closeSheet();
   await loadSharedTrip({ force: true });
+  await loadShopping({ quiet: true, force: true });
 }
 
 async function mutateTrips(payload) {
@@ -1431,12 +1552,15 @@ function guestOnlyMessage() {
   showToast("訪客只能閱覽；登入暱稱後即可參與規劃");
 }
 
-function setTab(tab) {
+async function setTab(tab) {
   state.activeTab = tab;
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tab);
   });
   render();
+  if (tab === "shopping" && canManageShopping() && !state.shoppingLoaded) {
+    await loadShopping({ force: true });
+  }
 }
 
 function tripDateLabel(date) {
@@ -2468,6 +2592,413 @@ function transportReviewMarkup(date) {
   </section>`;
 }
 
+function shoppingCategoryName(categoryId) {
+  return state.shopping.categories.find((category) => category.id === categoryId)?.name || "日常";
+}
+
+function shoppingTagName(tagId) {
+  return state.shopping.tags.find((tag) => tag.id === tagId)?.name || "";
+}
+
+function shoppingPhoto(photoId) {
+  return photoId ? state.shopping.photos?.[photoId]?.dataUrl || "" : "";
+}
+
+function shoppingClone() {
+  return JSON.parse(JSON.stringify(state.shopping));
+}
+
+function recordShoppingUndo() {
+  shoppingUndoSnapshot = shoppingClone();
+}
+
+function shoppingUndoButtonMarkup(className = "page-undo-button") {
+  if (!canManageShopping()) return "";
+  return `<button class="${className}" type="button" data-undo-shopping aria-label="復原上一個採買動作" ${shoppingUndoSnapshot ? "" : "disabled"}>↶</button>`;
+}
+
+async function restoreShoppingAction() {
+  if (!shoppingUndoSnapshot || !canManageShopping()) return false;
+  state.shopping = JSON.parse(JSON.stringify(shoppingUndoSnapshot));
+  shoppingUndoSnapshot = null;
+  closeSheet();
+  render({ preserveScroll: true });
+  await saveShopping();
+  showToast("已復原上一個採買動作", { allowUndo: false });
+  return true;
+}
+
+function shoppingFilteredItems() {
+  return [...state.shopping.items]
+    .filter((item) => state.shoppingFilter === "all" || item.categoryId === state.shoppingFilter)
+    .filter((item) => state.shoppingStatus === "all" || (state.shoppingStatus === "done" ? item.purchased : !item.purchased))
+    .sort((a, b) => Number(a.purchased) - Number(b.purchased) || String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function shoppingItemMarkup(item) {
+  const photo = shoppingPhoto(item.photoId);
+  const tags = item.recipientTagIds
+    .map(shoppingTagName)
+    .filter(Boolean)
+    .map((name) => `<span>${escapeHtml(name)}</span>`)
+    .join("");
+  return `
+    <article class="shopping-item ${item.purchased ? "purchased" : ""}">
+      <button class="shopping-check" type="button" data-toggle-shopping-item="${escapeHtml(item.id)}" aria-label="${item.purchased ? "改為尚未購買" : "標記為已購買"}">
+        <span>${item.purchased ? "✓" : ""}</span>
+      </button>
+      <button class="shopping-item-main" type="button" data-open-shopping-item="${escapeHtml(item.id)}">
+        <span class="shopping-thumb">${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : `<b>${escapeHtml(item.name.slice(0, 1))}</b>`}</span>
+        <span class="shopping-item-copy">
+          <span class="shopping-item-heading"><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(shoppingCategoryName(item.categoryId))}</em></span>
+          ${tags ? `<span class="shopping-recipient-tags">${tags}</span>` : `<small>尚未標記購買對象</small>`}
+          ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
+        </span>
+        <span class="shopping-chevron">›</span>
+      </button>
+    </article>`;
+}
+
+function shoppingScreen() {
+  const total = state.shopping.items.length;
+  const done = state.shopping.items.filter((item) => item.purchased).length;
+  const pending = total - done;
+  const categoryTabs = [
+    `<button type="button" data-shopping-category="all" class="${state.shoppingFilter === "all" ? "active" : ""}">全部 <b>${total}</b></button>`,
+    ...state.shopping.categories.map((category) => {
+      const count = state.shopping.items.filter((item) => item.categoryId === category.id).length;
+      return `<button type="button" data-shopping-category="${escapeHtml(category.id)}" class="${state.shoppingFilter === category.id ? "active" : ""}">${escapeHtml(category.name)}${count ? ` <b>${count}</b>` : ""}</button>`;
+    }),
+    `<button type="button" class="shopping-add-category" data-manage-shopping-categories>＋ 分類</button>`,
+  ].join("");
+  const items = shoppingFilteredItems();
+  return `
+    <section class="screen shopping-screen">
+      <header class="title-row shopping-title-row">
+        <div><p class="section-kicker">PRIVATE LIST</p><h1>採買清單</h1><p class="meta">${escapeHtml(state.tripTitle)} · 只有你看得到</p></div>
+        <div class="header-actions">${shoppingUndoButtonMarkup()}<span class="shopping-private-pill" aria-label="私人清單">鎖 私人</span></div>
+      </header>
+      <section class="shopping-summary" aria-label="採買進度">
+        <div><strong>${pending}</strong><span>待購買</span></div>
+        <div><strong>${done}</strong><span>已完成</span></div>
+        <div><strong>${total}</strong><span>全部</span></div>
+        <i style="--shopping-progress:${total ? Math.round((done / total) * 100) : 0}%"></i>
+      </section>
+      <div class="shopping-category-tabs">${categoryTabs}</div>
+      <div class="shopping-status-tabs" role="group" aria-label="購買狀態">
+        <button type="button" data-shopping-status="all" class="${state.shoppingStatus === "all" ? "active" : ""}">全部</button>
+        <button type="button" data-shopping-status="pending" class="${state.shoppingStatus === "pending" ? "active" : ""}">未購買</button>
+        <button type="button" data-shopping-status="done" class="${state.shoppingStatus === "done" ? "active" : ""}">已購買</button>
+      </div>
+      ${!state.shoppingLoaded
+        ? `<div class="shopping-loading"><span></span><b>正在載入你的私人清單</b></div>`
+        : items.length
+          ? `<div class="shopping-list">${items.map(shoppingItemMarkup).join("")}</div>`
+          : `<div class="shopping-empty"><span>購</span><h2>${total ? "這個篩選沒有項目" : "還沒有採買項目"}</h2><p>${total ? "切換分類或購買狀態看看。" : "上傳推薦截圖，辨識後再確認加入；也可以手動新增。"}</p></div>`}
+      ${canManageShopping() ? `<div class="shopping-sticky-actions"><button type="button" data-add-shopping-item>＋ 手動新增</button><button type="button" data-import-shopping-screenshot>▧ 截圖辨識</button></div>` : ""}
+    </section>`;
+}
+
+function shoppingTagOptions(selectedIds = []) {
+  const selected = new Set(selectedIds);
+  if (!state.shopping.tags.length) return `<p class="shopping-tags-empty">儲存第一個標記後，下次就能直接點選。</p>`;
+  return state.shopping.tags.map((tag) => `
+    <label class="shopping-tag-option" data-shopping-tag-name="${escapeHtml(tag.name)}">
+      <input type="checkbox" name="recipientTag" value="${escapeHtml(tag.id)}" ${selected.has(tag.id) ? "checked" : ""} />
+      <span>${escapeHtml(tag.name)}</span>
+    </label>`).join("");
+}
+
+function shoppingCategoryOptions(selectedId = "daily") {
+  return state.shopping.categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedId ? "selected" : ""}>${escapeHtml(category.name)}</option>`).join("");
+}
+
+function openShoppingDetailSheet(itemId) {
+  const item = state.shopping.items.find((candidate) => candidate.id === itemId);
+  if (!item) return;
+  const photo = shoppingPhoto(item.photoId);
+  const tags = item.recipientTagIds.map(shoppingTagName).filter(Boolean);
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <section class="modal-sheet shopping-detail-sheet" data-shopping-sheet role="dialog" aria-modal="true" aria-labelledby="shopping-detail-title">
+        <div class="section-row">
+          <div><p class="section-kicker">${escapeHtml(shoppingCategoryName(item.categoryId))}</p><h2 id="shopping-detail-title">${escapeHtml(item.name)}</h2></div>
+          <button class="icon-button" type="button" data-close-sheet>×</button>
+        </div>
+        ${photo ? `<img class="shopping-detail-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}推薦截圖" />` : `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
+        <div class="shopping-detail-state ${item.purchased ? "done" : ""}"><span>${item.purchased ? "✓" : "○"}</span><strong>${item.purchased ? "已經買到了" : "還沒有購買"}</strong></div>
+        <section class="shopping-detail-block"><small>購買對象</small><div class="shopping-recipient-tags">${tags.length ? tags.map((name) => `<span>${escapeHtml(name)}</span>`).join("") : `<em>尚未標記</em>`}</div></section>
+        <section class="shopping-detail-block"><small>備註</small><p>${item.note ? escapeHtml(item.note) : "尚未新增備註"}</p></section>
+        <div class="shopping-privacy-note"><b>鎖</b><span>這筆採買只屬於你的「${escapeHtml(state.tripTitle)}」清單，旅伴無法查看。</span></div>
+        <div class="modal-actions shopping-detail-actions"><button class="secondary-button" type="button" data-request-delete-shopping="${escapeHtml(item.id)}">刪除</button><button class="primary-button" type="button" data-edit-shopping-item="${escapeHtml(item.id)}">編輯資料</button></div>
+      </section>
+    </div>`;
+}
+
+function openShoppingItemSheet(itemId = "") {
+  const existing = state.shopping.items.find((item) => item.id === itemId);
+  const item = existing || { id: "", name: "", categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "" };
+  const photo = shoppingPhoto(item.photoId);
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
+      <form id="shopping-item-form" class="modal-sheet shopping-form-sheet" data-shopping-sheet data-shopping-item-id="${escapeHtml(item.id)}" data-shopping-photo-id="${escapeHtml(item.photoId)}">
+        <div class="section-row shopping-sheet-header">
+          <div><p class="section-kicker">私人採買</p><h2>${existing ? "編輯採買項目" : "新增採買項目"}</h2></div>
+          <div class="header-actions">${shoppingUndoButtonMarkup("sheet-undo-button")}<button class="icon-button" type="button" data-close-sheet>×</button></div>
+        </div>
+        <div class="shopping-sheet-body">
+          ${photo ? `<img class="shopping-form-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : ""}
+          <div class="field"><label>物品名稱</label><input name="name" required maxlength="100" value="${escapeHtml(item.name)}" placeholder="例如 東京香蕉" /></div>
+          <div class="field"><label>分類</label><select name="categoryId">${shoppingCategoryOptions(item.categoryId)}</select></div>
+          <div class="field"><label>新增自訂分類（選填）</label><input name="newCategory" maxlength="24" placeholder="輸入後會保留在分類列" /></div>
+          <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions(item.recipientTagIds)}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /><small>多個標記可用逗號分隔；儲存後下次可直接點選。</small></fieldset>
+          <div class="field"><label>備註</label><textarea name="note" maxlength="800" placeholder="數量、尺寸、口味、送給誰或購買地點…">${escapeHtml(item.note)}</textarea></div>
+          <label class="shopping-purchased-toggle"><input type="checkbox" name="purchased" ${item.purchased ? "checked" : ""} /><span><b>已經買到了</b><small>勾選後會移到已購買</small></span></label>
+          <div class="shopping-privacy-note"><b>鎖</b><span>這頁資料只會儲存在你的帳號，不會加入旅程共用資料。</span></div>
+        </div>
+        <div class="modal-actions shopping-sheet-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">儲存項目</button></div>
+      </form>
+    </div>`;
+}
+
+function openShoppingCategorySheet() {
+  const rows = state.shopping.categories.map((category) => `<div><strong>${escapeHtml(category.name)}</strong><span>${category.builtIn ? "預設分類" : "自訂分類"}</span></div>`).join("");
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <form id="shopping-category-form" class="modal-sheet" data-shopping-sheet>
+        <div class="section-row"><div><p class="section-kicker">整理方式</p><h2>採買分類</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
+        <div class="shopping-category-list">${rows}</div>
+        <div class="field"><label>新增自訂分類</label><input name="name" maxlength="24" required placeholder="例如 文具、紀念品" /></div>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">新增分類</button></div>
+      </form>
+    </div>`;
+}
+
+function openShoppingDeleteSheet(itemId) {
+  const item = state.shopping.items.find((candidate) => candidate.id === itemId);
+  if (!item) return;
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <section class="modal-sheet" data-shopping-sheet role="alertdialog" aria-modal="true" aria-labelledby="shopping-delete-title">
+        <div class="danger-mark">刪</div>
+        <h2 id="shopping-delete-title">刪除「${escapeHtml(item.name)}」？</h2>
+        <p>這會從你的私人採買清單移除，旅伴不會受到影響。</p>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="danger-button" type="button" data-confirm-delete-shopping="${escapeHtml(item.id)}">確認刪除</button></div>
+      </section>
+    </div>`;
+}
+
+function shoppingCustomCategory(name, fallbackId = "daily") {
+  const normalized = String(name || "").normalize("NFKC").trim().slice(0, 24);
+  if (!normalized) return fallbackId;
+  const existing = state.shopping.categories.find((category) => category.name.toLocaleLowerCase() === normalized.toLocaleLowerCase());
+  if (existing) return existing.id;
+  const category = { id: `category-${crypto.randomUUID?.() || Date.now()}`, name: normalized, builtIn: false };
+  state.shopping.categories.push(category);
+  return category.id;
+}
+
+function shoppingRecipientTagIds(formData) {
+  const ids = formData.getAll("recipientTag").map(String);
+  const names = String(formData.get("newTags") || "")
+    .split(/[，,、;；\n]+/)
+    .map((name) => name.normalize("NFKC").trim().slice(0, 24))
+    .filter(Boolean);
+  names.forEach((name) => {
+    let tag = state.shopping.tags.find((candidate) => candidate.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    if (!tag) {
+      tag = { id: `tag-${crypto.randomUUID?.() || Date.now()}-${state.shopping.tags.length}`, name };
+      state.shopping.tags.push(tag);
+    }
+    ids.push(tag.id);
+  });
+  return [...new Set(ids)].slice(0, 20);
+}
+
+function parseShoppingScreenshotText(text = "") {
+  const ignored = /(登入|註冊|分享|留言|追蹤|瀏覽|按讚|收藏|查看全部|廣告|推薦碼|免運|購物車|首頁|通知|threads|instagram|facebook|youtube|http|www\.|查看翻譯|顯示更多)/i;
+  const productWords = /(限定|伴手禮|餅|糖|巧克力|蛋糕|點心|零食|茶|咖啡|藥|錠|膏|液|乳|霜|精華|面膜|洗面|防曬|吹風機|電鍋|相機|耳機|家電|模型|玩偶|公仔|文具|紀念|護膚|保養|香水|口紅|粉餅|眼影|藥妝)/i;
+  const lines = String(text)
+    .normalize("NFKC")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s•●▪︎■□✓✔︎★☆#@_-]+/, "").replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 2 && line.length <= 72)
+    .filter((line) => !ignored.test(line) && !/^[$¥￥NT\s\d,.:/%+-]+$/i.test(line));
+  const scored = lines.map((line, index) => {
+    let score = 0;
+    if (productWords.test(line)) score += 5;
+    if (/[㐀-鿿ぁ-んァ-ヶ]/.test(line)) score += 2;
+    if (/[A-Za-z]{3,}/.test(line)) score += 1;
+    if (/[$¥￥]\s?\d|\d{2,}[円元]/.test(line)) score += 1;
+    if (line.length > 45) score -= 2;
+    return { line: line.replace(/\s*(?:[$¥￥]\s?\d[\d,.]*(?:円|元)?|\d[\d,.]*円)\s*$/i, "").trim(), index, score };
+  });
+  const preferred = scored.filter((item) => item.score >= 3);
+  const fallback = scored.filter((item) => item.score >= 2);
+  return (preferred.length ? preferred : fallback)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.line)
+    .filter((line, index, list) => line && list.findIndex((item) => item.toLocaleLowerCase() === line.toLocaleLowerCase()) === index)
+    .slice(0, 10);
+}
+
+function loadShoppingOcrLibrary() {
+  if (shoppingOcrLoader) return shoppingOcrLoader;
+  shoppingOcrLoader = loadFlightOcrLibrary().catch((error) => {
+    shoppingOcrLoader = null;
+    throw error;
+  });
+  return shoppingOcrLoader;
+}
+
+function setShoppingRecognitionStatus(form, message, { progress = 0, tone = "" } = {}) {
+  const status = form?.querySelector("[data-shopping-recognition-status]");
+  const progressBar = form?.querySelector("[data-shopping-recognition-progress]");
+  if (status) status.textContent = message;
+  if (progressBar) progressBar.style.setProperty("--shopping-ocr-progress", `${Math.max(0, Math.min(100, Math.round(progress * 100)))}%`);
+  if (form) form.dataset.shoppingOcrTone = tone;
+}
+
+function imageFileDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+async function compressShoppingScreenshot(file) {
+  const source = await imageFileDataUrl(file);
+  const image = await loadImageElement(source);
+  const scale = Math.min(1, 680 / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
+  let quality = 0.64;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > 165000 && quality > 0.3) {
+    quality -= 0.08;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+  if (dataUrl.length > 125000) {
+    const compactScale = Math.min(1, 520 / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * compactScale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * compactScale));
+    canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
+    quality = 0.52;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > 125000 && quality > 0.26) {
+      quality -= 0.07;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+  }
+  if (dataUrl.length > 130000) throw new Error("IMAGE_TOO_COMPLEX");
+  return dataUrl;
+}
+
+function pruneShoppingPhotos(limit = 30) {
+  const entries = Object.entries(state.shopping.photos)
+    .sort(([, a], [, b]) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
+  entries.slice(limit).forEach(([photoId]) => {
+    delete state.shopping.photos[photoId];
+    state.shopping.items.forEach((item) => {
+      if (item.photoId === photoId) item.photoId = "";
+    });
+  });
+}
+
+async function recognizeShoppingScreenshot(form, file = pendingShoppingScreenshotFile) {
+  if (!form || !file || form.dataset.shoppingOcrBusy === "true") return;
+  form.dataset.shoppingOcrBusy = "true";
+  const token = ++shoppingRecognitionToken;
+  const confirm = form.querySelector('button[type="submit"]');
+  if (confirm) confirm.disabled = true;
+  let worker;
+  try {
+    setShoppingRecognitionStatus(form, "正在準備中日文圖片辨識…", { progress: 0.05 });
+    const Tesseract = await loadShoppingOcrLibrary();
+    worker = await Tesseract.createWorker(["eng", "chi_tra", "jpn"], 1, {
+      logger: (message) => {
+        if (!form.isConnected || token !== shoppingRecognitionToken) return;
+        setShoppingRecognitionStatus(form, message.status === "recognizing text" ? "正在找出推薦物品…" : "正在載入辨識工具…", { progress: Number(message.progress) || 0.08 });
+      },
+    });
+    const result = await worker.recognize(file);
+    if (!form.isConnected || token !== shoppingRecognitionToken) return;
+    const names = parseShoppingScreenshotText(result.data.text);
+    const textarea = form.elements.items;
+    if (textarea) textarea.value = names.join("\n");
+    if (!names.length) {
+      setShoppingRecognitionStatus(form, "沒有自動找出物品名稱，請直接在下方一行輸入一項。", { progress: 1, tone: "error" });
+    } else {
+      setShoppingRecognitionStatus(form, `找到 ${names.length} 個可能的物品，請刪除不需要的文字後再加入。`, { progress: 1, tone: "success" });
+    }
+    if (confirm) confirm.disabled = false;
+  } catch {
+    if (form.isConnected && token === shoppingRecognitionToken) {
+      setShoppingRecognitionStatus(form, "圖片辨識失敗，可以直接手動輸入物品名稱。", { progress: 0, tone: "error" });
+      if (confirm) confirm.disabled = false;
+    }
+  } finally {
+    await worker?.terminate?.().catch(() => {});
+    if (form.isConnected && token === shoppingRecognitionToken) form.dataset.shoppingOcrBusy = "false";
+  }
+}
+
+async function handleShoppingScreenshotFile(input) {
+  const form = input?.closest("#shopping-import-form");
+  const file = input?.files?.[0];
+  if (!form || !file) return;
+  if (!file.type.startsWith("image/")) return showToast("請選擇推薦商品的截圖");
+  if (file.size > 15 * 1024 * 1024) return showToast("圖片請小於 15 MB");
+  pendingShoppingScreenshotFile = file;
+  setShoppingRecognitionStatus(form, "正在壓縮並準備截圖…", { progress: 0.02 });
+  try {
+    pendingShoppingPhotoDataUrl = await compressShoppingScreenshot(file);
+  } catch {
+    pendingShoppingPhotoDataUrl = "";
+    return setShoppingRecognitionStatus(form, "這張圖片內容太大，請先裁切後再上傳。", { tone: "error" });
+  }
+  const preview = form.querySelector("[data-shopping-screenshot-preview]");
+  const image = form.querySelector("[data-shopping-screenshot-image]");
+  if (preview) preview.hidden = false;
+  if (image) image.src = pendingShoppingPhotoDataUrl;
+  await recognizeShoppingScreenshot(form, file);
+}
+
+function openShoppingImportSheet() {
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
+      <form id="shopping-import-form" class="modal-sheet shopping-form-sheet shopping-import-sheet" data-shopping-sheet>
+        <div class="section-row shopping-sheet-header"><div><p class="section-kicker">SCREENSHOT TO LIST</p><h2>辨識推薦截圖</h2></div><div class="header-actions">${shoppingUndoButtonMarkup("sheet-undo-button")}<button class="icon-button" type="button" data-close-sheet>×</button></div></div>
+        <div class="shopping-sheet-body">
+          <label class="shopping-upload-card" for="shopping-screenshot-input"><span>▧</span><strong>選擇推薦商品截圖</strong><small>支援中文、英文與日文；辨識結果可先修改再加入。</small></label>
+          <input id="shopping-screenshot-input" class="shopping-file-input" type="file" accept="image/*" data-shopping-screenshot-input />
+          <div class="shopping-screenshot-preview" data-shopping-screenshot-preview hidden><img data-shopping-screenshot-image alt="推薦商品截圖預覽" /></div>
+          <div class="shopping-recognition-state"><span data-shopping-recognition-status>上傳後會開始辨識物品資訊</span><i data-shopping-recognition-progress></i></div>
+          <div class="field"><label>要加入的物品（一行一項）</label><textarea name="items" required placeholder="辨識結果會出現在這裡，也可以自行輸入或刪除"></textarea></div>
+          <div class="field"><label>分類</label><select name="categoryId">${shoppingCategoryOptions(state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter)}</select></div>
+          <div class="field"><label>新增自訂分類（選填）</label><input name="newCategory" maxlength="24" placeholder="例如 文具、紀念品" /></div>
+          <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions()}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /></fieldset>
+          <div class="field"><label>共同備註（選填）</label><textarea name="note" maxlength="800" placeholder="例如：同事一人一盒、到藥妝店比較價格"></textarea></div>
+          <div class="shopping-privacy-note"><b>鎖</b><span>截圖與辨識結果只會儲存在你的私人採買清單。</span></div>
+        </div>
+        <div class="modal-actions shopping-sheet-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" disabled>確認加入</button></div>
+      </form>
+    </div>`;
+}
+
 function itineraryScreen() {
   syncFlightItineraryItems();
   const dayItems = state.itinerary[state.selectedDate] || [];
@@ -2559,6 +3090,7 @@ function render({ preserveScroll = false } = {}) {
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
   else if (state.activeTab === "places") app.innerHTML = placesScreen();
   else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
+  else if (state.activeTab === "shopping") app.innerHTML = shoppingScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
   if (state.activeTab === "places" && state.placesMode === "map") {
     if (state.mapView !== "planning" && liveLocationEnabled) stopLiveLocation();
@@ -3605,6 +4137,9 @@ function closeSheet() {
   pendingTimePicker = null;
   pendingFlightTicketFile = null;
   flightTicketRecognitionToken += 1;
+  shoppingRecognitionToken += 1;
+  pendingShoppingScreenshotFile = null;
+  pendingShoppingPhotoDataUrl = "";
   if (flightTicketPreviewUrl) URL.revokeObjectURL(flightTicketPreviewUrl);
   flightTicketPreviewUrl = "";
   sheetRoot.innerHTML = "";
@@ -3650,7 +4185,60 @@ document.addEventListener("click", async (event) => {
   const goTab = event.target.closest("[data-go-tab]");
   if (goTab) return setTab(goTab.dataset.goTab);
 
+  if (event.target.closest("[data-undo-shopping]")) return restoreShoppingAction();
   if (event.target.closest("[data-undo-last]")) return restoreLastAction();
+
+  const shoppingCategory = event.target.closest("[data-shopping-category]");
+  if (shoppingCategory) {
+    state.shoppingFilter = shoppingCategory.dataset.shoppingCategory;
+    return render({ preserveScroll: true });
+  }
+
+  const shoppingStatus = event.target.closest("[data-shopping-status]");
+  if (shoppingStatus) {
+    state.shoppingStatus = shoppingStatus.dataset.shoppingStatus;
+    return render({ preserveScroll: true });
+  }
+
+  if (event.target.closest("[data-manage-shopping-categories]")) return canManageShopping() ? openShoppingCategorySheet() : guestOnlyMessage();
+  if (event.target.closest("[data-add-shopping-item]")) return canManageShopping() ? openShoppingItemSheet() : guestOnlyMessage();
+  if (event.target.closest("[data-import-shopping-screenshot]")) return canManageShopping() ? openShoppingImportSheet() : guestOnlyMessage();
+
+  const openShoppingItem = event.target.closest("[data-open-shopping-item]");
+  if (openShoppingItem) return openShoppingDetailSheet(openShoppingItem.dataset.openShoppingItem);
+
+  const editShoppingItem = event.target.closest("[data-edit-shopping-item]");
+  if (editShoppingItem) return canManageShopping() ? openShoppingItemSheet(editShoppingItem.dataset.editShoppingItem) : guestOnlyMessage();
+
+  const toggleShoppingItem = event.target.closest("[data-toggle-shopping-item]");
+  if (toggleShoppingItem) {
+    if (!canManageShopping()) return guestOnlyMessage();
+    const item = state.shopping.items.find((candidate) => candidate.id === toggleShoppingItem.dataset.toggleShoppingItem);
+    if (!item) return;
+    recordShoppingUndo();
+    item.purchased = !item.purchased;
+    item.updatedAt = new Date().toISOString();
+    render({ preserveScroll: true });
+    saveShopping();
+    return showToast(item.purchased ? `「${item.name}」已標記為買到` : `「${item.name}」改回待購買`, { allowUndo: false });
+  }
+
+  const deleteShoppingItem = event.target.closest("[data-request-delete-shopping]");
+  if (deleteShoppingItem) return canManageShopping() ? openShoppingDeleteSheet(deleteShoppingItem.dataset.requestDeleteShopping) : guestOnlyMessage();
+
+  const confirmDeleteShopping = event.target.closest("[data-confirm-delete-shopping]");
+  if (confirmDeleteShopping) {
+    if (!canManageShopping()) return guestOnlyMessage();
+    const item = state.shopping.items.find((candidate) => candidate.id === confirmDeleteShopping.dataset.confirmDeleteShopping);
+    if (!item) return closeSheet();
+    recordShoppingUndo();
+    state.shopping.items = state.shopping.items.filter((candidate) => candidate.id !== item.id);
+    if (item.photoId && !state.shopping.items.some((candidate) => candidate.photoId === item.photoId)) delete state.shopping.photos[item.photoId];
+    closeSheet();
+    render({ preserveScroll: true });
+    await saveShopping();
+    return showToast(`已刪除「${item.name}」`, { allowUndo: false });
+  }
 
   const overviewAction = event.target.closest("[data-overview-action]");
   if (overviewAction) {
@@ -4143,6 +4731,11 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-shopping-screenshot-input]")) {
+    handleShoppingScreenshotFile(event.target);
+    return;
+  }
+
   if (event.target.matches("[data-flight-ticket-input]")) {
     handleFlightTicketFile(event.target);
     return;
@@ -4326,6 +4919,92 @@ document.addEventListener("contextmenu", (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "shopping-item-form") {
+    event.preventDefault();
+    if (!canManageShopping()) return guestOnlyMessage();
+    const form = new FormData(event.target);
+    const name = String(form.get("name") || "").normalize("NFKC").trim().slice(0, 100);
+    if (!name) return showToast("請輸入採買物品名稱");
+    recordShoppingUndo();
+    const now = new Date().toISOString();
+    const itemId = event.target.dataset.shoppingItemId || `shopping-${crypto.randomUUID?.() || Date.now()}`;
+    const index = state.shopping.items.findIndex((item) => item.id === itemId);
+    const previous = index >= 0 ? state.shopping.items[index] : null;
+    const item = {
+      id: itemId,
+      name,
+      categoryId: shoppingCustomCategory(form.get("newCategory"), String(form.get("categoryId") || "daily")),
+      recipientTagIds: shoppingRecipientTagIds(form),
+      note: String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800),
+      purchased: form.get("purchased") === "on",
+      photoId: event.target.dataset.shoppingPhotoId || "",
+      createdAt: previous?.createdAt || now,
+      updatedAt: now,
+    };
+    if (index >= 0) state.shopping.items[index] = item;
+    else state.shopping.items.unshift(item);
+    state.shoppingFilter = item.categoryId;
+    closeSheet();
+    render();
+    await saveShopping();
+    return showToast(index >= 0 ? "採買資料已更新" : "已加入私人採買清單", { allowUndo: false });
+  }
+
+  if (event.target.id === "shopping-category-form") {
+    event.preventDefault();
+    if (!canManageShopping()) return guestOnlyMessage();
+    const name = String(new FormData(event.target).get("name") || "").normalize("NFKC").trim().slice(0, 24);
+    if (!name) return showToast("請輸入分類名稱");
+    recordShoppingUndo();
+    const categoryId = shoppingCustomCategory(name);
+    state.shoppingFilter = categoryId;
+    closeSheet();
+    render();
+    await saveShopping();
+    return showToast(`已新增「${name}」分類`, { allowUndo: false });
+  }
+
+  if (event.target.id === "shopping-import-form") {
+    event.preventDefault();
+    if (!canManageShopping()) return guestOnlyMessage();
+    const form = new FormData(event.target);
+    const names = String(form.get("items") || "")
+      .split(/\r?\n/)
+      .map((name) => name.normalize("NFKC").trim().slice(0, 100))
+      .filter(Boolean)
+      .filter((name, index, list) => list.findIndex((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase()) === index)
+      .slice(0, 20);
+    if (!names.length) return showToast("請保留至少一個要採買的物品");
+    recordShoppingUndo();
+    const categoryId = shoppingCustomCategory(form.get("newCategory"), String(form.get("categoryId") || "souvenir"));
+    const recipientTagIds = shoppingRecipientTagIds(form);
+    const note = String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800);
+    const now = new Date().toISOString();
+    let photoId = "";
+    if (pendingShoppingPhotoDataUrl) {
+      photoId = `shopping-photo-${crypto.randomUUID?.() || Date.now()}`;
+      state.shopping.photos[photoId] = { dataUrl: pendingShoppingPhotoDataUrl, createdAt: now };
+      pruneShoppingPhotos();
+    }
+    const additions = names.map((name, index) => ({
+      id: `shopping-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
+      name,
+      categoryId,
+      recipientTagIds,
+      note,
+      purchased: false,
+      photoId,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    state.shopping.items.unshift(...additions);
+    state.shoppingFilter = categoryId;
+    closeSheet();
+    render();
+    await saveShopping();
+    return showToast(`已加入 ${additions.length} 個私人採買項目`, { allowUndo: false });
+  }
+
   if (event.target.id === "transport-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
@@ -4654,6 +5333,9 @@ if (state.profile) {
   render();
 }
 window.setInterval(() => {
-  if (!document.hidden && state.tripId) loadSharedTrip({ quiet: true });
+  if (!document.hidden && state.tripId) {
+    loadSharedTrip({ quiet: true });
+    if (state.activeTab === "shopping") loadShopping({ quiet: true });
+  }
 }, 15000);
 window.addEventListener("pagehide", () => stopLiveLocation());

@@ -1,6 +1,6 @@
 # Project
 
-An iPhone-first collaborative travel-planning web app. Travelers can create private trips, invite other members, collect Google Maps places, vote, build daily itineraries, add flights and transport segments, and view planning/day maps.
+An iPhone-first collaborative travel-planning web app. Travelers can create private trips, invite other members, collect Google Maps places, vote, build daily itineraries, add flights and transport segments, view planning/day maps, and keep a personal shopping list for each trip.
 
 ## Delivery
 

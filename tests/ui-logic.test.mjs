@@ -4,6 +4,7 @@ import test from "node:test";
 
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
 function sourceSection(start, end) {
   const startIndex = appSource.indexOf(start);
@@ -424,4 +425,32 @@ test("place import placeholder is neutral", () => {
   const section = sourceSection("function openAddPlaceSheet", "function openDateSheet");
   assert.doesNotMatch(section, /高雄合菜 · Eddie/);
   assert.match(section, /貼上 Google Maps 地點或公開共用清單連結/);
+});
+
+test("shopping is a fourth private tab with categories reusable tags and completion state", () => {
+  assert.match(indexSource, /data-tab="shopping"[\s\S]*購物/);
+  assert.match(stylesSource, /\.tab-bar\s*{[^}]*grid-template-columns:\s*repeat\(4, 1fr\)/s);
+  const screen = sourceSection("function shoppingScreen", "function shoppingTagOptions");
+  assert.match(screen, /只有你看得到/);
+  assert.match(screen, /data-shopping-category/);
+  assert.match(screen, /data-shopping-status/);
+  assert.match(appSource, /data-toggle-shopping-item/);
+  assert.match(appSource, /defaultShoppingCategories[\s\S]*伴手禮[\s\S]*家電[\s\S]*日常[\s\S]*藥品[\s\S]*保養品/);
+  assert.match(appSource, /name="recipientTag"/);
+  assert.match(appSource, /newTags/);
+  assert.match(appSource, /newCategory/);
+  assert.match(stylesSource, /\.shopping-form-sheet \.field input,[\s\S]*font-size:\s*16px/s);
+});
+
+test("shopping screenshots are locally recognized and remain outside shared trip data", () => {
+  const parserSection = sourceSection("function parseShoppingScreenshotText", "function loadShoppingOcrLibrary");
+  const parseShoppingScreenshotText = new Function(`${parserSection}; return parseShoppingScreenshotText;`)();
+  const items = parseShoppingScreenshotText("朋友推薦\n東京限定香蕉蛋糕 8入 ¥1,200\n查看全部留言\n防曬乳 SPF50 980円");
+  assert.deepEqual(items, ["東京限定香蕉蛋糕 8入", "防曬乳 SPF50"]);
+  const sharedPayload = sourceSection("function sharedTripPayload", "function applySharedTrip");
+  assert.doesNotMatch(sharedPayload, /shopping/);
+  assert.match(appSource, /fetch\(`\/api\/shopping\?tripId=/);
+  assert.match(appSource, /Tesseract\.createWorker\(\["eng", "chi_tra", "jpn"\]/);
+  assert.match(appSource, /compressShoppingScreenshot/);
+  assert.match(appSource, /shoppingPhoto\(item\.photoId\)/);
 });

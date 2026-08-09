@@ -19,5 +19,8 @@
 - Flight city fields should be narrower than airport fields so full airport names remain visible, and all date/time values must be centered both horizontally and vertically.
 - Keep Overview flight rows compact, place outbound/return at the far left, and show passenger notes with larger vertically centered text.
 - Flight ticket photos should prefill fields after recognition but must not save without user confirmation.
+- Keep Shopping as a fourth bottom tab. Shopping lists are private per member and per trip even when Places and Itinerary are shared with travel companions.
+- Shopping supports screenshot recognition, item photos, purchased checkmarks, default/custom categories, reusable recipient tags, and free-form notes.
+- Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
 - Input placeholders must be neutral and must not expose a real user's Google Maps list name.
 - Ship the web version first; build a test iOS app only after the web product matures.

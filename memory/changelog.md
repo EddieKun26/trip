@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-08-09
+
+- Added a fourth Shopping tab with private per-member, per-trip server storage that is excluded from shared trip data.
+- Added default/custom shopping categories, reusable recipient tags, notes, purchased checkmarks, photo details, editing, confirmed deletion, filtering, progress, and one-level private undo.
+- Added screenshot compression and local Traditional Chinese/English/Japanese OCR with editable multi-item review before confirmation.
+- Added server authorization and isolation tests proving travel companions cannot read one another's shopping lists, plus cleanup when a member leaves a trip.
+
+## 2026-08-07
+
+- Audited documented settings against source code, automated tests, deployment mirror, and public Vercel assets; no feature drift was found.
+
 ## 2026-08-05
 
 - Compacted Overview flight rows, moved outbound/return labels to a dedicated far-left column, and enlarged/vertically centered passenger notes.
@@ -17,10 +28,6 @@
 - Added an optional planning-map live-location switch with a blue position marker and accuracy radius for Google Maps and Leaflet.
 - Kept live location device-only and stopped geolocation tracking when disabled, leaving the planning map, or closing the page.
 - Moved the live-location switch into the planning-map legend row so it no longer covers Google Maps controls.
-
-## 2026-08-07
-
-- Audited documented settings against source code, automated tests, deployment mirror, and public Vercel assets; no feature drift was found.
 
 ## 2026-08-04
 
