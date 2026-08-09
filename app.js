@@ -284,8 +284,7 @@ let flightTicketRecognitionToken = 0;
 let flightOcrLoader = null;
 let shoppingOcrLoader = null;
 let shoppingRecognitionToken = 0;
-let pendingShoppingScreenshotFile = null;
-let pendingShoppingPhotoDataUrl = "";
+let pendingShoppingImports = [];
 let shoppingSaveBusy = false;
 let shoppingSavePending = false;
 let shoppingUndoSnapshot = null;
@@ -2667,8 +2666,8 @@ function shoppingItemMarkup(item) {
         <span class="shopping-thumb">${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : `<b>${escapeHtml(item.name.slice(0, 1))}</b>`}</span>
         <span class="shopping-item-copy">
           <span class="shopping-item-heading"><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(shoppingCategoryName(item.categoryId))}</em></span>
-          ${tags ? `<span class="shopping-recipient-tags">${tags}</span>` : `<small>尚未標記購買對象</small>`}
-          ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
+          ${item.brand ? `<small class="shopping-brand-line">品牌 · ${escapeHtml(item.brand)}</small>` : ""}
+          ${item.benefits ? `<small>功效 · ${escapeHtml(item.benefits)}</small>` : tags ? `<span class="shopping-recipient-tags">${tags}</span>` : `<small>尚未標記購買對象</small>`}
         </span>
         <span class="shopping-chevron">›</span>
       </button>
@@ -2698,7 +2697,7 @@ function shoppingScreen() {
     <section class="screen shopping-screen">
       <header class="title-row shopping-title-row">
         <div><p class="section-kicker">PRIVATE LIST</p><h1>採買清單</h1><p class="meta">${escapeHtml(state.tripTitle)} · 只有你看得到</p></div>
-        <div class="header-actions">${shoppingUndoButtonMarkup()}${canManageShopping() && total ? `<button class="shopping-select-button ${shoppingSelectionMode ? "active" : ""}" type="button" data-toggle-shopping-selection>${shoppingSelectionMode ? "取消" : "選取"}</button>` : ""}<span class="shopping-private-pill" aria-label="私人清單">鎖 私人</span></div>
+        <div class="header-actions">${shoppingUndoButtonMarkup()}<span class="shopping-private-pill" aria-label="私人清單">鎖 私人</span></div>
       </header>
       <section class="shopping-summary" aria-label="採買進度">
         <div><strong>${pending}</strong><span>待購買</span></div>
@@ -2712,14 +2711,16 @@ function shoppingScreen() {
         <button type="button" data-shopping-status="pending" class="${state.shoppingStatus === "pending" ? "active" : ""}">未購買</button>
         <button type="button" data-shopping-status="done" class="${state.shoppingStatus === "done" ? "active" : ""}">已購買</button>
       </div>
+      ${canManageShopping() && total ? `<div class="shopping-list-tools">
+        <button class="shopping-select-button ${shoppingSelectionMode ? "active" : ""}" type="button" data-toggle-shopping-selection>${shoppingSelectionMode ? "× 取消" : "□ 選取"}</button>
+        <div>${shoppingSelectionMode ? `<button type="button" data-select-all-shopping>${allVisibleSelected ? "取消全選" : "全部選取"}</button><button class="danger" type="button" data-request-delete-shopping-batch ${visibleSelectedCount ? "" : "disabled"}>刪除${visibleSelectedCount ? ` ${visibleSelectedCount}` : ""}</button>` : ""}</div>
+      </div>` : ""}
       ${!state.shoppingLoaded
         ? `<div class="shopping-loading"><span></span><b>正在載入你的私人清單</b></div>`
         : items.length
           ? `<div class="shopping-list">${items.map(shoppingItemMarkup).join("")}</div>`
           : `<div class="shopping-empty"><span>購</span><h2>${total ? "這個篩選沒有項目" : "還沒有採買項目"}</h2><p>${total ? "切換分類或購買狀態看看。" : "上傳推薦截圖，辨識後再確認加入；也可以手動新增。"}</p></div>`}
-      ${canManageShopping() && shoppingSelectionMode
-        ? `<div class="shopping-batch-actions"><span>已選 ${visibleSelectedCount} 項</span><button type="button" data-select-all-shopping>${allVisibleSelected ? "取消全選" : "全選"}</button><button class="danger" type="button" data-request-delete-shopping-batch ${visibleSelectedCount ? "" : "disabled"}>刪除 ${visibleSelectedCount || ""}</button></div>`
-        : canManageShopping()
+      ${canManageShopping() && !shoppingSelectionMode
           ? `<div class="shopping-sticky-actions"><button type="button" data-add-shopping-item>＋ 手動新增</button><button type="button" data-import-shopping-screenshot>▧ 截圖辨識</button></div>`
           : ""}
     </section>`;
@@ -2753,6 +2754,8 @@ function openShoppingDetailSheet(itemId) {
         </div>
         ${photo ? `<img class="shopping-detail-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}推薦截圖" />` : `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
         <div class="shopping-detail-state ${item.purchased ? "done" : ""}"><span>${item.purchased ? "✓" : "○"}</span><strong>${item.purchased ? "已經買到了" : "還沒有購買"}</strong></div>
+        <section class="shopping-detail-facts"><div><small>品牌</small><strong>${escapeHtml(item.brand || "尚未辨識")}</strong></div><div><small>分類</small><strong>${escapeHtml(shoppingCategoryName(item.categoryId))}</strong></div></section>
+        <section class="shopping-detail-block"><small>功效／推薦重點</small><p>${item.benefits ? escapeHtml(item.benefits) : "尚未辨識功效"}</p></section>
         <section class="shopping-detail-block"><small>購買對象</small><div class="shopping-recipient-tags">${tags.length ? tags.map((name) => `<span>${escapeHtml(name)}</span>`).join("") : `<em>尚未標記</em>`}</div></section>
         <section class="shopping-detail-block"><small>備註</small><p>${item.note ? escapeHtml(item.note) : "尚未新增備註"}</p></section>
         <div class="shopping-privacy-note"><b>鎖</b><span>這筆採買只屬於你的「${escapeHtml(state.tripTitle)}」清單，旅伴無法查看。</span></div>
@@ -2763,7 +2766,7 @@ function openShoppingDetailSheet(itemId) {
 
 function openShoppingItemSheet(itemId = "") {
   const existing = state.shopping.items.find((item) => item.id === itemId);
-  const item = existing || { id: "", name: "", categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "" };
+  const item = existing || { id: "", brand: "", name: "", benefits: "", categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "" };
   const photo = shoppingPhoto(item.photoId);
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
@@ -2774,7 +2777,9 @@ function openShoppingItemSheet(itemId = "") {
         </div>
         <div class="shopping-sheet-body">
           ${photo ? `<img class="shopping-form-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : ""}
+          <div class="field"><label>品牌名稱</label><input name="brand" maxlength="100" value="${escapeHtml(item.brand || "")}" placeholder="例如 興和製藥" /></div>
           <div class="field"><label>物品名稱</label><input name="name" required maxlength="100" value="${escapeHtml(item.name)}" placeholder="例如 東京香蕉" /></div>
+          <div class="field"><label>功效／推薦重點</label><textarea name="benefits" maxlength="500" placeholder="例如 關節保養、維持靈活行動">${escapeHtml(item.benefits || "")}</textarea></div>
           <div class="field"><label>分類</label><select name="categoryId">${shoppingCategoryOptions(item.categoryId)}</select></div>
           <div class="field"><label>新增自訂分類（選填）</label><input name="newCategory" maxlength="24" placeholder="輸入後會保留在分類列" /></div>
           <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions(item.recipientTagIds)}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /><small>多個標記可用逗號分隔；儲存後下次可直接點選。</small></fieldset>
@@ -2862,27 +2867,84 @@ function shoppingRecipientTagIds(formData) {
   return [...new Set(ids)].slice(0, 20);
 }
 
-function parseShoppingScreenshotText(text = "") {
+function shoppingRecognitionLines(text = "") {
   const ignored = /(登入|註冊|分享|留言|追蹤|瀏覽|按讚|收藏|查看全部|廣告|推薦碼|免運|購物車|首頁|通知|threads|instagram|facebook|youtube|http|www\.|查看翻譯|顯示更多)/i;
-  const productWords = /(限定|伴手禮|餅|糖|巧克力|蛋糕|點心|零食|茶|咖啡|藥|錠|膠囊|顆粒|膏|液|乳|霜|精華|面膜|洗面|防曬|吹風機|電鍋|相機|耳機|家電|模型|玩偶|公仔|文具|紀念|護膚|保養|香水|口紅|粉餅|眼影|藥妝)/i;
-  const benefitWords = /(調整|體質|幫助|促進|改善|排便|消化|舒緩|緩解|修復|保護|守護|維持|補給|功效|作用|適合|食用方法|使用方法|注意事項|商品資訊|產品資訊|成分|專為|設計|安心選擇|日本製造|營養|健康)/i;
-  const sectionWords = /^(功效|作用|特點|成分|用法|注意|適合|商品資訊|產品資訊|購買資訊|推薦理由)/i;
-  const lines = String(text)
+  return String(text)
     .normalize("NFKC")
     .split(/\r?\n/)
     .map((line) => line.replace(/^[\s•●▪︎■□✓✔︎★☆#@_-]+/, "").replace(/\s+/g, " ").trim())
     .filter((line) => line.length >= 2 && line.length <= 72)
     .filter((line) => !ignored.test(line) && !/^[$¥￥NT\s\d,.:/%+-]+$/i.test(line));
-  const flattened = lines.join(" ");
-  const medicineMatch = flattened.match(/(?:α|a8|a)?\s*(?:胃腸|腸胃)\s*藥(?:\s*\d{2,4}\s*錠)?/i);
-  if (medicineMatch) {
-    const brandMatch = flattened.match(/興和|Kowa/i);
-    const productName = medicineMatch[0]
-      .replace(/^\s*(?:a8|a)\s*/i, "α")
-      .replace(/\s+/g, " ")
-      .trim();
-    return [`${brandMatch ? (brandMatch[0].toLocaleLowerCase() === "kowa" ? "Kowa" : "興和") + " " : ""}${productName}`];
+}
+
+function inferredShoppingCategory(text = "") {
+  if (/(吹風機|電鍋|相機|耳機|家電|電器|充電器|行動電源|刮鬍刀|美容儀)/i.test(text)) return "appliance";
+  if (/(保養品|護膚|面膜|精華|乳液|化妝水|防曬|口紅|粉餅|眼影|香水|洗面|潔顏)/i.test(text)) return "skincare";
+  if (/(軟\s*骨\s*素|葡萄糖胺|益生菌|葉黃素|魚油|膠原蛋白|維他命|維生素|酵素|Q10|鈣片|鐵劑|MSM|藥|錠|膠囊|顆粒|軟膠囊|胃腸|腸胃|營養補助|保健食品)/i.test(text)) return "medicine";
+  if (/(伴手禮|餅|糖|巧克力|蛋糕|點心|零食|茶|咖啡|果乾|米果|仙貝|饅頭)/i.test(text)) return "souvenir";
+  return "daily";
+}
+
+function recognizedShoppingBrand(lines, flattened) {
+  const known = flattened.match(/野口醫學研究所|興和(?:製藥)?|Kowa|ゼリア新薬|Zeria|DHC|Shiseido|資生堂|Kobayashi|小林製藥|Rohto|樂敦|Pigeon|貝親/i);
+  if (known) {
+    const value = known[0];
+    if (/^kowa$/i.test(value)) return "Kowa";
+    if (/^zeria$/i.test(value)) return "Zeria";
+    return value;
   }
+  const companyLine = lines.find((line) => /(製藥|製薬|新藥|新薬|藥品|薬品|研究所|本舖|本舗|堂)/i.test(line) && line.length <= 32);
+  if (!companyLine) return "";
+  const company = companyLine.match(/([A-Za-z0-9&・·㐀-鿿ぁ-んァ-ヶ]{2,24}(?:製藥|製薬|新藥|新薬|藥品|薬品|研究所|本舖|本舗|堂))/i)?.[1] || companyLine;
+  return company.replace(/^日本\s*/i, "").replace(/の$/i, "").trim().slice(0, 100);
+}
+
+function canonicalShoppingProductName(flattened) {
+  const stomach = flattened.match(/(?:α|a8|a)?\s*(?:胃腸|腸胃)\s*藥(?:\s*\d{2,4}\s*錠)?/i);
+  if (stomach) return stomach[0].replace(/^\s*(?:a8|a)\s*/i, "α").replace(/\s+/g, " ").trim();
+  const knownProducts = [
+    [/軟\s*骨\s*素(?:\s*硫\s*酸)?/i, "軟骨素"],
+    [/葡\s*萄\s*糖\s*胺/i, "葡萄糖胺"],
+    [/益\s*生\s*菌/i, "益生菌"],
+    [/葉\s*黃\s*素/i, "葉黃素"],
+    [/魚\s*油/i, "魚油"],
+    [/膠\s*原\s*蛋\s*白/i, "膠原蛋白"],
+    [/輔\s*酶\s*Q\s*10|Coenzyme\s*Q10/i, "Q10"],
+    [/維\s*(?:他命|生素)\s*[A-Z0-9]+/i, ""],
+  ];
+  for (const [pattern, label] of knownProducts) {
+    const match = flattened.match(pattern);
+    if (match) return label || match[0].replace(/\s+/g, " ").trim();
+  }
+  return "";
+}
+
+function inferredShoppingBenefits(name, lines) {
+  const benefitWords = /(關節|靈活|行動|修復|保護|維持|提升|改善|舒緩|緩解|幫助|促進|消化|排便|保濕|防曬|美白|抗老|眼睛|腸道|睡眠|疲勞|健康)/i;
+  const excluded = /(食用方法|使用方法|注意事項|商品資訊|產品資訊|成分|每日\s*\d|一次\s*\d|\d+\s*(?:錠|顆|粒|包|枚|入|ml|g))/i;
+  const recognized = lines
+    .filter((line) => benefitWords.test(line) && !excluded.test(line))
+    .map((line) => line.replace(name, "").replace(/^(?:功效|作用|推薦重點)[:：]?\s*/i, "").replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 2 && line.length <= 28)
+    .filter((line, index, list) => list.findIndex((candidate) => candidate.toLocaleLowerCase() === line.toLocaleLowerCase()) === index)
+    .slice(0, 3);
+  if (recognized.length >= 2) return recognized.join("、");
+  let inferred = "";
+  if (/(軟骨素|葡萄糖胺|MSM)/i.test(name)) inferred = "關節保養、維持靈活行動";
+  else if (/(胃腸|腸胃)藥/i.test(name)) inferred = "幫助消化、舒緩胃部不適";
+  else if (/益生菌/i.test(name)) inferred = "腸道保健、維持消化機能";
+  else if (/葉黃素/i.test(name)) inferred = "眼睛保健";
+  else if (/魚油/i.test(name)) inferred = "日常營養補給";
+  else if (/防曬/i.test(name)) inferred = "防曬、減少紫外線傷害";
+  return recognized.length && inferred && !inferred.includes(recognized[0]) ? `${inferred}、${recognized[0]}` : recognized[0] || inferred;
+}
+
+function parseShoppingScreenshotDetails(text = "") {
+  const lines = shoppingRecognitionLines(text);
+  const flattened = lines.join(" ");
+  const canonicalName = canonicalShoppingProductName(flattened);
+  const productWords = /(軟骨素|葡萄糖胺|益生菌|葉黃素|魚油|膠原蛋白|維他命|維生素|酵素|Q10|限定|伴手禮|餅|糖|巧克力|蛋糕|點心|零食|茶|咖啡|藥|錠|膠囊|顆粒|膏|液|乳|霜|精華|面膜|洗面|防曬|吹風機|電鍋|相機|耳機|家電|模型|玩偶|公仔|文具|紀念|護膚|保養|香水|口紅|粉餅|眼影|藥妝)/i;
+  const descriptiveWords = /(調整|體質|幫助|促進|改善|排便|消化|舒緩|緩解|修復|保護|守護|維持|補給|功效|作用|適合|食用方法|使用方法|注意事項|商品資訊|產品資訊|成分|專為|設計|安心選擇|日本製造|營養|健康|顆粒好吞食|每日輕鬆)/i;
   const scored = lines.map((line, index) => {
     const cleaned = line.replace(/\s*(?:[$¥￥]\s?\d[\d,.]*(?:円|元)?|\d[\d,.]*円)\s*$/i, "").trim();
     let score = 0;
@@ -2893,8 +2955,8 @@ function parseShoppingScreenshotText(text = "") {
     if (/[A-Za-z]{3,}/.test(cleaned)) score += 1;
     if (cleaned.length >= 3 && cleaned.length <= 32) score += 3;
     else if (cleaned.length > 48) score -= 5;
-    if (benefitWords.test(cleaned)) score -= 9;
-    if (sectionWords.test(cleaned)) score -= 8;
+    if (descriptiveWords.test(cleaned)) score -= 9;
+    if (/^(功效|作用|特點|成分|用法|注意|適合|商品資訊|產品資訊|購買資訊|推薦理由)/i.test(cleaned)) score -= 8;
     if (/[。！？:：；;]/.test(cleaned)) score -= 2;
     if (index < 4) score += 1;
     return { line: cleaned, index, score };
@@ -2902,7 +2964,18 @@ function parseShoppingScreenshotText(text = "") {
   const best = scored
     .filter((item) => item.line)
     .sort((a, b) => b.score - a.score || a.index - b.index)[0];
-  return best && best.score >= 2 ? [best.line] : [];
+  const name = canonicalName || (best && best.score >= 2 ? best.line : "");
+  return {
+    brand: recognizedShoppingBrand(lines, flattened),
+    name,
+    benefits: inferredShoppingBenefits(name, lines),
+    categoryId: inferredShoppingCategory(`${name} ${flattened}`),
+  };
+}
+
+function parseShoppingScreenshotText(text = "") {
+  const details = parseShoppingScreenshotDetails(text);
+  return details.name ? [details.name] : [];
 }
 
 function loadShoppingOcrLibrary() {
@@ -2970,7 +3043,7 @@ async function compressShoppingScreenshot(file) {
   return dataUrl;
 }
 
-function pruneShoppingPhotos(limit = 8, maxTotal = 3800000) {
+function pruneShoppingPhotos(limit = 16, maxTotal = 3800000) {
   const entries = Object.entries(state.shopping.photos)
     .sort(([, a], [, b]) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
   let total = 0;
@@ -2990,78 +3063,123 @@ function pruneShoppingPhotos(limit = 8, maxTotal = 3800000) {
   });
 }
 
-async function recognizeShoppingScreenshot(form, file = pendingShoppingScreenshotFile) {
-  if (!form || !file || form.dataset.shoppingOcrBusy === "true") return;
+function syncPendingShoppingImportEdits(form) {
+  if (!form) return;
+  form.querySelectorAll("[data-shopping-import-row]").forEach((row) => {
+    const entry = pendingShoppingImports.find((candidate) => candidate.id === row.dataset.shoppingImportRow);
+    if (!entry) return;
+    entry.details = {
+      brand: String(row.querySelector("[data-import-brand]")?.value || "").normalize("NFKC").trim().slice(0, 100),
+      name: String(row.querySelector("[data-import-name]")?.value || "").normalize("NFKC").trim().slice(0, 100),
+      benefits: String(row.querySelector("[data-import-benefits]")?.value || "").normalize("NFKC").trim().slice(0, 500),
+      categoryId: String(row.querySelector("[data-import-category]")?.value || "daily"),
+    };
+  });
+}
+
+function renderShoppingImportRows(form) {
+  const host = form?.querySelector("[data-shopping-import-results]");
+  if (!host) return;
+  const busy = form.dataset.shoppingOcrBusy === "true";
+  host.innerHTML = pendingShoppingImports.map((entry, index) => `
+    <article class="shopping-import-result" data-shopping-import-row="${escapeHtml(entry.id)}">
+      <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
+      <img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張推薦商品截圖" />
+      <div class="shopping-import-fields">
+        <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
+        <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
+        <div class="field full"><label>功效／推薦重點</label><textarea data-import-benefits maxlength="500" placeholder="可修改自動辨識結果">${escapeHtml(entry.details?.benefits || "")}</textarea></div>
+        <div class="field full"><label>自動分類</label><select data-import-category>${shoppingCategoryOptions(entry.details?.categoryId || "daily")}</select></div>
+      </div>
+    </article>`).join("");
+}
+
+async function recognizeShoppingScreenshots(form) {
+  if (!form || !pendingShoppingImports.length || form.dataset.shoppingOcrBusy === "true") return;
   form.dataset.shoppingOcrBusy = "true";
   const token = ++shoppingRecognitionToken;
   const confirm = form.querySelector('button[type="submit"]');
   if (confirm) confirm.disabled = true;
   let worker;
   try {
-    setShoppingRecognitionStatus(form, "正在準備中日文圖片辨識…", { progress: 0.05 });
+    setShoppingRecognitionStatus(form, `正在準備辨識 ${pendingShoppingImports.length} 張圖片…`, { progress: 0.03 });
     const Tesseract = await loadShoppingOcrLibrary();
+    let currentIndex = 0;
     worker = await Tesseract.createWorker(["eng", "chi_tra", "jpn"], 1, {
       logger: (message) => {
         if (!form.isConnected || token !== shoppingRecognitionToken) return;
-        setShoppingRecognitionStatus(form, message.status === "recognizing text" ? "正在找出推薦物品…" : "正在載入辨識工具…", { progress: Number(message.progress) || 0.08 });
+        const itemProgress = Number(message.progress) || 0.05;
+        setShoppingRecognitionStatus(form, message.status === "recognizing text" ? `正在辨識第 ${currentIndex + 1}／${pendingShoppingImports.length} 張…` : "正在載入辨識工具…", { progress: (currentIndex + itemProgress) / pendingShoppingImports.length });
       },
     });
-    const result = await worker.recognize(file);
-    if (!form.isConnected || token !== shoppingRecognitionToken) return;
-    const names = parseShoppingScreenshotText(result.data.text);
-    const textarea = form.elements.items;
-    if (textarea) textarea.value = names.join("\n");
-    if (!names.length) {
-      setShoppingRecognitionStatus(form, "沒有自動找出物品名稱，請直接在下方一行輸入一項。", { progress: 1, tone: "error" });
-    } else {
-      setShoppingRecognitionStatus(form, "已找出這張截圖的主要商品，請確認或修改名稱後再加入。", { progress: 1, tone: "success" });
+    for (currentIndex = 0; currentIndex < pendingShoppingImports.length; currentIndex += 1) {
+      const entry = pendingShoppingImports[currentIndex];
+      try {
+        const result = await worker.recognize(entry.file);
+        if (!form.isConnected || token !== shoppingRecognitionToken) return;
+        syncPendingShoppingImportEdits(form);
+        entry.details = parseShoppingScreenshotDetails(result.data.text);
+        entry.recognized = true;
+        renderShoppingImportRows(form);
+      } catch {
+        entry.recognized = false;
+      }
     }
+    const recognizedCount = pendingShoppingImports.filter((entry) => entry.details?.name).length;
+    setShoppingRecognitionStatus(form, `已完成 ${pendingShoppingImports.length} 張圖片：辨識出 ${recognizedCount} 個商品，請逐項確認品牌、名稱、功效與分類。`, { progress: 1, tone: recognizedCount ? "success" : "error" });
     if (confirm) confirm.disabled = false;
   } catch {
     if (form.isConnected && token === shoppingRecognitionToken) {
-      setShoppingRecognitionStatus(form, "圖片辨識失敗，可以直接手動輸入物品名稱。", { progress: 0, tone: "error" });
+      setShoppingRecognitionStatus(form, "圖片辨識失敗，可以直接在各張圖片下方手動輸入商品資料。", { progress: 0, tone: "error" });
       if (confirm) confirm.disabled = false;
     }
   } finally {
     await worker?.terminate?.().catch(() => {});
-    if (form.isConnected && token === shoppingRecognitionToken) form.dataset.shoppingOcrBusy = "false";
+    if (form.isConnected && token === shoppingRecognitionToken) {
+      form.dataset.shoppingOcrBusy = "false";
+      renderShoppingImportRows(form);
+    }
   }
 }
 
 async function handleShoppingScreenshotFile(input) {
   const form = input?.closest("#shopping-import-form");
-  const file = input?.files?.[0];
-  if (!form || !file) return;
-  if (!file.type.startsWith("image/")) return showToast("請選擇推薦商品的截圖");
-  if (file.size > 15 * 1024 * 1024) return showToast("圖片請小於 15 MB");
-  pendingShoppingScreenshotFile = file;
-  setShoppingRecognitionStatus(form, "正在壓縮並準備截圖…", { progress: 0.02 });
-  try {
-    pendingShoppingPhotoDataUrl = await compressShoppingScreenshot(file);
-  } catch {
-    pendingShoppingPhotoDataUrl = "";
-    return setShoppingRecognitionStatus(form, "這張圖片內容太大，請先裁切後再上傳。", { tone: "error" });
+  const files = [...(input?.files || [])].filter((file) => file.type.startsWith("image/") && file.size <= 15 * 1024 * 1024).slice(0, 8);
+  if (!form || !files.length) return showToast("請選擇 1 至 8 張商品截圖，每張小於 15 MB");
+  pendingShoppingImports = [];
+  const confirm = form.querySelector('button[type="submit"]');
+  if (confirm) confirm.disabled = true;
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    setShoppingRecognitionStatus(form, `正在準備第 ${index + 1}／${files.length} 張圖片…`, { progress: (index + 0.15) / files.length });
+    try {
+      const dataUrl = await compressShoppingScreenshot(file);
+      pendingShoppingImports.push({
+        id: `shopping-import-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
+        file,
+        dataUrl,
+        details: { brand: "", name: "", benefits: "", categoryId: "daily" },
+      });
+      renderShoppingImportRows(form);
+    } catch {
+      showToast(`第 ${index + 1} 張圖片太大，已略過`);
+    }
   }
-  const preview = form.querySelector("[data-shopping-screenshot-preview]");
-  const image = form.querySelector("[data-shopping-screenshot-image]");
-  if (preview) preview.hidden = false;
-  if (image) image.src = pendingShoppingPhotoDataUrl;
-  await recognizeShoppingScreenshot(form, file);
+  if (!pendingShoppingImports.length) return setShoppingRecognitionStatus(form, "沒有可處理的圖片，請先裁切或縮小後再試。", { tone: "error" });
+  await recognizeShoppingScreenshots(form);
 }
 
 function openShoppingImportSheet() {
+  pendingShoppingImports = [];
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
       <form id="shopping-import-form" class="modal-sheet shopping-form-sheet shopping-import-sheet" data-shopping-sheet>
         <div class="section-row shopping-sheet-header"><div><p class="section-kicker">SCREENSHOT TO LIST</p><h2>辨識推薦截圖</h2></div><div class="header-actions">${shoppingUndoButtonMarkup("sheet-undo-button")}<button class="icon-button" type="button" data-close-sheet>×</button></div></div>
         <div class="shopping-sheet-body">
-          <label class="shopping-upload-card" for="shopping-screenshot-input"><span>▧</span><strong>選擇推薦商品截圖</strong><small>支援中文、英文與日文；辨識結果可先修改再加入。</small></label>
-          <input id="shopping-screenshot-input" class="shopping-file-input" type="file" accept="image/*" data-shopping-screenshot-input />
-          <div class="shopping-screenshot-preview" data-shopping-screenshot-preview hidden><img data-shopping-screenshot-image alt="推薦商品截圖預覽" /></div>
-          <div class="shopping-recognition-state"><span data-shopping-recognition-status>上傳後會開始辨識物品資訊</span><i data-shopping-recognition-progress></i></div>
-          <div class="field"><label>主要商品名稱</label><textarea name="items" required placeholder="辨識結果會出現在這裡，也可以自行修改"></textarea><small>一張截圖預設建立一個主商品，不會把功效、成分或說明拆成其他品項。</small></div>
-          <div class="field"><label>分類</label><select name="categoryId">${shoppingCategoryOptions(state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter)}</select></div>
-          <div class="field"><label>新增自訂分類（選填）</label><input name="newCategory" maxlength="24" placeholder="例如 文具、紀念品" /></div>
+          <label class="shopping-upload-card" for="shopping-screenshot-input"><span>▧</span><strong>一次選擇多張商品截圖</strong><small>最多 8 張；每張圖片各自辨識一個品牌與商品。</small></label>
+          <input id="shopping-screenshot-input" class="shopping-file-input" type="file" accept="image/*" multiple data-shopping-screenshot-input />
+          <div class="shopping-recognition-state"><span data-shopping-recognition-status>上傳後會依序辨識品牌、商品名稱、功效與分類</span><i data-shopping-recognition-progress></i></div>
+          <div class="shopping-import-results" data-shopping-import-results></div>
           <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions()}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /></fieldset>
           <div class="field"><label>共同備註（選填）</label><textarea name="note" maxlength="800" placeholder="例如：同事一人一盒、到藥妝店比較價格"></textarea></div>
           <div class="shopping-privacy-note"><b>鎖</b><span>截圖與辨識結果只會儲存在你的私人採買清單。</span></div>
@@ -4210,8 +4328,7 @@ function closeSheet() {
   pendingFlightTicketFile = null;
   flightTicketRecognitionToken += 1;
   shoppingRecognitionToken += 1;
-  pendingShoppingScreenshotFile = null;
-  pendingShoppingPhotoDataUrl = "";
+  pendingShoppingImports = [];
   pendingShoppingBatchDeleteIds = [];
   if (flightTicketPreviewUrl) URL.revokeObjectURL(flightTicketPreviewUrl);
   flightTicketPreviewUrl = "";
@@ -4303,6 +4420,17 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-manage-shopping-categories]")) return canManageShopping() ? openShoppingCategorySheet() : guestOnlyMessage();
   if (event.target.closest("[data-add-shopping-item]")) return canManageShopping() ? openShoppingItemSheet() : guestOnlyMessage();
   if (event.target.closest("[data-import-shopping-screenshot]")) return canManageShopping() ? openShoppingImportSheet() : guestOnlyMessage();
+
+  const removeShoppingImport = event.target.closest("[data-remove-shopping-import]");
+  if (removeShoppingImport) {
+    const form = removeShoppingImport.closest("#shopping-import-form");
+    syncPendingShoppingImportEdits(form);
+    pendingShoppingImports = pendingShoppingImports.filter((entry) => entry.id !== removeShoppingImport.dataset.removeShoppingImport);
+    renderShoppingImportRows(form);
+    const confirm = form?.querySelector('button[type="submit"]');
+    if (confirm) confirm.disabled = !pendingShoppingImports.length;
+    return setShoppingRecognitionStatus(form, pendingShoppingImports.length ? `目前保留 ${pendingShoppingImports.length} 個待加入商品。` : "已移除全部圖片，請重新選擇。", { progress: pendingShoppingImports.length ? 1 : 0 });
+  }
 
   const openShoppingItem = event.target.closest("[data-open-shopping-item]");
   if (openShoppingItem) return openShoppingDetailSheet(openShoppingItem.dataset.openShoppingItem);
@@ -5047,7 +5175,9 @@ document.addEventListener("submit", async (event) => {
     const previous = index >= 0 ? state.shopping.items[index] : null;
     const item = {
       id: itemId,
+      brand: String(form.get("brand") || "").normalize("NFKC").trim().slice(0, 100),
       name,
+      benefits: String(form.get("benefits") || "").normalize("NFKC").trim().slice(0, 500),
       categoryId: shoppingCustomCategory(form.get("newCategory"), String(form.get("categoryId") || "daily")),
       recipientTagIds: shoppingRecipientTagIds(form),
       note: String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800),
@@ -5083,37 +5213,34 @@ document.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!canManageShopping()) return guestOnlyMessage();
     const form = new FormData(event.target);
-    const names = String(form.get("items") || "")
-      .split(/\r?\n/)
-      .map((name) => name.normalize("NFKC").trim().slice(0, 100))
-      .filter(Boolean)
-      .filter((name, index, list) => list.findIndex((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase()) === index)
-      .slice(0, 20);
-    if (!names.length) return showToast("請保留至少一個要採買的物品");
+    syncPendingShoppingImportEdits(event.target);
+    const imports = pendingShoppingImports.filter((entry) => entry.details?.name).slice(0, 8);
+    if (!imports.length) return showToast("請保留至少一個有商品名稱的項目");
     recordShoppingUndo();
-    const categoryId = shoppingCustomCategory(form.get("newCategory"), String(form.get("categoryId") || "souvenir"));
     const recipientTagIds = shoppingRecipientTagIds(form);
     const note = String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800);
     const now = new Date().toISOString();
-    let photoId = "";
-    if (pendingShoppingPhotoDataUrl) {
-      photoId = `shopping-photo-${crypto.randomUUID?.() || Date.now()}`;
-      state.shopping.photos[photoId] = { dataUrl: pendingShoppingPhotoDataUrl, createdAt: now };
-      pruneShoppingPhotos();
-    }
-    const additions = names.map((name, index) => ({
-      id: `shopping-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
-      name,
-      categoryId,
-      recipientTagIds,
-      note,
-      purchased: false,
-      photoId,
-      createdAt: now,
-      updatedAt: now,
-    }));
+    const additions = imports.map((entry, index) => {
+      const photoId = `shopping-photo-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`;
+      state.shopping.photos[photoId] = { dataUrl: entry.dataUrl, createdAt: new Date(Date.now() + index).toISOString() };
+      return {
+        id: `shopping-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
+        brand: entry.details.brand,
+        name: entry.details.name,
+        benefits: entry.details.benefits,
+        categoryId: entry.details.categoryId || "daily",
+        recipientTagIds,
+        note,
+        purchased: false,
+        photoId,
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
     state.shopping.items.unshift(...additions);
-    state.shoppingFilter = categoryId;
+    pruneShoppingPhotos();
+    const categories = [...new Set(additions.map((item) => item.categoryId))];
+    state.shoppingFilter = categories.length === 1 ? categories[0] : "all";
     closeSheet();
     render();
     await saveShopping();

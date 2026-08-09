@@ -15,7 +15,7 @@
 - Place categories use the shared top-level groups attraction, restaurant, and lodging.
 - Undo is intentionally one level. It snapshots the last reversible trip-content edit, is shown consistently on all main pages and editable sheets, and does not attempt to reverse authentication, membership, or remote invitation actions.
 - Shopping data is keyed by member ID plus trip ID and is authorized server-side against current trip membership. It is deliberately excluded from shared trip state, votes, invitations, and guest views.
-- Shopping screenshots are compressed client-side and stored with private shopping records in Redis for this web prototype; each screenshot defaults to one main product and supporting copy is excluded. Up to eight higher-resolution reference photos are retained within the existing total payload ceiling. Leaving or being removed from a trip deletes that member's private shopping record for the trip.
+- Shopping screenshots are compressed client-side and stored with private shopping records in Redis for this web prototype; each screenshot creates one independent product with editable brand, product name, benefits, and category fields. Up to 16 higher-resolution reference photos may be retained, subject to the existing total payload ceiling. Leaving or being removed from a trip deletes that member's private shopping record for the trip.
 
 ## Maps and external data
 
@@ -33,7 +33,7 @@
 - Overview flight cards keep the outbound/return marker in a dedicated far-left column; the center is reserved for route direction only, and the passenger note is a readable vertically centered row.
 - Native date/time inputs remain the interactive picker, but their browser-rendered text is visually replaced by an app-rendered centered label for consistent iPhone alignment.
 - Flight ticket OCR runs locally in the browser with a lazily loaded Tesseract.js worker. Images are not persisted or added to shared trip data; recognized fields always require user confirmation before saving.
-- Shopping screenshot OCR also runs locally and supports Traditional Chinese, English, and Japanese. OCR proposes one editable main product, rejects benefit/ingredient/instruction copy, and never adds an item until the member confirms.
+- Shopping screenshot OCR also runs locally and supports Traditional Chinese, English, and Japanese. Up to eight images are processed sequentially with one recognition worker; rules infer brand, one main product, benefits, and an existing shopping category for each image. Every field remains editable and nothing is added until the member confirms.
 - Shopping deletion follows the same safety pattern as places and itinerary: left swipe reveals a confirmed single-item delete, while explicit selection mode supports confirmed batch deletion.
 - Overview prioritizes readiness and unresolved planning decisions instead of duplicating the Places and Itinerary navigation.
 - Overview keeps the complete flight list and an explicit add-flight button because flights are a primary planning object rather than a summary-only metric.

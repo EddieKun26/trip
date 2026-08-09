@@ -71,12 +71,14 @@ test("shopping lists are private per member and per trip", async () => {
     categories: [{ id: "souvenir", name: "伴手禮", builtIn: true }],
     tags: [{ id: "tag-mom", name: "媽媽" }],
     photos: { "photo-1": { dataUrl: `data:image/jpeg;base64,${"A".repeat(200000)}`, createdAt: "2026-08-09T00:00:00.000Z" } },
-    items: [{ id: "item-1", name: "東京香蕉", categoryId: "souvenir", recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1" }],
+    items: [{ id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", categoryId: "souvenir", recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1" }],
   };
   const saved = await shoppingRequest(owner.cookie, tripId, "PUT", ownerList);
   assert.equal(saved.statusCode, 200);
   assert.equal(saved.payload.scope, "private");
   assert.equal(saved.payload.items[0].name, "東京香蕉");
+  assert.equal(saved.payload.items[0].brand, "東京ばな奈");
+  assert.equal(saved.payload.items[0].benefits, "旅行伴手禮");
 
   const companionRead = await shoppingRequest(companion.cookie, tripId);
   assert.equal(companionRead.statusCode, 200);

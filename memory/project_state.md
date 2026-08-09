@@ -21,11 +21,11 @@
 - Flight date/time values use centered app-rendered labels over native iPhone pickers, avoiding Safari's top-aligned text.
 - Flight ticket images can be selected or photographed, recognized locally in the browser, and used to prefill the flight form before confirmation.
 - A fourth Shopping tab stores a separate private list for each signed-in member and trip. Shopping data never enters the shared trip payload.
-- Shopping items support default and custom categories, reusable recipient tags, notes, purchased/unpurchased state, higher-resolution reference photos, detail/edit/delete flows, one-level private undo, confirmed left-swipe deletion, and batch selection/deletion.
-- Recommendation screenshots are compressed on-device, locally OCR-recognized in Traditional Chinese, English, and Japanese, reduced to one most-likely main product instead of treating benefits or ingredients as separate products, and saved only after confirmation.
+- Shopping items support brand, product name, benefits/recommendation notes, default and custom categories, reusable recipient tags, notes, purchased/unpurchased state, higher-resolution reference photos, detail/edit/delete flows, one-level private undo, confirmed left-swipe deletion, and batch selection/deletion from a toolbar directly above the list.
+- Up to eight recommendation screenshots can be selected at once. Each image is compressed on-device, locally OCR-recognized in Traditional Chinese, English, and Japanese, independently converted into one editable product card with inferred brand, product, benefits, and category, and saved only after confirmation.
 
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 40 tests passing as of 2026-08-09.
+- `node --test tests/*.test.mjs`: 41 tests passing as of 2026-08-09.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

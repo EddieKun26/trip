@@ -24,5 +24,7 @@
 - Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
 - A single-product screenshot should create one main shopping item, not separate items for benefits, ingredients, or descriptive copy.
 - Shopping supports both confirmed left-swipe deletion and explicit batch selection/deletion; saved reference images must remain readable in item details.
+- Screenshot recognition should extract separate brand, product name, benefits/recommendation points, and category fields, and allow several images to be processed and confirmed together.
+- Shopping selection, select-all, and batch-delete controls belong directly above the item list rather than in the page header or bottom action area.
 - Input placeholders must be neutral and must not expose a real user's Google Maps list name.
 - Ship the web version first; build a test iOS app only after the web product matures.

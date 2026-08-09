@@ -6,7 +6,7 @@ const SHOPPING_PREFIX = "tokyo-family-trip:shopping:";
 const MAX_ITEMS = 300;
 const MAX_CATEGORIES = 30;
 const MAX_TAGS = 80;
-const MAX_PHOTOS = 8;
+const MAX_PHOTOS = 16;
 const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
 
@@ -138,7 +138,9 @@ function cleanShopping(input, previous) {
       const photoId = cleanText(item?.photoId, 80);
       return {
         id: cleanText(item?.id, 80),
+        brand: cleanText(item?.brand, 100),
         name: cleanText(item?.name, 100),
+        benefits: cleanText(item?.benefits, 500),
         categoryId: categoryIds.has(item?.categoryId) ? item.categoryId : "daily",
         recipientTagIds: (Array.isArray(item?.recipientTagIds) ? item.recipientTagIds : [])
           .filter((id) => tagIds.has(id))

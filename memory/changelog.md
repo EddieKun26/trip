@@ -2,6 +2,10 @@
 
 ## 2026-08-09
 
+- Upgraded Shopping screenshot recognition to extract editable brand, product name, benefits/recommendation points, and category fields; health supplements such as chondroitin are classified as medicine.
+- Added multi-image Shopping import for up to eight screenshots in one confirmation flow, with one independently editable product card and source image per screenshot.
+- Moved selection, select-all, and batch-delete controls into one toolbar directly above the shopping list.
+- Extended private shopping records with brand and benefits fields and raised the maximum retained reference-photo count to 16 within the existing total payload ceiling.
 - Changed Shopping screenshot recognition to create one most-likely main product and reject benefits, ingredients, usage instructions, and other descriptive copy as separate items.
 - Added confirmed left-swipe deletion plus selection, select-all, and confirmed batch deletion to Shopping.
 - Increased private reference-photo resolution, changed detail images to preserve the full screenshot, and retained up to eight clear photos within the existing storage ceiling.
