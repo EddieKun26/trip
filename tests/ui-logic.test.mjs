@@ -442,15 +442,33 @@ test("shopping is a fourth private tab with categories reusable tags and complet
   assert.match(stylesSource, /\.shopping-form-sheet \.field input,[\s\S]*font-size:\s*16px/s);
 });
 
-test("shopping screenshots are locally recognized and remain outside shared trip data", () => {
+test("shopping screenshots create one main product and ignore benefit copy", () => {
   const parserSection = sourceSection("function parseShoppingScreenshotText", "function loadShoppingOcrLibrary");
   const parseShoppingScreenshotText = new Function(`${parserSection}; return parseShoppingScreenshotText;`)();
   const items = parseShoppingScreenshotText("朋友推薦\n東京限定香蕉蛋糕 8入 ¥1,200\n查看全部留言\n防曬乳 SPF50 980円");
-  assert.deepEqual(items, ["東京限定香蕉蛋糕 8入", "防曬乳 SPF50"]);
+  assert.deepEqual(items, ["東京限定香蕉蛋糕 8入"]);
+  const medicine = parseShoppingScreenshotText("日本興和製藥\nα胃腸藥 300錠\n調整體質 幫助消化\n促進消化 改善排便\n胃黏膜保護");
+  assert.deepEqual(medicine, ["興和 α胃腸藥 300錠"]);
   const sharedPayload = sourceSection("function sharedTripPayload", "function applySharedTrip");
   assert.doesNotMatch(sharedPayload, /shopping/);
   assert.match(appSource, /fetch\(`\/api\/shopping\?tripId=/);
   assert.match(appSource, /Tesseract\.createWorker\(\["eng", "chi_tra", "jpn"\]/);
   assert.match(appSource, /compressShoppingScreenshot/);
   assert.match(appSource, /shoppingPhoto\(item\.photoId\)/);
+});
+
+test("shopping supports left-swipe deletion, batch deletion, and clearer stored photos", () => {
+  const screen = sourceSection("function shoppingItemMarkup", "function shoppingTagOptions");
+  assert.match(screen, /class="swipe-row shopping-swipe-row/);
+  assert.match(screen, /data-swipe-item="shopping:/);
+  assert.match(screen, /data-request-delete-shopping/);
+  assert.match(screen, /data-toggle-shopping-selection/);
+  assert.match(screen, /data-select-all-shopping/);
+  assert.match(screen, /data-request-delete-shopping-batch/);
+  assert.match(appSource, /data-confirm-delete-shopping-batch/);
+  assert.match(stylesSource, /\.shopping-item\.selected/);
+  assert.match(stylesSource, /\.shopping-batch-actions/);
+  assert.match(appSource, /drawAtMaxEdge\(1600\)/);
+  assert.match(appSource, /dataUrl\.length > 480000/);
+  assert.match(stylesSource, /\.shopping-detail-photo\s*{[^}]*object-fit:\s*contain/s);
 });

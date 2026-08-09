@@ -22,5 +22,7 @@
 - Keep Shopping as a fourth bottom tab. Shopping lists are private per member and per trip even when Places and Itinerary are shared with travel companions.
 - Shopping supports screenshot recognition, item photos, purchased checkmarks, default/custom categories, reusable recipient tags, and free-form notes.
 - Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
+- A single-product screenshot should create one main shopping item, not separate items for benefits, ingredients, or descriptive copy.
+- Shopping supports both confirmed left-swipe deletion and explicit batch selection/deletion; saved reference images must remain readable in item details.
 - Input placeholders must be neutral and must not expose a real user's Google Maps list name.
 - Ship the web version first; build a test iOS app only after the web product matures.

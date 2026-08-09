@@ -2,6 +2,9 @@
 
 ## 2026-08-09
 
+- Changed Shopping screenshot recognition to create one most-likely main product and reject benefits, ingredients, usage instructions, and other descriptive copy as separate items.
+- Added confirmed left-swipe deletion plus selection, select-all, and confirmed batch deletion to Shopping.
+- Increased private reference-photo resolution, changed detail images to preserve the full screenshot, and retained up to eight clear photos within the existing storage ceiling.
 - Added a fourth Shopping tab with private per-member, per-trip server storage that is excluded from shared trip data.
 - Added default/custom shopping categories, reusable recipient tags, notes, purchased checkmarks, photo details, editing, confirmed deletion, filtering, progress, and one-level private undo.
 - Added screenshot compression and local Traditional Chinese/English/Japanese OCR with editable multi-item review before confirmation.

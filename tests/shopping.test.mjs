@@ -70,7 +70,7 @@ test("shopping lists are private per member and per trip", async () => {
   const ownerList = {
     categories: [{ id: "souvenir", name: "伴手禮", builtIn: true }],
     tags: [{ id: "tag-mom", name: "媽媽" }],
-    photos: { "photo-1": { dataUrl: `data:image/jpeg;base64,${"A".repeat(64)}`, createdAt: "2026-08-09T00:00:00.000Z" } },
+    photos: { "photo-1": { dataUrl: `data:image/jpeg;base64,${"A".repeat(200000)}`, createdAt: "2026-08-09T00:00:00.000Z" } },
     items: [{ id: "item-1", name: "東京香蕉", categoryId: "souvenir", recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1" }],
   };
   const saved = await shoppingRequest(owner.cookie, tripId, "PUT", ownerList);

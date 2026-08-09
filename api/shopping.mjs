@@ -6,8 +6,8 @@ const SHOPPING_PREFIX = "tokyo-family-trip:shopping:";
 const MAX_ITEMS = 300;
 const MAX_CATEGORIES = 30;
 const MAX_TAGS = 80;
-const MAX_PHOTOS = 30;
-const MAX_PHOTO_LENGTH = 130000;
+const MAX_PHOTOS = 8;
+const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
 
 const defaultCategories = [

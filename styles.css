@@ -4085,6 +4085,24 @@ body.transport-sheet-open .app {
   white-space: nowrap;
 }
 
+.shopping-select-button {
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.shopping-select-button.active {
+  border-color: var(--mineral);
+  color: var(--mineral);
+}
+
 .shopping-summary {
   position: relative;
   display: grid;
@@ -4204,6 +4222,16 @@ body.transport-sheet-open .app {
   gap: 8px;
 }
 
+.shopping-swipe-row {
+  overflow: hidden;
+  border: 0;
+  border-radius: 18px;
+}
+
+.shopping-swipe-row .swipe-delete {
+  border-radius: 0 18px 18px 0;
+}
+
 .shopping-item {
   display: grid;
   grid-template-columns: 39px minmax(0, 1fr);
@@ -4214,6 +4242,13 @@ body.transport-sheet-open .app {
   border-radius: 18px;
   background: rgba(255, 250, 242, 0.88);
   transition: opacity 160ms ease, background 160ms ease;
+}
+
+.shopping-item.selected {
+  border-color: var(--mineral);
+  background: var(--mineral-soft);
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px rgba(64, 119, 122, 0.18);
 }
 
 .shopping-item.purchased {
@@ -4244,6 +4279,15 @@ body.transport-sheet-open .app {
 
 .shopping-item.purchased .shopping-check span {
   background: var(--mineral);
+}
+
+.shopping-swipe-row.selection-mode .shopping-check span,
+.shopping-item.selected .shopping-check span {
+  background: var(--mineral);
+}
+
+.shopping-swipe-row.selection-mode .shopping-chevron {
+  visibility: hidden;
 }
 
 .shopping-item-main {
@@ -4439,6 +4483,49 @@ body.transport-sheet-open .app {
   color: white;
 }
 
+.shopping-batch-actions {
+  position: sticky;
+  z-index: 20;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin: 14px -3px 0;
+  padding: 16px 3px 5px;
+  background: var(--paper);
+  box-shadow: 0 -14px 20px rgba(246, 241, 232, 0.98), 0 12px 0 var(--paper);
+}
+
+.shopping-batch-actions span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.shopping-batch-actions button {
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper-2);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.shopping-batch-actions button.danger {
+  border-color: #b93f31;
+  background: #b93f31;
+  color: white;
+}
+
+.shopping-batch-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .shopping-backdrop {
   overflow: hidden;
   padding-inline: 14px;
@@ -4492,9 +4579,12 @@ body.transport-sheet-open .app {
 }
 
 .shopping-detail-photo {
-  max-height: 330px;
+  height: auto;
+  max-height: none;
   margin: 12px 0;
   border: 1px solid var(--line);
+  background: white;
+  object-fit: contain;
 }
 
 .shopping-detail-photo.placeholder {
@@ -4777,9 +4867,10 @@ body.transport-sheet-open .app {
 
 .shopping-screenshot-preview img {
   width: 100%;
-  max-height: 230px;
+  max-height: 260px;
   display: block;
-  object-fit: cover;
+  background: white;
+  object-fit: contain;
 }
 
 .shopping-recognition-state {
@@ -4817,7 +4908,7 @@ body.transport-sheet-open .app {
 }
 
 .shopping-import-sheet textarea[name="items"] {
-  min-height: 112px;
+  min-height: 78px;
 }
 
 .shopping-import-sheet textarea[name="note"] {
