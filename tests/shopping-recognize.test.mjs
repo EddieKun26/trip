@@ -92,6 +92,14 @@ async function recognize(cookie, tripId, oidcToken = "runtime-oidc-token") {
   return response;
 }
 
+test("shopping AI health check detects Vercel runtime OIDC without exposing it", async () => {
+  const response = responseMock();
+  await shoppingRecognizeHandler({ method: "GET", headers: { "x-vercel-oidc-token": "private-runtime-token" } }, response);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.payload, { status: "ok", aiReady: true });
+  assert.doesNotMatch(JSON.stringify(response.payload), /private-runtime-token/);
+});
+
 test("shopping recognition is authorized and returns translated structured product data", async () => {
   store.clear();
   gatewayRequests.length = 0;

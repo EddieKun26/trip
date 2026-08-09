@@ -27,5 +27,5 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 43 tests passing as of 2026-08-09.
+- `node --test tests/*.test.mjs`: 44 tests passing as of 2026-08-09.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

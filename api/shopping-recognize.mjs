@@ -210,8 +210,11 @@ async function enforceDailyLimit(memberId) {
 
 export default async function shoppingRecognizeHandler(request, response) {
   try {
+    if (request.method === "GET") {
+      return sendJson(response, 200, { status: "ok", aiReady: Boolean(gatewayCredential(request)) });
+    }
     if (request.method !== "POST") {
-      response.setHeader("Allow", "POST");
+      response.setHeader("Allow", "GET, POST");
       return sendJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
     }
     const member = await authenticatedMember(request);
