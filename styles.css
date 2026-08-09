@@ -4984,6 +4984,18 @@ body.transport-sheet-open .app {
   object-fit: contain;
 }
 
+.shopping-ai-result-note {
+  margin: 8px 2px 0;
+  color: var(--mineral);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.shopping-ai-result-note.error {
+  color: #a93429;
+}
+
 .shopping-import-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

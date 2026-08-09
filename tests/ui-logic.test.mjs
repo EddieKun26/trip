@@ -442,25 +442,14 @@ test("shopping is a fourth private tab with categories reusable tags and complet
   assert.match(stylesSource, /\.shopping-form-sheet \.field input,[\s\S]*font-size:\s*16px/s);
 });
 
-test("shopping screenshots identify brand product benefits and category", () => {
-  const parserSection = sourceSection("function shoppingRecognitionLines", "function loadShoppingOcrLibrary");
-  const { parseShoppingScreenshotText, parseShoppingScreenshotDetails } = new Function(`${parserSection}; return { parseShoppingScreenshotText, parseShoppingScreenshotDetails };`)();
-  const items = parseShoppingScreenshotText("朋友推薦\n東京限定香蕉蛋糕 8入 ¥1,200\n查看全部留言\n防曬乳 SPF50 980円");
-  assert.deepEqual(items, ["東京限定香蕉蛋糕 8入"]);
-  const medicine = parseShoppingScreenshotDetails("日本興和製藥\nα胃腸藥 300錠\n調整體質 幫助消化\n促進消化 改善排便\n胃黏膜保護");
-  assert.equal(medicine.brand, "興和製藥");
-  assert.equal(medicine.name, "α胃腸藥 300錠");
-  assert.equal(medicine.categoryId, "medicine");
-  assert.match(medicine.benefits, /消化|胃部/);
-  const chondroitin = parseShoppingScreenshotDetails("ゼリア新薬の\n軟骨素\n每日關節保養\n靈活行動\n保護修復\n小顆粒好吞食");
-  assert.equal(chondroitin.brand, "ゼリア新薬");
-  assert.equal(chondroitin.name, "軟骨素");
-  assert.equal(chondroitin.categoryId, "medicine");
-  assert.match(chondroitin.benefits, /關節|靈活/);
+test("shopping screenshots use server-side multilingual vision AI", () => {
   const sharedPayload = sourceSection("function sharedTripPayload", "function applySharedTrip");
   assert.doesNotMatch(sharedPayload, /shopping/);
   assert.match(appSource, /fetch\(`\/api\/shopping\?tripId=/);
-  assert.match(appSource, /Tesseract\.createWorker\(\["eng", "chi_tra", "jpn"\]/);
+  assert.match(appSource, /fetch\("\/api\/shopping-recognize"/);
+  assert.doesNotMatch(appSource, /parseShoppingScreenshotDetails/);
+  assert.doesNotMatch(appSource, /Tesseract\.createWorker\(\["eng", "chi_tra", "jpn"\]/);
+  assert.match(appSource, /AI 已理解/);
   assert.match(appSource, /compressShoppingScreenshot/);
   assert.match(appSource, /shoppingPhoto\(item\.photoId\)/);
 });
@@ -490,6 +479,6 @@ test("shopping import accepts multiple images and creates one editable result pe
   assert.match(importer, /data-import-name/);
   assert.match(importer, /data-import-benefits/);
   assert.match(importer, /data-import-category/);
-  assert.match(importer, /for \(currentIndex = 0; currentIndex < pendingShoppingImports\.length/);
+  assert.match(importer, /for \(let currentIndex = 0; currentIndex < pendingShoppingImports\.length/);
   assert.match(stylesSource, /\.shopping-import-fields\s*{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
 });

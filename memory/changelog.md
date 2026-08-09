@@ -2,6 +2,9 @@
 
 ## 2026-08-09
 
+- Replaced Shopping's local OCR and keyword guessing with authenticated server-side multilingual vision AI through Vercel AI Gateway.
+- Added strict one-product extraction with original-language and Traditional Chinese brand/product names, image-grounded benefits, category, language, confidence, per-member authorization, and a daily request limit.
+- Added clear per-image AI status/error messages while preserving editable review and explicit confirmation before private storage.
 - Upgraded Shopping screenshot recognition to extract editable brand, product name, benefits/recommendation points, and category fields; health supplements such as chondroitin are classified as medicine.
 - Added multi-image Shopping import for up to eight screenshots in one confirmation flow, with one independently editable product card and source image per screenshot.
 - Moved selection, select-all, and batch-delete controls into one toolbar directly above the shopping list.

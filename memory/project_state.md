@@ -22,10 +22,10 @@
 - Flight ticket images can be selected or photographed, recognized locally in the browser, and used to prefill the flight form before confirmation.
 - A fourth Shopping tab stores a separate private list for each signed-in member and trip. Shopping data never enters the shared trip payload.
 - Shopping items support brand, product name, benefits/recommendation notes, default and custom categories, reusable recipient tags, notes, purchased/unpurchased state, higher-resolution reference photos, detail/edit/delete flows, one-level private undo, confirmed left-swipe deletion, and batch selection/deletion from a toolbar directly above the list.
-- Up to eight recommendation screenshots can be selected at once. Each image is compressed on-device, locally OCR-recognized in Traditional Chinese, English, and Japanese, independently converted into one editable product card with inferred brand, product, benefits, and category, and saved only after confirmation.
+- Up to eight recommendation screenshots can be selected at once. Each image is compressed on-device and sent through an authenticated server endpoint to multilingual vision AI, which understands the whole image and returns one editable product card with translated brand, official product name, explicit benefits, category, source language, and confidence. Nothing is saved until confirmation.
 
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 41 tests passing as of 2026-08-09.
+- `node --test tests/*.test.mjs`: 43 tests passing as of 2026-08-09.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

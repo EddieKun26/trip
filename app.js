@@ -282,7 +282,6 @@ let pendingFlightTicketFile = null;
 let flightTicketPreviewUrl = "";
 let flightTicketRecognitionToken = 0;
 let flightOcrLoader = null;
-let shoppingOcrLoader = null;
 let shoppingRecognitionToken = 0;
 let pendingShoppingImports = [];
 let shoppingSaveBusy = false;
@@ -2867,126 +2866,6 @@ function shoppingRecipientTagIds(formData) {
   return [...new Set(ids)].slice(0, 20);
 }
 
-function shoppingRecognitionLines(text = "") {
-  const ignored = /(登入|註冊|分享|留言|追蹤|瀏覽|按讚|收藏|查看全部|廣告|推薦碼|免運|購物車|首頁|通知|threads|instagram|facebook|youtube|http|www\.|查看翻譯|顯示更多)/i;
-  return String(text)
-    .normalize("NFKC")
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s•●▪︎■□✓✔︎★☆#@_-]+/, "").replace(/\s+/g, " ").trim())
-    .filter((line) => line.length >= 2 && line.length <= 72)
-    .filter((line) => !ignored.test(line) && !/^[$¥￥NT\s\d,.:/%+-]+$/i.test(line));
-}
-
-function inferredShoppingCategory(text = "") {
-  if (/(吹風機|電鍋|相機|耳機|家電|電器|充電器|行動電源|刮鬍刀|美容儀)/i.test(text)) return "appliance";
-  if (/(保養品|護膚|面膜|精華|乳液|化妝水|防曬|口紅|粉餅|眼影|香水|洗面|潔顏)/i.test(text)) return "skincare";
-  if (/(軟\s*骨\s*素|葡萄糖胺|益生菌|葉黃素|魚油|膠原蛋白|維他命|維生素|酵素|Q10|鈣片|鐵劑|MSM|藥|錠|膠囊|顆粒|軟膠囊|胃腸|腸胃|營養補助|保健食品)/i.test(text)) return "medicine";
-  if (/(伴手禮|餅|糖|巧克力|蛋糕|點心|零食|茶|咖啡|果乾|米果|仙貝|饅頭)/i.test(text)) return "souvenir";
-  return "daily";
-}
-
-function recognizedShoppingBrand(lines, flattened) {
-  const known = flattened.match(/野口醫學研究所|興和(?:製藥)?|Kowa|ゼリア新薬|Zeria|DHC|Shiseido|資生堂|Kobayashi|小林製藥|Rohto|樂敦|Pigeon|貝親/i);
-  if (known) {
-    const value = known[0];
-    if (/^kowa$/i.test(value)) return "Kowa";
-    if (/^zeria$/i.test(value)) return "Zeria";
-    return value;
-  }
-  const companyLine = lines.find((line) => /(製藥|製薬|新藥|新薬|藥品|薬品|研究所|本舖|本舗|堂)/i.test(line) && line.length <= 32);
-  if (!companyLine) return "";
-  const company = companyLine.match(/([A-Za-z0-9&・·㐀-鿿ぁ-んァ-ヶ]{2,24}(?:製藥|製薬|新藥|新薬|藥品|薬品|研究所|本舖|本舗|堂))/i)?.[1] || companyLine;
-  return company.replace(/^日本\s*/i, "").replace(/の$/i, "").trim().slice(0, 100);
-}
-
-function canonicalShoppingProductName(flattened) {
-  const stomach = flattened.match(/(?:α|a8|a)?\s*(?:胃腸|腸胃)\s*藥(?:\s*\d{2,4}\s*錠)?/i);
-  if (stomach) return stomach[0].replace(/^\s*(?:a8|a)\s*/i, "α").replace(/\s+/g, " ").trim();
-  const knownProducts = [
-    [/軟\s*骨\s*素(?:\s*硫\s*酸)?/i, "軟骨素"],
-    [/葡\s*萄\s*糖\s*胺/i, "葡萄糖胺"],
-    [/益\s*生\s*菌/i, "益生菌"],
-    [/葉\s*黃\s*素/i, "葉黃素"],
-    [/魚\s*油/i, "魚油"],
-    [/膠\s*原\s*蛋\s*白/i, "膠原蛋白"],
-    [/輔\s*酶\s*Q\s*10|Coenzyme\s*Q10/i, "Q10"],
-    [/維\s*(?:他命|生素)\s*[A-Z0-9]+/i, ""],
-  ];
-  for (const [pattern, label] of knownProducts) {
-    const match = flattened.match(pattern);
-    if (match) return label || match[0].replace(/\s+/g, " ").trim();
-  }
-  return "";
-}
-
-function inferredShoppingBenefits(name, lines) {
-  const benefitWords = /(關節|靈活|行動|修復|保護|維持|提升|改善|舒緩|緩解|幫助|促進|消化|排便|保濕|防曬|美白|抗老|眼睛|腸道|睡眠|疲勞|健康)/i;
-  const excluded = /(食用方法|使用方法|注意事項|商品資訊|產品資訊|成分|每日\s*\d|一次\s*\d|\d+\s*(?:錠|顆|粒|包|枚|入|ml|g))/i;
-  const recognized = lines
-    .filter((line) => benefitWords.test(line) && !excluded.test(line))
-    .map((line) => line.replace(name, "").replace(/^(?:功效|作用|推薦重點)[:：]?\s*/i, "").replace(/\s+/g, " ").trim())
-    .filter((line) => line.length >= 2 && line.length <= 28)
-    .filter((line, index, list) => list.findIndex((candidate) => candidate.toLocaleLowerCase() === line.toLocaleLowerCase()) === index)
-    .slice(0, 3);
-  if (recognized.length >= 2) return recognized.join("、");
-  let inferred = "";
-  if (/(軟骨素|葡萄糖胺|MSM)/i.test(name)) inferred = "關節保養、維持靈活行動";
-  else if (/(胃腸|腸胃)藥/i.test(name)) inferred = "幫助消化、舒緩胃部不適";
-  else if (/益生菌/i.test(name)) inferred = "腸道保健、維持消化機能";
-  else if (/葉黃素/i.test(name)) inferred = "眼睛保健";
-  else if (/魚油/i.test(name)) inferred = "日常營養補給";
-  else if (/防曬/i.test(name)) inferred = "防曬、減少紫外線傷害";
-  return recognized.length && inferred && !inferred.includes(recognized[0]) ? `${inferred}、${recognized[0]}` : recognized[0] || inferred;
-}
-
-function parseShoppingScreenshotDetails(text = "") {
-  const lines = shoppingRecognitionLines(text);
-  const flattened = lines.join(" ");
-  const canonicalName = canonicalShoppingProductName(flattened);
-  const productWords = /(軟骨素|葡萄糖胺|益生菌|葉黃素|魚油|膠原蛋白|維他命|維生素|酵素|Q10|限定|伴手禮|餅|糖|巧克力|蛋糕|點心|零食|茶|咖啡|藥|錠|膠囊|顆粒|膏|液|乳|霜|精華|面膜|洗面|防曬|吹風機|電鍋|相機|耳機|家電|模型|玩偶|公仔|文具|紀念|護膚|保養|香水|口紅|粉餅|眼影|藥妝)/i;
-  const descriptiveWords = /(調整|體質|幫助|促進|改善|排便|消化|舒緩|緩解|修復|保護|守護|維持|補給|功效|作用|適合|食用方法|使用方法|注意事項|商品資訊|產品資訊|成分|專為|設計|安心選擇|日本製造|營養|健康|顆粒好吞食|每日輕鬆)/i;
-  const scored = lines.map((line, index) => {
-    const cleaned = line.replace(/\s*(?:[$¥￥]\s?\d[\d,.]*(?:円|元)?|\d[\d,.]*円)\s*$/i, "").trim();
-    let score = 0;
-    if (productWords.test(cleaned)) score += 5;
-    if (/\d{1,4}\s*(?:錠|顆|包|枚|入|本|盒|瓶|ml|mL|g|kg)/i.test(cleaned)) score += 6;
-    if (/(?:藥|錠|膠囊|顆粒|精華|面膜|香水|口紅|粉餅|眼影|吹風機|電鍋|相機|耳機)/i.test(cleaned)) score += 3;
-    if (/[㐀-鿿ぁ-んァ-ヶ]/.test(cleaned)) score += 1;
-    if (/[A-Za-z]{3,}/.test(cleaned)) score += 1;
-    if (cleaned.length >= 3 && cleaned.length <= 32) score += 3;
-    else if (cleaned.length > 48) score -= 5;
-    if (descriptiveWords.test(cleaned)) score -= 9;
-    if (/^(功效|作用|特點|成分|用法|注意|適合|商品資訊|產品資訊|購買資訊|推薦理由)/i.test(cleaned)) score -= 8;
-    if (/[。！？:：；;]/.test(cleaned)) score -= 2;
-    if (index < 4) score += 1;
-    return { line: cleaned, index, score };
-  });
-  const best = scored
-    .filter((item) => item.line)
-    .sort((a, b) => b.score - a.score || a.index - b.index)[0];
-  const name = canonicalName || (best && best.score >= 2 ? best.line : "");
-  return {
-    brand: recognizedShoppingBrand(lines, flattened),
-    name,
-    benefits: inferredShoppingBenefits(name, lines),
-    categoryId: inferredShoppingCategory(`${name} ${flattened}`),
-  };
-}
-
-function parseShoppingScreenshotText(text = "") {
-  const details = parseShoppingScreenshotDetails(text);
-  return details.name ? [details.name] : [];
-}
-
-function loadShoppingOcrLibrary() {
-  if (shoppingOcrLoader) return shoppingOcrLoader;
-  shoppingOcrLoader = loadFlightOcrLibrary().catch((error) => {
-    shoppingOcrLoader = null;
-    throw error;
-  });
-  return shoppingOcrLoader;
-}
-
 function setShoppingRecognitionStatus(form, message, { progress = 0, tone = "" } = {}) {
   const status = form?.querySelector("[data-shopping-recognition-status]");
   const progressBar = form?.querySelector("[data-shopping-recognition-progress]");
@@ -3085,6 +2964,8 @@ function renderShoppingImportRows(form) {
     <article class="shopping-import-result" data-shopping-import-row="${escapeHtml(entry.id)}">
       <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
       <img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張推薦商品截圖" />
+      ${entry.recognition?.language ? `<p class="shopping-ai-result-note">AI 已理解${escapeHtml(entry.recognition.language)}內容${entry.recognition.confidence ? ` · 判讀信心 ${Math.round(entry.recognition.confidence * 100)}%` : ""}</p>` : ""}
+      ${entry.recognitionError ? `<p class="shopping-ai-result-note error">${escapeHtml(entry.recognitionError)}</p>` : ""}
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
@@ -3094,39 +2975,61 @@ function renderShoppingImportRows(form) {
     </article>`).join("");
 }
 
+async function recognizeShoppingScreenshotWithAi(entry) {
+  const response = await fetch("/api/shopping-recognize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tripId: state.tripId, imageDataUrl: entry.dataUrl }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || "AI_RECOGNITION_FAILED");
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+function shoppingRecognitionErrorMessage(error) {
+  const code = String(error?.message || "");
+  if (code === "DAILY_RECOGNITION_LIMIT" || error?.status === 429) return "今天的 AI 辨識次數已達上限，仍可手動輸入。";
+  if (code === "AI_RECOGNITION_NOT_CONFIGURED") return "AI 辨識服務尚未啟用，仍可手動輸入。";
+  if (code === "PRODUCT_NOT_RECOGNIZED") return "AI 無法確認主要商品，請手動填寫。";
+  return "這張圖片暫時辨識失敗，請重試或手動填寫。";
+}
+
 async function recognizeShoppingScreenshots(form) {
   if (!form || !pendingShoppingImports.length || form.dataset.shoppingOcrBusy === "true") return;
   form.dataset.shoppingOcrBusy = "true";
   const token = ++shoppingRecognitionToken;
   const confirm = form.querySelector('button[type="submit"]');
   if (confirm) confirm.disabled = true;
-  let worker;
   try {
-    setShoppingRecognitionStatus(form, `正在準備辨識 ${pendingShoppingImports.length} 張圖片…`, { progress: 0.03 });
-    const Tesseract = await loadShoppingOcrLibrary();
-    let currentIndex = 0;
-    worker = await Tesseract.createWorker(["eng", "chi_tra", "jpn"], 1, {
-      logger: (message) => {
-        if (!form.isConnected || token !== shoppingRecognitionToken) return;
-        const itemProgress = Number(message.progress) || 0.05;
-        setShoppingRecognitionStatus(form, message.status === "recognizing text" ? `正在辨識第 ${currentIndex + 1}／${pendingShoppingImports.length} 張…` : "正在載入辨識工具…", { progress: (currentIndex + itemProgress) / pendingShoppingImports.length });
-      },
-    });
-    for (currentIndex = 0; currentIndex < pendingShoppingImports.length; currentIndex += 1) {
+    setShoppingRecognitionStatus(form, `AI 正在理解 ${pendingShoppingImports.length} 張圖片…`, { progress: 0.03 });
+    for (let currentIndex = 0; currentIndex < pendingShoppingImports.length; currentIndex += 1) {
       const entry = pendingShoppingImports[currentIndex];
+      setShoppingRecognitionStatus(form, `AI 正在理解第 ${currentIndex + 1}／${pendingShoppingImports.length} 張商品圖…`, { progress: currentIndex / pendingShoppingImports.length });
       try {
-        const result = await worker.recognize(entry.file);
+        const result = await recognizeShoppingScreenshotWithAi(entry);
         if (!form.isConnected || token !== shoppingRecognitionToken) return;
         syncPendingShoppingImportEdits(form);
-        entry.details = parseShoppingScreenshotDetails(result.data.text);
+        entry.details = result.details;
+        entry.recognition = { language: result.source?.language || "多語言", confidence: Number(result.confidence) || 0 };
+        entry.recognitionError = "";
         entry.recognized = true;
         renderShoppingImportRows(form);
-      } catch {
+      } catch (error) {
+        entry.recognitionError = shoppingRecognitionErrorMessage(error);
         entry.recognized = false;
+        renderShoppingImportRows(form);
       }
     }
     const recognizedCount = pendingShoppingImports.filter((entry) => entry.details?.name).length;
-    setShoppingRecognitionStatus(form, `已完成 ${pendingShoppingImports.length} 張圖片：辨識出 ${recognizedCount} 個商品，請逐項確認品牌、名稱、功效與分類。`, { progress: 1, tone: recognizedCount ? "success" : "error" });
+    const failedCount = pendingShoppingImports.length - recognizedCount;
+    const summary = failedCount
+      ? `AI 已辨識 ${recognizedCount} 個商品，另有 ${failedCount} 張需重試或手動填寫。`
+      : `AI 已理解 ${recognizedCount} 個商品，請逐項確認品牌、正式品名、功效與分類。`;
+    setShoppingRecognitionStatus(form, summary, { progress: 1, tone: recognizedCount ? "success" : "error" });
     if (confirm) confirm.disabled = false;
   } catch {
     if (form.isConnected && token === shoppingRecognitionToken) {
@@ -3134,7 +3037,6 @@ async function recognizeShoppingScreenshots(form) {
       if (confirm) confirm.disabled = false;
     }
   } finally {
-    await worker?.terminate?.().catch(() => {});
     if (form.isConnected && token === shoppingRecognitionToken) {
       form.dataset.shoppingOcrBusy = "false";
       renderShoppingImportRows(form);
@@ -3178,11 +3080,11 @@ function openShoppingImportSheet() {
         <div class="shopping-sheet-body">
           <label class="shopping-upload-card" for="shopping-screenshot-input"><span>▧</span><strong>一次選擇多張商品截圖</strong><small>最多 8 張；每張圖片各自辨識一個品牌與商品。</small></label>
           <input id="shopping-screenshot-input" class="shopping-file-input" type="file" accept="image/*" multiple data-shopping-screenshot-input />
-          <div class="shopping-recognition-state"><span data-shopping-recognition-status>上傳後會依序辨識品牌、商品名稱、功效與分類</span><i data-shopping-recognition-progress></i></div>
+          <div class="shopping-recognition-state"><span data-shopping-recognition-status>多語言 AI 會理解品牌、正式商品名稱、功效與分類</span><i data-shopping-recognition-progress></i></div>
           <div class="shopping-import-results" data-shopping-import-results></div>
           <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions()}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /></fieldset>
           <div class="field"><label>共同備註（選填）</label><textarea name="note" maxlength="800" placeholder="例如：同事一人一盒、到藥妝店比較價格"></textarea></div>
-          <div class="shopping-privacy-note"><b>鎖</b><span>截圖與辨識結果只會儲存在你的私人採買清單。</span></div>
+          <div class="shopping-privacy-note"><b>鎖</b><span>截圖會交由伺服器端 AI 理解；只有確認後，圖片與結果才會儲存在你的私人採買清單。</span></div>
         </div>
         <div class="modal-actions shopping-sheet-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" disabled>確認加入</button></div>
       </form>
