@@ -5,8 +5,8 @@ const SESSION_PREFIX = "tokyo-family-trip:session:";
 const RECOGNITION_LIMIT_PREFIX = "tokyo-family-trip:shopping-recognition:";
 const MAX_IMAGE_LENGTH = 500000;
 const DAILY_RECOGNITION_LIMIT = 60;
-const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/chat/completions";
-const MODELS = ["openai/gpt-5.6-terra", "openai/gpt-5.4"];
+const OPENAI_URL = "https://api.openai.com/v1/responses";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -68,18 +68,8 @@ function requestBody(request) {
   }
 }
 
-function requestHeader(request, name) {
-  if (typeof request.headers?.get === "function") return request.headers.get(name) || "";
-  const target = String(name).toLocaleLowerCase();
-  const entry = Object.entries(request.headers || {}).find(([key]) => key.toLocaleLowerCase() === target);
-  return cleanText(Array.isArray(entry?.[1]) ? entry[1][0] : entry?.[1], 12000);
-}
-
-function gatewayCredential(request) {
-  return requestHeader(request, "x-vercel-oidc-token")
-    || process.env.AI_GATEWAY_API_KEY
-    || process.env.VERCEL_OIDC_TOKEN
-    || "";
+function openAiCredential() {
+  return String(process.env.OPENAI_API_KEY || "").trim();
 }
 
 function cleanText(value, length) {
@@ -156,18 +146,7 @@ const responseSchema = {
   additionalProperties: false,
 };
 
-function responseFormat(mode) {
-  if (mode === "schema") {
-    return {
-      type: "json_schema",
-      json_schema: { name: "shopping_product_recognition", strict: true, schema: responseSchema },
-    };
-  }
-  if (mode === "json") return { type: "json_object" };
-  return undefined;
-}
-
-function parseGatewayContent(content) {
+function parseOpenAiContent(content) {
   if (content && typeof content === "object" && !Array.isArray(content)) return content;
   const text = String(content || "").trim();
   if (!text) throw new Error("AI_EMPTY_RESULT");
@@ -187,53 +166,61 @@ function parseGatewayContent(content) {
   }
 }
 
-function gatewayError(status, payload) {
+function openAiError(status, payload) {
   const type = cleanText(payload?.error?.type || payload?.error?.code, 50)
     .toLocaleUpperCase()
     .replace(/[^A-Z0-9_]/g, "_");
-  return new Error(`AI_GATEWAY_${status}${type ? `_${type}` : ""}`);
+  return new Error(`OPENAI_${status}${type ? `_${type}` : ""}`);
 }
 
-async function callGateway(apiKey, imageDataUrl) {
-  let lastError;
-  for (const model of MODELS) {
-    for (const formatMode of ["schema", "json", "prompt"]) {
-      const format = responseFormat(formatMode);
-      const result = await fetch(GATEWAY_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: recognitionPrompt() },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "辨識這張推薦圖中的主要商品。只輸出 JSON，欄位必須是 brandOriginal、brandZh、productNameOriginal、productNameZh、benefitsZh、category、language、confidence。",
-                },
-                { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-              ],
-            },
-          ],
-          ...(format ? { response_format: format } : {}),
-          max_tokens: 1200,
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(45000),
-      });
-      const payload = await result.json().catch(() => ({}));
-      if (!result.ok) {
-        lastError = gatewayError(result.status, payload);
-        if (result.status === 400 && formatMode !== "prompt") continue;
-        if ([400, 404, 408, 500, 502, 503, 504].includes(result.status) && model !== MODELS.at(-1)) break;
-        throw lastError;
-      }
-      return parseGatewayContent(payload?.choices?.[0]?.message?.content);
+function openAiOutputText(payload) {
+  if (typeof payload?.output_text === "string") return payload.output_text;
+  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
+    if (item?.type !== "message") continue;
+    for (const part of Array.isArray(item.content) ? item.content : []) {
+      if (part?.type === "output_text" && typeof part.text === "string") return part.text;
     }
   }
-  throw lastError || new Error("AI_RECOGNITION_FAILED");
+  return "";
+}
+
+async function callOpenAi(apiKey, imageDataUrl) {
+  const result = await fetch(OPENAI_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: [
+        { role: "system", content: recognitionPrompt() },
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: "辨識這張推薦圖中的主要商品，理解品牌、正式品名與圖片明確寫出的功效。",
+            },
+            { type: "input_image", image_url: imageDataUrl, detail: "original" },
+          ],
+        },
+      ],
+      reasoning: { effort: "low" },
+      text: {
+        verbosity: "low",
+        format: {
+          type: "json_schema",
+          name: "shopping_product_recognition",
+          strict: true,
+          schema: responseSchema,
+        },
+      },
+      max_output_tokens: 1200,
+      store: false,
+    }),
+    signal: AbortSignal.timeout(50000),
+  });
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok) throw openAiError(result.status, payload);
+  return parseOpenAiContent(openAiOutputText(payload));
 }
 
 async function enforceDailyLimit(memberId) {
@@ -247,7 +234,7 @@ async function enforceDailyLimit(memberId) {
 export default async function shoppingRecognizeHandler(request, response) {
   try {
     if (request.method === "GET") {
-      const apiKey = gatewayCredential(request);
+      const apiKey = openAiCredential();
       return sendJson(response, 200, { status: "ok", aiReady: Boolean(apiKey) });
     }
     if (request.method !== "POST") {
@@ -265,18 +252,18 @@ export default async function shoppingRecognizeHandler(request, response) {
     if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > MAX_IMAGE_LENGTH) {
       return sendJson(response, 400, { error: "VALID_IMAGE_REQUIRED" });
     }
-    if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
-    const apiKey = gatewayCredential(request);
+    const apiKey = openAiCredential();
     if (!apiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
-    const result = cleanRecognition(await callGateway(apiKey, imageDataUrl));
+    if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
+    const result = cleanRecognition(await callOpenAi(apiKey, imageDataUrl));
     if (!result.details.name) return sendJson(response, 422, { error: "PRODUCT_NOT_RECOGNIZED" });
     return sendJson(response, 200, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI_RECOGNITION_FAILED";
     console.warn("shopping-recognize failed", { code: message });
-    const status = message === "SHARED_DATABASE_NOT_CONFIGURED" ? 503 : message.includes("429") ? 429 : 502;
+    const status = message === "SHARED_DATABASE_NOT_CONFIGURED" ? 503 : message.startsWith("OPENAI_429") ? 429 : 502;
     return sendJson(response, status, { error: message });
   }
 }
 
-export { cleanRecognition, gatewayCredential, responseSchema };
+export { cleanRecognition, openAiCredential, responseSchema };

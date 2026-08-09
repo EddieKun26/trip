@@ -2992,14 +2992,15 @@ async function recognizeShoppingScreenshotWithAi(entry) {
 
 function shoppingRecognitionErrorMessage(error) {
   const code = String(error?.message || "");
-  if (code === "DAILY_RECOGNITION_LIMIT" || error?.status === 429) return "今天的 AI 辨識次數已達上限，仍可手動輸入。";
+  if (code === "DAILY_RECOGNITION_LIMIT") return "今天的 AI 辨識次數已達上限，仍可手動輸入。";
   if (code === "AI_RECOGNITION_NOT_CONFIGURED") return "AI 辨識服務尚未啟用，仍可手動輸入。";
   if (code === "PRODUCT_NOT_RECOGNIZED") return "AI 無法確認主要商品，請手動填寫。";
-  if (code.startsWith("AI_GATEWAY_401")) return "AI Gateway 授權失敗，系統已記錄錯誤，請稍後重試。";
-  if (code.startsWith("AI_GATEWAY_402")) return "AI Gateway 額度或預算不足，需先在 Vercel 啟用額度。";
-  if (code.startsWith("AI_GATEWAY_403")) return "AI Gateway 拒絕此專案或模型，系統已記錄錯誤。";
-  if (code.startsWith("AI_GATEWAY_400")) return "AI Gateway 無法接受辨識格式，系統已自動嘗試相容模式。";
-  if (code.startsWith("AI_GATEWAY_404")) return "目前的 AI 模型暫時無法使用，系統已記錄錯誤。";
+  if (code.startsWith("OPENAI_401")) return "OpenAI API 金鑰無效，系統已記錄錯誤。";
+  if (code.startsWith("OPENAI_402") || code.startsWith("OPENAI_429_INSUFFICIENT_QUOTA")) return "OpenAI API 額度不足，請先補充 API 額度。";
+  if (code.startsWith("OPENAI_403")) return "OpenAI API 拒絕此專案或模型，系統已記錄錯誤。";
+  if (code.startsWith("OPENAI_400")) return "OpenAI 無法接受這張圖片或辨識格式，請換一張圖片重試。";
+  if (code.startsWith("OPENAI_404")) return "目前的 AI 模型暫時無法使用，系統已記錄錯誤。";
+  if (code.startsWith("OPENAI_429") || error?.status === 429) return "AI 辨識服務目前忙碌，請稍後重試。";
   if (code === "AI_EMPTY_RESULT" || code === "AI_INVALID_RESULT") return "AI 已讀取圖片，但沒有回傳可用的商品資料。";
   return "這張圖片暫時辨識失敗，請重試或手動填寫。";
 }

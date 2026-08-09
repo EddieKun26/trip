@@ -1,7 +1,12 @@
 # Changelog
 
+## 2026-08-10
+
+- Revoked the previously exposed OpenAI key and configured its replacement only as Vercel's sensitive `OPENAI_API_KEY` for Production and Preview; the replacement was never stored in source, project memory, or tool output.
+
 ## 2026-08-09
 
+- Replaced Vercel AI Gateway with direct server-side OpenAI Responses API recognition using `gpt-5.6-luna`, original image detail, strict structured output, `store: false`, server-only `OPENAI_API_KEY`, and OpenAI-specific status messages; all 46 tests pass and production now only awaits the new key and redeployment.
 - Fixed production Shopping AI requests to prefer the fresh per-invocation Vercel OIDC credential over stale configured keys, changed output limits to the Gateway-compatible `max_tokens` parameter, added strict-schema to JSON compatibility fallbacks, and exposed safe status-specific diagnostics instead of a generic 502-only failure.
 - Fixed production Shopping AI authentication by reading Vercel's runtime OIDC request header instead of relying only on build-time environment variables, and added a credential-safe readiness check.
 - Replaced Shopping's local OCR and keyword guessing with authenticated server-side multilingual vision AI through Vercel AI Gateway.

@@ -2,33 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import memberHandler from "../api/member.mjs";
-import shoppingRecognizeHandler, { gatewayCredential } from "../api/shopping-recognize.mjs";
+import shoppingRecognizeHandler, { openAiCredential } from "../api/shopping-recognize.mjs";
 import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
-const gatewayRequests = [];
-const gatewayAuthorizations = [];
-let gatewayFormatFailures = 0;
+const openAiRequests = [];
+const openAiAuthorizations = [];
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
-delete process.env.VERCEL_OIDC_TOKEN;
+process.env.OPENAI_API_KEY = "test-openai-key";
 
 globalThis.fetch = async (url, options = {}) => {
-  if (String(url).includes("ai-gateway.vercel.sh")) {
+  if (String(url).includes("api.openai.com/v1/responses")) {
     const body = JSON.parse(options.body);
-    gatewayRequests.push(body);
-    gatewayAuthorizations.push(options.headers.Authorization);
-    if (gatewayFormatFailures > 0) {
-      gatewayFormatFailures -= 1;
-      return new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    openAiRequests.push(body);
+    openAiAuthorizations.push(options.headers.Authorization);
     return new Response(JSON.stringify({
-      choices: [{
-        message: {
-          content: JSON.stringify({
+      output: [{
+        type: "message",
+        content: [{
+          type: "output_text",
+          text: JSON.stringify({
             brandOriginal: "Kowa",
             brandZh: "興和",
             productNameOriginal: "新ビオフェルミンS錠",
@@ -38,7 +32,7 @@ globalThis.fetch = async (url, options = {}) => {
             language: "日文",
             confidence: 0.94,
           }),
-        },
+        }],
       }],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
@@ -90,40 +84,38 @@ async function createTrip(cookie) {
   return response.payload.trip;
 }
 
-async function recognize(cookie, tripId, oidcToken = "runtime-oidc-token") {
+async function recognize(cookie, tripId) {
   const response = responseMock();
   await shoppingRecognizeHandler({
     method: "POST",
     body: { tripId, imageDataUrl: "data:image/jpeg;base64,QUJDRA==" },
-    headers: { ...(cookie ? { cookie } : {}), ...(oidcToken ? { "x-vercel-oidc-token": oidcToken } : {}) },
+    headers: { ...(cookie ? { cookie } : {}) },
   }, response);
   return response;
 }
 
-test("shopping AI health check detects Vercel runtime OIDC without exposing it", async () => {
+test("shopping AI health check detects the server-side OpenAI key without exposing it", async () => {
   const response = responseMock();
-  await shoppingRecognizeHandler({ method: "GET", headers: { "x-vercel-oidc-token": "private-runtime-token" } }, response);
+  await shoppingRecognizeHandler({ method: "GET", headers: {} }, response);
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.payload, { status: "ok", aiReady: true });
-  assert.doesNotMatch(JSON.stringify(response.payload), /private-runtime-token/);
+  assert.doesNotMatch(JSON.stringify(response.payload), /test-openai-key/);
 });
 
-test("fresh runtime OIDC takes precedence over a stale configured gateway key", () => {
-  process.env.AI_GATEWAY_API_KEY = "stale-configured-key";
-  assert.equal(gatewayCredential({ headers: { "x-vercel-oidc-token": "fresh-runtime-token" } }), "fresh-runtime-token");
-  delete process.env.AI_GATEWAY_API_KEY;
+test("shopping AI uses only the server-side OpenAI key", () => {
+  assert.equal(openAiCredential(), "test-openai-key");
 });
 
 test("shopping recognition is authorized and returns translated structured product data", async () => {
   store.clear();
-  gatewayRequests.length = 0;
-  gatewayAuthorizations.length = 0;
+  openAiRequests.length = 0;
+  openAiAuthorizations.length = 0;
   const owner = await login("阿璋", "1111", "203.0.113.71");
   const trip = await createTrip(owner.cookie);
 
   const anonymous = await recognize("", trip.id);
   assert.equal(anonymous.statusCode, 401);
-  assert.equal(gatewayRequests.length, 0);
+  assert.equal(openAiRequests.length, 0);
 
   const response = await recognize(owner.cookie, trip.id);
   assert.equal(response.statusCode, 200);
@@ -134,38 +126,37 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(response.payload.source.language, "日文");
   assert.equal(response.payload.confidence, 0.94);
 
-  assert.equal(gatewayRequests.length, 1);
-  assert.equal(gatewayAuthorizations[0], "Bearer runtime-oidc-token");
-  assert.equal(gatewayRequests[0].model, "openai/gpt-5.6-terra");
-  assert.equal(gatewayRequests[0].messages[1].content[1].image_url.detail, "high");
-  assert.equal(gatewayRequests[0].response_format.type, "json_schema");
-  assert.match(gatewayRequests[0].messages[0].content, /繁體中文、簡體中文、日文、韓文、英文、泰文/);
+  assert.equal(openAiRequests.length, 1);
+  assert.equal(openAiAuthorizations[0], "Bearer test-openai-key");
+  assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
+  assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
+  assert.equal(openAiRequests[0].text.format.type, "json_schema");
+  assert.equal(openAiRequests[0].text.format.strict, true);
+  assert.equal(openAiRequests[0].store, false);
+  assert.match(openAiRequests[0].input[0].content, /繁體中文、簡體中文、日文、韓文、英文、泰文/);
 });
 
 test("shopping recognition rejects invalid images before calling AI", async () => {
   store.clear();
-  gatewayRequests.length = 0;
-  gatewayAuthorizations.length = 0;
+  openAiRequests.length = 0;
+  openAiAuthorizations.length = 0;
   const owner = await login("小美", "2222", "203.0.113.72");
   const trip = await createTrip(owner.cookie);
   const response = responseMock();
   await shoppingRecognizeHandler({ method: "POST", body: { tripId: trip.id, imageDataUrl: "not-an-image" }, headers: { cookie: owner.cookie } }, response);
   assert.equal(response.statusCode, 400);
   assert.equal(response.payload.error, "VALID_IMAGE_REQUIRED");
-  assert.equal(gatewayRequests.length, 0);
+  assert.equal(openAiRequests.length, 0);
 });
 
-test("shopping recognition retries an incompatible strict schema as JSON mode", async () => {
+test("shopping recognition requires a configured OpenAI key before consuming the daily limit", async () => {
   store.clear();
-  gatewayRequests.length = 0;
-  gatewayAuthorizations.length = 0;
-  gatewayFormatFailures = 1;
   const owner = await login("小華", "3333", "203.0.113.73");
   const trip = await createTrip(owner.cookie);
+  delete process.env.OPENAI_API_KEY;
   const response = await recognize(owner.cookie, trip.id);
-  assert.equal(response.statusCode, 200);
-  assert.equal(gatewayRequests.length, 2);
-  assert.equal(gatewayRequests[0].response_format.type, "json_schema");
-  assert.equal(gatewayRequests[1].response_format.type, "json_object");
-  assert.equal(gatewayRequests[1].max_tokens, 1200);
+  process.env.OPENAI_API_KEY = "test-openai-key";
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.payload.error, "AI_RECOGNITION_NOT_CONFIGURED");
+  assert.equal([...store.keys()].some((key) => key.includes("shopping-recognition")), false);
 });
