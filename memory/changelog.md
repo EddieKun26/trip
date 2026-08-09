@@ -2,6 +2,7 @@
 
 ## 2026-08-09
 
+- Fixed production Shopping AI requests to prefer the fresh per-invocation Vercel OIDC credential over stale configured keys, changed output limits to the Gateway-compatible `max_tokens` parameter, added strict-schema to JSON compatibility fallbacks, and exposed safe status-specific diagnostics instead of a generic 502-only failure.
 - Fixed production Shopping AI authentication by reading Vercel's runtime OIDC request header instead of relying only on build-time environment variables, and added a credential-safe readiness check.
 - Replaced Shopping's local OCR and keyword guessing with authenticated server-side multilingual vision AI through Vercel AI Gateway.
 - Added strict one-product extraction with original-language and Traditional Chinese brand/product names, image-grounded benefits, category, language, confidence, per-member authorization, and a daily request limit.

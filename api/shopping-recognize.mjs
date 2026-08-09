@@ -76,8 +76,8 @@ function requestHeader(request, name) {
 }
 
 function gatewayCredential(request) {
-  return process.env.AI_GATEWAY_API_KEY
-    || requestHeader(request, "x-vercel-oidc-token")
+  return requestHeader(request, "x-vercel-oidc-token")
+    || process.env.AI_GATEWAY_API_KEY
     || process.env.VERCEL_OIDC_TOKEN
     || "";
 }
@@ -147,54 +147,90 @@ const responseSchema = {
     brandZh: { type: "string" },
     productNameOriginal: { type: "string" },
     productNameZh: { type: "string" },
-    benefitsZh: { type: "array", items: { type: "string" }, maxItems: 4 },
+    benefitsZh: { type: "array", items: { type: "string" } },
     category: { type: "string", enum: ["souvenir", "appliance", "daily", "medicine", "skincare"] },
     language: { type: "string" },
-    confidence: { type: "number", minimum: 0, maximum: 1 },
+    confidence: { type: "number" },
   },
   required: ["brandOriginal", "brandZh", "productNameOriginal", "productNameZh", "benefitsZh", "category", "language", "confidence"],
   additionalProperties: false,
 };
 
+function responseFormat(mode) {
+  if (mode === "schema") {
+    return {
+      type: "json_schema",
+      json_schema: { name: "shopping_product_recognition", strict: true, schema: responseSchema },
+    };
+  }
+  if (mode === "json") return { type: "json_object" };
+  return undefined;
+}
+
+function parseGatewayContent(content) {
+  if (content && typeof content === "object" && !Array.isArray(content)) return content;
+  const text = String(content || "").trim();
+  if (!text) throw new Error("AI_EMPTY_RESULT");
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(text.slice(start, end + 1));
+      } catch {
+        // Fall through to the stable error code below.
+      }
+    }
+    throw new Error("AI_INVALID_RESULT");
+  }
+}
+
+function gatewayError(status, payload) {
+  const type = cleanText(payload?.error?.type || payload?.error?.code, 50)
+    .toLocaleUpperCase()
+    .replace(/[^A-Z0-9_]/g, "_");
+  return new Error(`AI_GATEWAY_${status}${type ? `_${type}` : ""}`);
+}
+
 async function callGateway(apiKey, imageDataUrl) {
   let lastError;
   for (const model of MODELS) {
-    const result = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: recognitionPrompt() },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "辨識這張推薦圖中的主要商品，並以指定結構輸出。" },
-              { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-            ],
-          },
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: { name: "shopping_product_recognition", strict: true, schema: responseSchema },
-        },
-        max_completion_tokens: 900,
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(45000),
-    });
-    const payload = await result.json().catch(() => ({}));
-    if (!result.ok) {
-      lastError = new Error(`AI_GATEWAY_${result.status}`);
-      if ([400, 404].includes(result.status) && model !== MODELS.at(-1)) continue;
-      throw lastError;
-    }
-    const content = payload?.choices?.[0]?.message?.content;
-    if (!content) throw new Error("AI_EMPTY_RESULT");
-    try {
-      return JSON.parse(content);
-    } catch {
-      throw new Error("AI_INVALID_RESULT");
+    for (const formatMode of ["schema", "json", "prompt"]) {
+      const format = responseFormat(formatMode);
+      const result = await fetch(GATEWAY_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: recognitionPrompt() },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "辨識這張推薦圖中的主要商品。只輸出 JSON，欄位必須是 brandOriginal、brandZh、productNameOriginal、productNameZh、benefitsZh、category、language、confidence。",
+                },
+                { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+              ],
+            },
+          ],
+          ...(format ? { response_format: format } : {}),
+          max_tokens: 1200,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      const payload = await result.json().catch(() => ({}));
+      if (!result.ok) {
+        lastError = gatewayError(result.status, payload);
+        if (result.status === 400 && formatMode !== "prompt") continue;
+        if ([400, 404, 408, 500, 502, 503, 504].includes(result.status) && model !== MODELS.at(-1)) break;
+        throw lastError;
+      }
+      return parseGatewayContent(payload?.choices?.[0]?.message?.content);
     }
   }
   throw lastError || new Error("AI_RECOGNITION_FAILED");
@@ -211,7 +247,8 @@ async function enforceDailyLimit(memberId) {
 export default async function shoppingRecognizeHandler(request, response) {
   try {
     if (request.method === "GET") {
-      return sendJson(response, 200, { status: "ok", aiReady: Boolean(gatewayCredential(request)) });
+      const apiKey = gatewayCredential(request);
+      return sendJson(response, 200, { status: "ok", aiReady: Boolean(apiKey) });
     }
     if (request.method !== "POST") {
       response.setHeader("Allow", "GET, POST");
@@ -236,6 +273,7 @@ export default async function shoppingRecognizeHandler(request, response) {
     return sendJson(response, 200, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI_RECOGNITION_FAILED";
+    console.warn("shopping-recognize failed", { code: message });
     const status = message === "SHARED_DATABASE_NOT_CONFIGURED" ? 503 : message.includes("429") ? 429 : 502;
     return sendJson(response, status, { error: message });
   }

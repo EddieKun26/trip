@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import memberHandler from "../api/member.mjs";
-import shoppingRecognizeHandler from "../api/shopping-recognize.mjs";
+import shoppingRecognizeHandler, { gatewayCredential } from "../api/shopping-recognize.mjs";
 import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
 const gatewayRequests = [];
 const gatewayAuthorizations = [];
+let gatewayFormatFailures = 0;
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
 delete process.env.VERCEL_OIDC_TOKEN;
@@ -17,6 +18,13 @@ globalThis.fetch = async (url, options = {}) => {
     const body = JSON.parse(options.body);
     gatewayRequests.push(body);
     gatewayAuthorizations.push(options.headers.Authorization);
+    if (gatewayFormatFailures > 0) {
+      gatewayFormatFailures -= 1;
+      return new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({
       choices: [{
         message: {
@@ -100,6 +108,12 @@ test("shopping AI health check detects Vercel runtime OIDC without exposing it",
   assert.doesNotMatch(JSON.stringify(response.payload), /private-runtime-token/);
 });
 
+test("fresh runtime OIDC takes precedence over a stale configured gateway key", () => {
+  process.env.AI_GATEWAY_API_KEY = "stale-configured-key";
+  assert.equal(gatewayCredential({ headers: { "x-vercel-oidc-token": "fresh-runtime-token" } }), "fresh-runtime-token");
+  delete process.env.AI_GATEWAY_API_KEY;
+});
+
 test("shopping recognition is authorized and returns translated structured product data", async () => {
   store.clear();
   gatewayRequests.length = 0;
@@ -139,4 +153,19 @@ test("shopping recognition rejects invalid images before calling AI", async () =
   assert.equal(response.statusCode, 400);
   assert.equal(response.payload.error, "VALID_IMAGE_REQUIRED");
   assert.equal(gatewayRequests.length, 0);
+});
+
+test("shopping recognition retries an incompatible strict schema as JSON mode", async () => {
+  store.clear();
+  gatewayRequests.length = 0;
+  gatewayAuthorizations.length = 0;
+  gatewayFormatFailures = 1;
+  const owner = await login("小華", "3333", "203.0.113.73");
+  const trip = await createTrip(owner.cookie);
+  const response = await recognize(owner.cookie, trip.id);
+  assert.equal(response.statusCode, 200);
+  assert.equal(gatewayRequests.length, 2);
+  assert.equal(gatewayRequests[0].response_format.type, "json_schema");
+  assert.equal(gatewayRequests[1].response_format.type, "json_object");
+  assert.equal(gatewayRequests[1].max_tokens, 1200);
 });
