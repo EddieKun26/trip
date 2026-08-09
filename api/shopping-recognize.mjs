@@ -68,6 +68,20 @@ function requestBody(request) {
   }
 }
 
+function requestHeader(request, name) {
+  if (typeof request.headers?.get === "function") return request.headers.get(name) || "";
+  const target = String(name).toLocaleLowerCase();
+  const entry = Object.entries(request.headers || {}).find(([key]) => key.toLocaleLowerCase() === target);
+  return cleanText(Array.isArray(entry?.[1]) ? entry[1][0] : entry?.[1], 12000);
+}
+
+function gatewayCredential(request) {
+  return process.env.AI_GATEWAY_API_KEY
+    || requestHeader(request, "x-vercel-oidc-token")
+    || process.env.VERCEL_OIDC_TOKEN
+    || "";
+}
+
 function cleanText(value, length) {
   return String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, length);
 }
@@ -212,7 +226,7 @@ export default async function shoppingRecognizeHandler(request, response) {
       return sendJson(response, 400, { error: "VALID_IMAGE_REQUIRED" });
     }
     if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
-    const apiKey = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
+    const apiKey = gatewayCredential(request);
     if (!apiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
     const result = cleanRecognition(await callGateway(apiKey, imageDataUrl));
     if (!result.details.name) return sendJson(response, 422, { error: "PRODUCT_NOT_RECOGNIZED" });
@@ -224,4 +238,4 @@ export default async function shoppingRecognizeHandler(request, response) {
   }
 }
 
-export { cleanRecognition, responseSchema };
+export { cleanRecognition, gatewayCredential, responseSchema };

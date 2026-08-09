@@ -2,6 +2,7 @@
 
 ## 2026-08-09
 
+- Fixed production Shopping AI authentication by reading Vercel's runtime OIDC request header instead of relying only on build-time environment variables.
 - Replaced Shopping's local OCR and keyword guessing with authenticated server-side multilingual vision AI through Vercel AI Gateway.
 - Added strict one-product extraction with original-language and Traditional Chinese brand/product names, image-grounded benefits, category, language, confidence, per-member authorization, and a daily request limit.
 - Added clear per-image AI status/error messages while preserving editable review and explicit confirmation before private storage.

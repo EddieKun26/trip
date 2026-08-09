@@ -7,14 +7,16 @@ import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
 const gatewayRequests = [];
+const gatewayAuthorizations = [];
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
-process.env.VERCEL_OIDC_TOKEN = "test-oidc-token";
+delete process.env.VERCEL_OIDC_TOKEN;
 
 globalThis.fetch = async (url, options = {}) => {
   if (String(url).includes("ai-gateway.vercel.sh")) {
     const body = JSON.parse(options.body);
     gatewayRequests.push(body);
+    gatewayAuthorizations.push(options.headers.Authorization);
     return new Response(JSON.stringify({
       choices: [{
         message: {
@@ -80,12 +82,12 @@ async function createTrip(cookie) {
   return response.payload.trip;
 }
 
-async function recognize(cookie, tripId) {
+async function recognize(cookie, tripId, oidcToken = "runtime-oidc-token") {
   const response = responseMock();
   await shoppingRecognizeHandler({
     method: "POST",
     body: { tripId, imageDataUrl: "data:image/jpeg;base64,QUJDRA==" },
-    headers: cookie ? { cookie } : {},
+    headers: { ...(cookie ? { cookie } : {}), ...(oidcToken ? { "x-vercel-oidc-token": oidcToken } : {}) },
   }, response);
   return response;
 }
@@ -93,6 +95,7 @@ async function recognize(cookie, tripId) {
 test("shopping recognition is authorized and returns translated structured product data", async () => {
   store.clear();
   gatewayRequests.length = 0;
+  gatewayAuthorizations.length = 0;
   const owner = await login("阿璋", "1111", "203.0.113.71");
   const trip = await createTrip(owner.cookie);
 
@@ -110,6 +113,7 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(response.payload.confidence, 0.94);
 
   assert.equal(gatewayRequests.length, 1);
+  assert.equal(gatewayAuthorizations[0], "Bearer runtime-oidc-token");
   assert.equal(gatewayRequests[0].model, "openai/gpt-5.6-terra");
   assert.equal(gatewayRequests[0].messages[1].content[1].image_url.detail, "high");
   assert.equal(gatewayRequests[0].response_format.type, "json_schema");
@@ -119,6 +123,7 @@ test("shopping recognition is authorized and returns translated structured produ
 test("shopping recognition rejects invalid images before calling AI", async () => {
   store.clear();
   gatewayRequests.length = 0;
+  gatewayAuthorizations.length = 0;
   const owner = await login("小美", "2222", "203.0.113.72");
   const trip = await createTrip(owner.cookie);
   const response = responseMock();
