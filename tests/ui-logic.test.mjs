@@ -358,17 +358,20 @@ test("leave trip is a compact action inside the account member sheet", () => {
 test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
   assert.match(stylesSource, /\.import-places-sheet\s*{[^}]*overflow:\s*hidden/s);
   assert.match(stylesSource, /\.import-places-sheet \.field select,\s*\.import-places-sheet \.field textarea\s*{[^}]*font-size:\s*16px/s);
-  assert.match(stylesSource, /\.import-preview\s*{[^}]*overflow-y:\s*auto/s);
+  assert.match(stylesSource, /\.import-places-sheet \.field textarea\s*{[^}]*min-height:\s*56px[^}]*max-height:\s*56px/s);
+  assert.match(stylesSource, /\.import-preview\s*{[^}]*overflow-y:\s*scroll[^}]*touch-action:\s*pan-y/s);
   assert.match(appSource, /state\.placeKind = addedKinds\.length === 1 \? addedKinds\[0\] : "all"/);
   assert.match(appSource, /<h2>新增地點<\/h2>/);
   assert.doesNotMatch(appSource, /<h2>一次新增多個景點<\/h2>/);
+  assert.doesNotMatch(appSource, /新增飯店或民宿時可直接選擇/);
+  assert.doesNotMatch(appSource, /連結和截圖可擇一使用/);
 });
 
 test("place import accepts social links with a confirmation-only Google candidate flow", () => {
   assert.match(appSource, /fetch\("\/api\/social-place-import"/);
-  assert.match(appSource, /Instagram、Reels 或 Threads 貼文/);
+  assert.match(appSource, /Instagram、Reels 或 Threads 連結/);
   assert.match(appSource, /data-social-place-screenshot/);
-  assert.match(appSource, /上傳截圖或拍照/);
+  assert.match(appSource, /截圖／照片/);
   assert.doesNotMatch(appSource, /id="social-share-text"/);
   assert.doesNotMatch(appSource, /data-social-import-fallback/);
   assert.match(appSource, /data-social-place-candidate/);
@@ -440,8 +443,7 @@ test("flight ticket images are recognized locally and used to prefill the form",
 test("place import placeholder is neutral", () => {
   const section = sourceSection("function openAddPlaceSheet", "function openDateSheet");
   assert.doesNotMatch(section, /高雄合菜 · Eddie/);
-  assert.match(section, /Google Maps 地點或公開清單/);
-  assert.match(section, /Instagram、Reels 或 Threads 貼文/);
+  assert.match(section, /Google Maps、Instagram、Reels 或 Threads 連結/);
 });
 
 test("shopping is a fourth private tab with categories reusable tags and completion state", () => {

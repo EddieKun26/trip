@@ -2,6 +2,7 @@
 
 ## 2026-08-10
 
+- Compacted the add-place link field to 56px, removed redundant category/link/screenshot instructions, shortened action labels, and made recognition candidates an explicit touch-scroll region while keeping confirmation actions fixed. Verified an eight-candidate fixture at 393×852: the 316px result region scrolled independently and the action row remained visible.
 - Fixed Instagram Reels and screenshot imports that reached AI successfully but failed at Google Places with `GOOGLE_PLACES_400`; the previous 100 km trip-center bias exceeded the API limit. Candidate lookup now skips trip bias when AI identifies a location, caps ambiguous bias at 50 km, and retries once without bias if Google rejects it.
 - Simplified the place-import sheet to two visible inputs: a universal Google Maps/Instagram/Reels/Threads link field and a screenshot/photo picker. Removed supplemental pasted text and its disclosure so recognition and confirmation controls remain reachable on iPhone.
 - Added standalone screenshot, Reels URL, 50 km bias, and retry regression coverage. All 53 tests and the 393×852 layout check pass.

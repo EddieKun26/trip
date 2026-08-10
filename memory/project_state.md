@@ -28,6 +28,6 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 53 tests passing as of 2026-08-10 after fixing Reels/screenshot candidate lookup and simplifying place import.
-- iPhone 15 Pro browser verification at 393×852 confirms the simplified place-import sheet keeps link, screenshot, recognition, and confirmation controls visible without page-level overflow; inputs remain 16px and only the candidate list scrolls.
+- `node --test tests/*.test.mjs`: 53 tests passing as of 2026-08-10 after fixing Reels/screenshot candidate lookup and compacting the place-import sheet.
+- iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

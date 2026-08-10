@@ -3375,22 +3375,15 @@ body.transport-sheet-open .app {
 }
 
 .import-places-sheet > .section-row,
-.import-places-sheet > p,
 .import-places-sheet > .field,
 .import-places-sheet > .social-screenshot-picker,
-.import-places-sheet > .social-import-input-note,
 .import-places-sheet > .analyze-button,
 .import-places-sheet > .modal-actions {
   flex: 0 0 auto;
 }
 
-.import-places-sheet > p {
-  margin-bottom: 0;
-  font-size: 12px;
-}
-
 .import-places-sheet .field {
-  margin-top: 9px;
+  margin-top: 8px;
 }
 
 .import-places-sheet .field select,
@@ -3399,8 +3392,10 @@ body.transport-sheet-open .app {
 }
 
 .import-places-sheet .field textarea {
-  min-height: 92px;
-  max-height: 92px;
+  min-height: 56px;
+  max-height: 56px;
+  padding-block: 9px;
+  line-height: 1.35;
   resize: none;
 }
 
@@ -3410,8 +3405,8 @@ body.transport-sheet-open .app {
 
 .analyze-button {
   width: 100%;
-  min-height: 46px;
-  margin-top: 12px;
+  min-height: 44px;
+  margin-top: 8px;
   border: 1px solid rgba(64, 119, 122, 0.3);
   border-radius: 14px;
   background: var(--mineral-soft);
@@ -3436,15 +3431,8 @@ body.transport-sheet-open .app {
 }
 
 .social-screenshot-picker-standalone {
-  margin: 10px 0 0;
-  min-height: 52px;
-}
-
-.social-import-input-note {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.4;
+  margin: 8px 0 0;
+  min-height: 44px;
 }
 
 .social-screenshot-picker span {
@@ -3475,14 +3463,17 @@ body.transport-sheet-open .app {
 }
 
 .import-preview {
-  flex: 1 1 auto;
+  flex: 1 1 160px;
   min-height: 0;
   display: grid;
   align-content: start;
   gap: 7px;
-  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-y: scroll;
   overscroll-behavior: contain;
-  margin-top: 12px;
+  margin-top: 8px;
+  padding-right: 2px;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
 }
 

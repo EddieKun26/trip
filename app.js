@@ -4187,17 +4187,14 @@ function openAddPlaceSheet() {
           <div><p class="section-kicker">地點匯入</p><h2>新增地點</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p>貼上地點或社群連結，也可直接上傳截圖或拍照辨識。</p>
-        <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select><span class="field-note">新增飯店或民宿時可直接選擇「住宿」。</span></div>
+        <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select></div>
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
-          <textarea id="google-maps-list" name="mapsList" rows="4" placeholder="Google Maps 地點或公開清單&#10;Instagram、Reels 或 Threads 貼文"></textarea>
-          <span class="field-note">社群貼文會先由 AI 理解，再列出 Google Maps 候選供你確認。</span>
+          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Instagram、Reels 或 Threads 連結"></textarea>
         </div>
-        <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>上傳截圖或拍照</span><small data-social-screenshot-status>尚未選擇圖片</small></label>
+        <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
         <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
-        <span class="social-import-input-note">連結和截圖可擇一使用；一起提供時辨識會更準確。</span>
-        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點、清單或貼文</button>
+        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點</button>
         <div id="import-preview" class="import-preview" aria-live="polite"></div>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>加入收藏</button></div>
       </form>
