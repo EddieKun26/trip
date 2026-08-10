@@ -21,6 +21,8 @@
 
 - Google Maps JavaScript API is the preferred interactive map; Leaflet/OpenStreetMap remains a fallback.
 - Places imports support ordinary place links and public shared-list expansion before Places enrichment.
+- Social place import initially supports public Instagram and Threads links. AI extracts possible place mentions from untrusted post metadata, pasted text, or one screenshot; Google Places remains the source of truth for the saved name, address, category, rating, hours, phone, photos, and coordinates. A user must explicitly select a Google candidate and confirm before saving. The original social URL is retained as a reference, while social images are not copied into shared place data.
+- Social import is restricted to signed-in trip members, server-side credentials, safe allowlisted social hosts, and a per-member daily recognition limit. Login-gated or private posts fall back to pasted text or a screenshot.
 - Airport selection uses a local city-to-airport catalog to avoid manual airport-code entry and extra API cost.
 - Live location is opt-in and planning-map-only. It stays in browser memory, is never written to shared trip data, and stops when disabled, leaving the map, or closing the page.
 

@@ -3,6 +3,7 @@
 - The Google Maps key was previously shared in conversation. It should be rotated and restricted in Google Cloud before broader public use.
 - Google Maps browser-map availability depends on correct production referrer restrictions; Leaflet is the fallback when the key cannot load.
 - Google Maps shared-list import works only for publicly accessible lists. Private lists cannot be expanded server-side.
+- Instagram and Threads may block server-side public metadata or require login. In those cases the user must paste the post text or upload a screenshot; the first version does not support other social platforms or direct iOS share-sheet delivery.
 - The local airport catalog is intentionally curated rather than exhaustive; unsupported cities need catalog additions.
 - Browser-based ticket OCR is optimized for airport codes, English month names, dates, and colon-formatted times. Low-resolution, handwritten, or heavily stylized tickets may need manual correction.
 - First-time ticket OCR requires an internet connection to download the browser recognition worker and English language data; later loads may use the browser cache.

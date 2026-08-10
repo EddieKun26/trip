@@ -28,4 +28,5 @@
 - Screenshot recognition must understand the complete image across languages rather than return OCR fragments. Show natural Traditional Chinese meaning while retaining useful original-language brand and product names; never use slogans, usage directions, ingredients, or benefits as the product name.
 - Shopping selection, select-all, and batch-delete controls belong directly above the item list rather than in the page header or bottom action area.
 - Input placeholders must be neutral and must not expose a real user's Google Maps list name.
+- Social place imports must show Google Places candidates for explicit selection and confirmation instead of saving an AI guess automatically. Keep the original social post link in place details and offer pasted-text/screenshot fallback when the post is not publicly readable.
 - Ship the web version first; build a test iOS app only after the web product matures.

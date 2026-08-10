@@ -364,6 +364,21 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
   assert.doesNotMatch(appSource, /<h2>一次新增多個景點<\/h2>/);
 });
 
+test("place import accepts social links with a confirmation-only Google candidate flow", () => {
+  assert.match(appSource, /fetch\("\/api\/social-place-import"/);
+  assert.match(appSource, /Instagram、Threads 分享連結/);
+  assert.match(appSource, /data-social-import-fallback/);
+  assert.match(appSource, /data-social-place-screenshot/);
+  assert.match(appSource, /data-social-place-candidate/);
+  assert.match(appSource, /place\.selected === true/);
+  assert.match(appSource, /pendingPlaceImports\.some\(\(place\) => place\.isSocialCandidate\)\) fallback\.open = false/);
+  assert.match(appSource, /referenceUrl/);
+  assert.match(appSource, /data-open-reference/);
+  assert.match(stylesSource, /\.import-place-row\.social-candidate\s*{[^}]*grid-template-columns:\s*20px 36px minmax\(0, 1fr\) auto/s);
+  assert.match(stylesSource, /\.social-import-fallback\s*{/);
+  assert.match(stylesSource, /\.import-places-sheet\s*>\s*\.social-import-fallback/);
+});
+
 test("flight form offers city-aware airports and creates round trips as two legs", () => {
   const section = sourceSection("const flightAirportCatalog", "function itineraryItemKey");
   const { airportsForCity, airportOptionsMarkup, parseFlightTicketText } = new Function(
