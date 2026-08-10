@@ -21,8 +21,10 @@
 
 - Google Maps JavaScript API is the preferred interactive map; Leaflet/OpenStreetMap remains a fallback.
 - Places imports support ordinary place links and public shared-list expansion before Places enrichment.
-- Social place import initially supports public Instagram and Threads links. AI extracts possible place mentions from untrusted post metadata, pasted text, or one screenshot; Google Places remains the source of truth for the saved name, address, category, rating, hours, phone, photos, and coordinates. A user must explicitly select a Google candidate and confirm before saving. The original social URL is retained as a reference, while social images are not copied into shared place data.
-- Social import is restricted to signed-in trip members, server-side credentials, safe allowlisted social hosts, and a per-member daily recognition limit. Login-gated or private posts fall back to pasted text or a screenshot.
+- Social place import initially supports Instagram posts/Reels and Threads links. AI extracts possible place mentions from untrusted public post metadata or one screenshot; Google Places remains the source of truth for the saved name, address, category, rating, hours, phone, photos, and coordinates. A user must explicitly select a Google candidate and confirm before saving. The original social URL is retained as a reference, while social images are not copied into shared place data.
+- The place-import sheet exposes only two content inputs: a universal link field and a directly visible screenshot/photo picker. Supplemental pasted text was removed so recognition and confirmation controls stay reachable without sheet scrolling on iPhone.
+- Social import is restricted to signed-in trip members, server-side credentials, safe allowlisted social hosts, and a per-member daily recognition limit. Login-gated or private posts fall back to a screenshot.
+- Google Places candidate search never biases a location that AI already identified. Ambiguous mentions may use the trip center with Google's valid 50 km maximum radius, and a rejected biased request retries once without location bias.
 - Airport selection uses a local city-to-airport catalog to avoid manual airport-code entry and extra API cost.
 - Live location is opt-in and planning-map-only. It stays in browser memory, is never written to shared trip data, and stops when disabled, leaving the map, or closing the page.
 

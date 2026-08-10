@@ -2,7 +2,10 @@
 
 ## 2026-08-10
 
-- Added confirmed Instagram/Threads place import: safe public metadata retrieval, optional pasted-text/screenshot fallback, multilingual OpenAI vision extraction, Google Places candidate matching, radio selection, duplicate protection, and original-post references in place details.
+- Fixed Instagram Reels and screenshot imports that reached AI successfully but failed at Google Places with `GOOGLE_PLACES_400`; the previous 100 km trip-center bias exceeded the API limit. Candidate lookup now skips trip bias when AI identifies a location, caps ambiguous bias at 50 km, and retries once without bias if Google rejects it.
+- Simplified the place-import sheet to two visible inputs: a universal Google Maps/Instagram/Reels/Threads link field and a screenshot/photo picker. Removed supplemental pasted text and its disclosure so recognition and confirmation controls remain reachable on iPhone.
+- Added standalone screenshot, Reels URL, 50 km bias, and retry regression coverage. All 53 tests and the 393×852 layout check pass.
+- Added confirmed Instagram/Threads place import: safe public metadata retrieval, optional screenshot fallback, multilingual OpenAI vision extraction, Google Places candidate matching, radio selection, duplicate protection, and original-post references in place details.
 - Added member authorization, a daily social-recognition limit, SSRF-safe social-host redirects, strict structured output, and tests covering candidate confirmation and blocked posts.
 - Verified the completed import sheet at iPhone 15 Pro dimensions with no page overflow, no focus zoom, fixed actions, and an independently scrollable result list; successful recognition automatically collapses the fallback panel.
 - Revoked the previously exposed OpenAI key and configured its replacement only as Vercel's sensitive `OPENAI_API_KEY` for Production and Preview; the replacement was never stored in source, project memory, or tool output.

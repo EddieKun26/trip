@@ -13,6 +13,8 @@ const store = new Map();
 const openAiRequests = [];
 const googleRequests = [];
 let socialHtmlAvailable = true;
+let googleRejectLocationBias = false;
+let recognitionPlaceOverride = null;
 
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
@@ -40,7 +42,7 @@ globalThis.fetch = async (url, options = {}) => {
             sourceSummary: "貼文推薦新宿的 Cafe Mugi 抹茶甜點。",
             sourceLanguage: "繁體中文",
             needsMoreContext: false,
-            places: [{
+            places: [recognitionPlaceOverride || {
               nameOriginal: "Cafe Mugi",
               nameZh: "Cafe Mugi",
               city: "東京",
@@ -57,7 +59,14 @@ globalThis.fetch = async (url, options = {}) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
   if (target.includes("places.googleapis.com/v1/places:searchText")) {
-    googleRequests.push({ body: JSON.parse(options.body), headers: options.headers });
+    const requestBody = JSON.parse(options.body);
+    googleRequests.push({ body: requestBody, headers: options.headers });
+    if (googleRejectLocationBias && requestBody.locationBias) {
+      return new Response(JSON.stringify({ error: { message: "locationBias.circle.radius must be at most 50000" } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({
       places: [
         {
@@ -145,6 +154,7 @@ async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.in
 
 test("social metadata parser reads Open Graph content without accepting arbitrary hosts", () => {
   assert.equal(safeSocialUrl("https://www.instagram.com/reel/ABC123/")?.hostname, "www.instagram.com");
+  assert.equal(safeSocialUrl("https://www.instagram.com/reel/Db0DU2OykW0/?igsh=example")?.pathname, "/reel/Db0DU2OykW0/");
   assert.equal(safeSocialUrl("http://127.0.0.1/private"), null);
   assert.equal(safeSocialUrl("https://example.com/place"), null);
   assert.deepEqual(publicMetadataFromHtml('<meta content="A &amp; B" property="og:title"><meta name="description" content="推薦餐廳">'), {
@@ -173,6 +183,8 @@ test("social place import requires membership and returns Google candidates for 
   openAiRequests.length = 0;
   googleRequests.length = 0;
   socialHtmlAvailable = true;
+  googleRejectLocationBias = false;
+  recognitionPlaceOverride = null;
   const { cookie, trip } = await loginAndCreateTrip();
 
   const anonymous = await recognize({ tripId: trip.id });
@@ -182,7 +194,6 @@ test("social place import requires membership and returns Google candidates for 
   const response = await recognize({
     cookie,
     tripId: trip.id,
-    sharedText: "影片介紹新宿 Cafe Mugi",
     imageDataUrl: "data:image/jpeg;base64,QUJDRA==",
   });
   assert.equal(response.statusCode, 200);
@@ -208,7 +219,7 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(googleRequests[0].headers["X-Goog-Api-Key"], "test-google-key");
 });
 
-test("login-gated social posts request pasted text or a screenshot before spending AI tokens", async () => {
+test("login-gated social posts request a screenshot before spending AI tokens", async () => {
   store.clear();
   openAiRequests.length = 0;
   googleRequests.length = 0;
@@ -222,3 +233,50 @@ test("login-gated social posts request pasted text or a screenshot before spendi
   socialHtmlAvailable = true;
 });
 
+test("social screenshot works without a link and labels its source clearly", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  recognitionPlaceOverride = null;
+  const { cookie, trip } = await loginAndCreateTrip();
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    sourceUrl: "",
+    imageDataUrl: "data:image/jpeg;base64,QUJDRA==",
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.source.platform, "社群截圖");
+  assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
+});
+
+test("ambiguous places use a valid 50 km bias and retry without it after Google rejects the bias", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  googleRejectLocationBias = true;
+  recognitionPlaceOverride = {
+    nameOriginal: "天橋立",
+    nameZh: "天橋立",
+    city: "",
+    area: "",
+    country: "",
+    category: "attraction",
+    searchQuery: "天橋立 京都 日本",
+    evidence: "影片介紹天橋立纜車與景觀。",
+    confidence: 0.95,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const tripKey = `tokyo-family-trip:trip:${trip.id}`;
+  const persistedTrip = JSON.parse(store.get(tripKey));
+  persistedTrip.places = [{ name: "東京車站", latitude: 35.6812, longitude: 139.7671 }];
+  store.set(tripKey, JSON.stringify(persistedTrip));
+
+  const response = await recognize({ cookie, tripId: trip.id });
+  assert.equal(response.statusCode, 200);
+  assert.equal(googleRequests.length, 2);
+  assert.equal(googleRequests[0].body.locationBias.circle.radius, 50000);
+  assert.equal(googleRequests[1].body.locationBias, undefined);
+  googleRejectLocationBias = false;
+  recognitionPlaceOverride = null;
+});

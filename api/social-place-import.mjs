@@ -386,8 +386,9 @@ async function searchGoogleCandidates(apiKey, mention, trip, source) {
   const regionCode = regionCodeFor(`${mention.country} ${mention.city} ${trip.destination}`);
   if (regionCode) requestBody.regionCode = regionCode;
   const center = tripCenter(trip);
-  if (center) requestBody.locationBias = { circle: { center, radius: 100000 } };
-  const result = await fetch("https://places.googleapis.com/v1/places:searchText", {
+  const mentionHasLocation = Boolean(mention.city || mention.area || mention.country);
+  if (center && !mentionHasLocation) requestBody.locationBias = { circle: { center, radius: 50000 } };
+  const search = (body) => fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -407,10 +408,22 @@ async function searchGoogleCandidates(apiKey, mention, trip, source) {
         "places.photos",
       ].join(","),
     },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   });
-  if (!result.ok) throw new Error(`GOOGLE_PLACES_${result.status}`);
+  let result = await search(requestBody);
+  if (result.status === 400 && requestBody.locationBias) {
+    delete requestBody.locationBias;
+    result = await search(requestBody);
+  }
+  if (!result.ok) {
+    const errorPayload = await result.json().catch(() => ({}));
+    console.warn("social place Google candidate lookup failed", {
+      status: result.status,
+      reason: cleanText(errorPayload?.error?.message, 180),
+    });
+    throw new Error(`GOOGLE_PLACES_${result.status}`);
+  }
   const payload = await result.json();
   const kind = placeKind(mention.category);
   return (payload.places || []).slice(0, 3).map((place, index) => {

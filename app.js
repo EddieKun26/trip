@@ -4078,15 +4078,16 @@ async function enrichPlaceImportsFromApi(entries) {
 
 function socialImportErrorMessage(error) {
   const code = String(error?.message || "");
-  if (code === "SOURCE_CONTENT_REQUIRED") return "這篇貼文無法公開讀取，請補貼貼文文字或上傳截圖後再辨識。";
-  if (code === "PLACE_NOT_RECOGNIZED") return "AI 還無法確認貼文中的地點，請補貼文字或上傳更清楚的截圖。";
+  if (code === "SOURCE_CONTENT_REQUIRED") return "這篇貼文無法公開讀取，請上傳貼文截圖後再辨識。";
+  if (code === "PLACE_NOT_RECOGNIZED") return "AI 還無法確認貼文中的地點，請上傳更清楚的截圖後再試。";
   if (code === "GOOGLE_PLACE_NOT_FOUND") return "已理解貼文內容，但 Google Maps 找不到足夠吻合的地點。";
   if (code === "DAILY_RECOGNITION_LIMIT") return "今天的社群地點辨識次數已達上限，請稍後再試。";
   if (code === "AI_RECOGNITION_NOT_CONFIGURED") return "AI 辨識服務尚未啟用。";
   if (code === "PLACES_API_NOT_CONFIGURED") return "Google Places 服務尚未啟用。";
+  if (code.startsWith("GOOGLE_PLACES_")) return "已辨識貼文內容，但 Google Maps 候選搜尋暫時失敗，請再試一次。";
   if (code.startsWith("OPENAI_402") || code.startsWith("OPENAI_429_INSUFFICIENT_QUOTA")) return "OpenAI API 額度不足，請補充額度後再試。";
   if (code.startsWith("OPENAI_429") || error?.status === 429) return "AI 辨識服務目前忙碌，請稍後再試。";
-  return "社群貼文暫時無法辨識，請補貼文字或上傳截圖後重試。";
+  return "社群貼文暫時無法辨識，請上傳截圖後重試。";
 }
 
 function socialGroupsToImports(payload, sourceIndex = 0) {
@@ -4143,7 +4144,7 @@ function updateImportConfirmState() {
 
 function importPreviewMarkup(entries) {
   if (!entries.length) {
-    return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}<div class="import-empty"><strong>沒有找到可辨識的內容</strong><span>請貼上 Google Maps 或社群貼文連結，也可補貼文字或截圖。</span></div>`;
+    return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}<div class="import-empty"><strong>沒有找到可辨識的內容</strong><span>請貼上 Google Maps 或社群貼文連結，也可上傳截圖。</span></div>`;
   }
   const rows = entries
     .map((place) => {
@@ -4186,19 +4187,16 @@ function openAddPlaceSheet() {
           <div><p class="section-kicker">地點匯入</p><h2>新增地點</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p>可貼上 Google Maps 地點、公開清單，或 Instagram、Threads 分享連結。</p>
+        <p>貼上地點或社群連結，也可直接上傳截圖或拍照辨識。</p>
         <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select><span class="field-note">新增飯店或民宿時可直接選擇「住宿」。</span></div>
         <div class="field">
-          <label for="google-maps-list">Google Maps 或社群貼文連結</label>
-          <textarea id="google-maps-list" name="mapsList" rows="5" placeholder="貼上 Google Maps 地點或公開共用清單連結&#10;也可貼上 Instagram 或 Threads 分享連結"></textarea>
-          <span class="field-note">Google Maps 會直接同步資料；社群貼文會先由 AI 理解，再列出 Google Maps 候選供你確認。</span>
+          <label for="google-maps-list">貼上連結</label>
+          <textarea id="google-maps-list" name="mapsList" rows="4" placeholder="Google Maps 地點或公開清單&#10;Instagram、Reels 或 Threads 貼文"></textarea>
+          <span class="field-note">社群貼文會先由 AI 理解，再列出 Google Maps 候選供你確認。</span>
         </div>
-        <details class="social-import-fallback" data-social-import-fallback>
-          <summary>社群貼文讀不到？補貼文字或截圖</summary>
-          <div class="field"><label for="social-share-text">貼文文字（選填）</label><textarea id="social-share-text" name="socialText" rows="3" placeholder="可貼上貼文內文、地點名稱或留言中的地址"></textarea></div>
-          <label class="social-screenshot-picker" for="social-place-screenshot"><span>上傳貼文截圖</span><small data-social-screenshot-status>尚未選擇圖片</small></label>
-          <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
-        </details>
+        <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>上傳截圖或拍照</span><small data-social-screenshot-status>尚未選擇圖片</small></label>
+        <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
+        <span class="social-import-input-note">連結和截圖可擇一使用；一起提供時辨識會更準確。</span>
         <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點、清單或貼文</button>
         <div id="import-preview" class="import-preview" aria-live="polite"></div>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>加入收藏</button></div>
@@ -4755,7 +4753,6 @@ document.addEventListener("click", async (event) => {
   const analyzePlaces = event.target.closest("[data-analyze-places]");
   if (analyzePlaces) {
     const textarea = document.querySelector("#google-maps-list");
-    const sharedTextField = document.querySelector("#social-share-text");
     const preview = document.querySelector("#import-preview");
     if (!textarea || !preview) return;
     analyzePlaces.disabled = true;
@@ -4770,28 +4767,23 @@ document.addEventListener("click", async (event) => {
       pendingPlaceImports = await enrichPlaceImportsFromApi(pendingPlaceImports);
       const mapImports = [...pendingPlaceImports];
 
-      const sharedText = String(sharedTextField?.value || "").trim();
       const socialUrls = socialPlaceUrls(textarea.value);
       const socialSources = socialUrls.length
         ? socialUrls
-        : sharedText || pendingPlaceImportScreenshot
+        : pendingPlaceImportScreenshot
           ? [""]
           : [];
       for (let sourceIndex = 0; sourceIndex < socialSources.length; sourceIndex += 1) {
         try {
           const socialImports = await recognizeSocialPlace(
             socialSources[sourceIndex],
-            socialSources.length === 1 ? sharedText : "",
+            "",
             sourceIndex === 0 ? pendingPlaceImportScreenshot : "",
             sourceIndex,
           );
           pendingPlaceImports.push(...socialImports);
         } catch (error) {
           notices.push(socialImportErrorMessage(error));
-          if (String(error.message) === "SOURCE_CONTENT_REQUIRED") {
-            const fallback = document.querySelector("[data-social-import-fallback]");
-            if (fallback) fallback.open = true;
-          }
         }
       }
       if (!mapImports.length && !socialSources.length && textarea.value.trim()) {
@@ -4802,8 +4794,6 @@ document.addEventListener("click", async (event) => {
     } finally {
       pendingPlaceImportNotice = [...new Set(notices)].join(" ");
       preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
-      const fallback = document.querySelector("[data-social-import-fallback]");
-      if (fallback && pendingPlaceImports.some((place) => place.isSocialCandidate)) fallback.open = false;
       updateImportConfirmState();
       analyzePlaces.disabled = false;
       analyzePlaces.textContent = "⌁　重新辨識";

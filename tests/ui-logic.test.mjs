@@ -366,17 +366,18 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
 
 test("place import accepts social links with a confirmation-only Google candidate flow", () => {
   assert.match(appSource, /fetch\("\/api\/social-place-import"/);
-  assert.match(appSource, /Instagram、Threads 分享連結/);
-  assert.match(appSource, /data-social-import-fallback/);
+  assert.match(appSource, /Instagram、Reels 或 Threads 貼文/);
   assert.match(appSource, /data-social-place-screenshot/);
+  assert.match(appSource, /上傳截圖或拍照/);
+  assert.doesNotMatch(appSource, /id="social-share-text"/);
+  assert.doesNotMatch(appSource, /data-social-import-fallback/);
   assert.match(appSource, /data-social-place-candidate/);
   assert.match(appSource, /place\.selected === true/);
-  assert.match(appSource, /pendingPlaceImports\.some\(\(place\) => place\.isSocialCandidate\)\) fallback\.open = false/);
   assert.match(appSource, /referenceUrl/);
   assert.match(appSource, /data-open-reference/);
   assert.match(stylesSource, /\.import-place-row\.social-candidate\s*{[^}]*grid-template-columns:\s*20px 36px minmax\(0, 1fr\) auto/s);
-  assert.match(stylesSource, /\.social-import-fallback\s*{/);
-  assert.match(stylesSource, /\.import-places-sheet\s*>\s*\.social-import-fallback/);
+  assert.match(stylesSource, /\.social-screenshot-picker-standalone\s*{/);
+  assert.doesNotMatch(stylesSource, /\.social-import-fallback\s*{/);
 });
 
 test("flight form offers city-aware airports and creates round trips as two legs", () => {
@@ -439,7 +440,8 @@ test("flight ticket images are recognized locally and used to prefill the form",
 test("place import placeholder is neutral", () => {
   const section = sourceSection("function openAddPlaceSheet", "function openDateSheet");
   assert.doesNotMatch(section, /高雄合菜 · Eddie/);
-  assert.match(section, /貼上 Google Maps 地點或公開共用清單連結/);
+  assert.match(section, /Google Maps 地點或公開清單/);
+  assert.match(section, /Instagram、Reels 或 Threads 貼文/);
 });
 
 test("shopping is a fourth private tab with categories reusable tags and completion state", () => {
