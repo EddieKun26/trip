@@ -4112,7 +4112,7 @@ function socialGroupsToImports(payload, sourceIndex = 0) {
   });
 }
 
-async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceIndex) {
+async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceIndex, requestedKind = "auto") {
   const response = await fetch("/api/social-place-import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -4121,6 +4121,7 @@ async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceI
       sourceUrl,
       sharedText,
       imageDataUrl,
+      requestedKind,
     }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -4765,6 +4766,7 @@ document.addEventListener("click", async (event) => {
       const mapImports = [...pendingPlaceImports];
 
       const socialUrls = socialPlaceUrls(textarea.value);
+      const requestedKind = String(document.querySelector("#import-place-kind")?.value || "auto");
       const socialSources = socialUrls.length
         ? socialUrls
         : pendingPlaceImportScreenshot
@@ -4777,6 +4779,7 @@ document.addEventListener("click", async (event) => {
             "",
             sourceIndex === 0 ? pendingPlaceImportScreenshot : "",
             sourceIndex,
+            requestedKind,
           );
           pendingPlaceImports.push(...socialImports);
         } catch (error) {

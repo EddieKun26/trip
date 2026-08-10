@@ -9,7 +9,7 @@
 - Shared Redis-backed trip data with revision-aware updates.
 - Places are separated into attractions, restaurants, and lodging. Lists are grouped by Chinese area name with local name retained.
 - Google Maps single-place links, multiple links, and public shared lists can be imported and enriched with name, area, category, hours, phone, photos, and coordinates.
-- Instagram posts, Reels, Threads links, and standalone screenshots can be imported through an authenticated AI-assisted review flow. Public post metadata or an optional screenshot is used only to infer place mentions; the user then selects a Google Places match before anything is added, and the original post link is retained on the place.
+- Instagram posts, Reels, Threads links, and standalone screenshots can be imported through an authenticated AI-assisted review flow. Public post metadata or an optional screenshot is used only to infer place mentions; when a creator hides a lodging name in a profile link but states an address, the address and lodging clues remain searchable and may receive a conditional web cross-check. The user then selects a Google Places match before anything is added, and the original post link is retained on the place.
 - Place details include photos, Google Maps link, votes, itinerary assignment, business hours, phone, and editable notes.
 - Planning map and day map are independent. The planning map has an optional device-only live-location layer with a centered control icon and accuracy radius; day maps support per-day colors, ordering badges anchored to route endpoints, route lines, airports, transport icons, and red dashed flight segments without a redundant transport legend.
 - Daily itinerary supports time-wheel confirmation, chronological sorting, touch drag reordering, swipe deletion, add-place selection, and transport segments between adjacent items.
@@ -28,6 +28,6 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 53 tests passing as of 2026-08-10 after fixing Reels/screenshot candidate lookup and compacting the place-import sheet.
+- `node --test tests/*.test.mjs`: 56 tests passing as of 2026-08-11 after adding address-aware hidden-lodging recognition.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

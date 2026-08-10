@@ -4,8 +4,10 @@ import test from "node:test";
 import memberHandler from "../api/member.mjs";
 import socialPlaceImportHandler, {
   cleanRecognition,
+  extractAddressHint,
   publicMetadataFromHtml,
   safeSocialUrl,
+  sourceHidesPlaceName,
 } from "../api/social-place-import.mjs";
 import tripsHandler from "../api/trips.mjs";
 
@@ -15,6 +17,7 @@ const googleRequests = [];
 let socialHtmlAvailable = true;
 let googleRejectLocationBias = false;
 let recognitionPlaceOverride = null;
+let socialHtmlOverride = "";
 
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
@@ -25,7 +28,7 @@ globalThis.fetch = async (url, options = {}) => {
   const target = String(url);
   if (target.includes("instagram.com")) {
     if (!socialHtmlAvailable) return new Response("登入後才能查看", { status: 403, headers: { "Content-Type": "text/html" } });
-    return new Response(`<!doctype html><html><head>
+    return new Response(socialHtmlOverride || `<!doctype html><html><head>
       <meta property="og:title" content="東京甜點推薦" />
       <meta property="og:description" content="新宿一定要去 Cafe Mugi，抹茶布丁很好吃。" />
     </head></html>`, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
@@ -49,6 +52,9 @@ globalThis.fetch = async (url, options = {}) => {
               area: "新宿",
               country: "日本",
               category: "restaurant",
+              address: "",
+              nameHidden: false,
+              searchClues: "抹茶布丁",
               searchQuery: "Cafe Mugi 新宿 東京",
               evidence: "貼文寫明新宿一定要去 Cafe Mugi。",
               confidence: 0.93,
@@ -142,11 +148,11 @@ async function loginAndCreateTrip() {
   return { cookie, trip: create.payload.trip };
 }
 
-async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.instagram.com/reel/ABC123/", sharedText = "", imageDataUrl = "" } = {}) {
+async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.instagram.com/reel/ABC123/", sharedText = "", imageDataUrl = "", requestedKind = "auto" } = {}) {
   const response = responseMock();
   await socialPlaceImportHandler({
     method: "POST",
-    body: { tripId, sourceUrl, sharedText, imageDataUrl },
+    body: { tripId, sourceUrl, sharedText, imageDataUrl, requestedKind },
     headers: cookie ? { cookie } : {},
   }, response);
   return response;
@@ -161,6 +167,12 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
     title: "A & B",
     description: "推薦餐廳",
   });
+});
+
+test("social address helpers retain explicit lodging addresses and detect hidden profile names", () => {
+  const caption = "地址:山梨縣南都留郡富士河口湖町淺川\n🔗飯店名稱及訂房連結在個人檔案置頂連結 [03✨]";
+  assert.equal(extractAddressHint(caption), "山梨縣南都留郡富士河口湖町淺川");
+  assert.equal(sourceHidesPlaceName(caption), true);
 });
 
 test("social recognition cleanup removes duplicate aliases and keeps structured place meaning", () => {
@@ -178,6 +190,26 @@ test("social recognition cleanup removes duplicate aliases and keeps structured 
   assert.equal(result.places[0].category, "restaurant");
 });
 
+test("an explicit address remains searchable when AI cannot identify the hidden lodging name", () => {
+  const result = cleanRecognition({
+    sourceSummary: "貼文提供住宿地址，但名稱在個人頁面的置頂連結。",
+    sourceLanguage: "繁體中文",
+    needsMoreContext: true,
+    places: [],
+  }, {
+    addressHint: "山梨縣南都留郡富士河口湖町淺川",
+    nameHiddenHint: true,
+    requestedKind: "lodging",
+    sourceText: "飯店名稱在個人檔案，地址位於富士河口湖町淺川。",
+  });
+
+  assert.equal(result.places.length, 1);
+  assert.equal(result.places[0].name, "地址附近住宿");
+  assert.equal(result.places[0].category, "lodging");
+  assert.equal(result.places[0].address, "山梨縣南都留郡富士河口湖町淺川");
+  assert.equal(result.places[0].nameHidden, true);
+});
+
 test("social place import requires membership and returns Google candidates for confirmation", async () => {
   store.clear();
   openAiRequests.length = 0;
@@ -185,6 +217,7 @@ test("social place import requires membership and returns Google candidates for 
   socialHtmlAvailable = true;
   googleRejectLocationBias = false;
   recognitionPlaceOverride = null;
+  socialHtmlOverride = "";
   const { cookie, trip } = await loginAndCreateTrip();
 
   const anonymous = await recognize({ tripId: trip.id });
@@ -278,5 +311,43 @@ test("ambiguous places use a valid 50 km bias and retry without it after Google 
   assert.equal(googleRequests[0].body.locationBias.circle.radius, 50000);
   assert.equal(googleRequests[1].body.locationBias, undefined);
   googleRejectLocationBias = false;
+  recognitionPlaceOverride = null;
+});
+
+test("hidden lodging names use an explicit address, conditional web search, and expanded Google candidates", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  socialHtmlAvailable = true;
+  socialHtmlOverride = `<!doctype html><html><head>
+    <meta property="og:title" content="河口湖富士山住宿" />
+    <meta property="og:description" content="地址:山梨縣南都留郡富士河口湖町淺川 🔗飯店名稱及訂房連結在個人檔案置頂連結 [03✨]。大部分房型有陽台，可泡湯面對富士山，河口湖車站約五分鐘並有接駁。" />
+  </head></html>`;
+  recognitionPlaceOverride = {
+    nameOriginal: "THE KUKUNA",
+    nameZh: "風之露台 KUKUNA",
+    city: "富士河口湖町",
+    area: "淺川",
+    country: "日本",
+    category: "lodging",
+    address: "山梨県南都留郡富士河口湖町浅川70",
+    nameHidden: true,
+    searchClues: "河口湖、富士山正面景觀、溫泉露天風呂、車站約五分鐘",
+    searchQuery: "THE KUKUNA Fujikawaguchiko",
+    evidence: "貼文明列淺川地址、富士山景觀、泡湯與接駁線索。",
+    confidence: 0.84,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const response = await recognize({ cookie, tripId: trip.id, requestedKind: "lodging" });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(openAiRequests.length, 1);
+  assert.equal(openAiRequests[0].tools[0].type, "web_search");
+  assert.match(openAiRequests[0].input[1].content[0].text, /山梨縣南都留郡富士河口湖町淺川/);
+  assert.equal(googleRequests[0].body.maxResultCount, 5);
+  assert.match(googleRequests[0].body.textQuery, /THE KUKUNA/);
+  assert.equal(response.payload.groups[0].candidates[0].kind, "lodging");
+
+  socialHtmlOverride = "";
   recognitionPlaceOverride = null;
 });

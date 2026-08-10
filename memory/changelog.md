@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-11
+
+- Added address-aware social lodging imports for Reels whose creators hide the formal property name in a profile or pinned link. Explicit caption addresses and lodging clues now survive even when no name is identified, the special case may use a conditional OpenAI web-search cross-check, and Google Places returns up to five lodging-prioritized candidates for explicit user selection.
+- Passed the selected place category from the iPhone import sheet to the recognition endpoint and added regression coverage for address extraction, hidden profile-name detection, AI-empty address fallback, conditional web search, and expanded lodging candidate lookup. All 56 tests pass.
+
 ## 2026-08-10
 
 - Compacted the add-place link field to 56px, removed redundant category/link/screenshot instructions, shortened action labels, and made recognition candidates an explicit touch-scroll region while keeping confirmation actions fixed. Verified an eight-candidate fixture at 393×852: the 316px result region scrolled independently and the action row remained visible.
