@@ -2615,15 +2615,17 @@ function shoppingPhoto(photoId) {
   return photoId ? state.shopping.photos?.[photoId]?.dataUrl || "" : "";
 }
 
-function shoppingProductPhotoIds(item) {
-  return (Array.isArray(item?.productPhotoIds) ? item.productPhotoIds : [])
-    .filter((photoId, index, list) => shoppingPhoto(photoId) && list.indexOf(photoId) === index)
+function shoppingAiProductImages(item) {
+  return (Array.isArray(item?.aiAnnotation?.productImages) ? item.aiAnnotation.productImages : [])
+    .filter((image) => /^https:\/\//i.test(String(image?.url || "")) && /^https:\/\//i.test(String(image?.pageUrl || "")))
+    .filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index)
     .slice(0, 4);
 }
 
 function shoppingPreferredPhoto(item) {
-  const productPhotoId = shoppingProductPhotoIds(item)[0];
-  return shoppingPhoto(productPhotoId || item?.photoId);
+  const productImages = shoppingAiProductImages(item);
+  const selected = productImages.find((image) => image.url === item?.preferredProductImageUrl) || productImages[0];
+  return selected?.url || shoppingPhoto(item?.photoId);
 }
 
 function shoppingClone() {
@@ -2675,7 +2677,7 @@ function shoppingItemMarkup(item) {
         <span>${shoppingSelectionMode ? (selected ? "✓" : "") : (item.purchased ? "✓" : "")}</span>
       </button>
       <button class="shopping-item-main" type="button" ${shoppingSelectionMode ? `data-select-shopping-item="${escapeHtml(item.id)}"` : `data-open-shopping-item="${escapeHtml(item.id)}"`}>
-        <span class="shopping-thumb">${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : `<b>${escapeHtml(item.name.slice(0, 1))}</b>`}</span>
+        <span class="shopping-thumb">${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}商品圖" referrerpolicy="no-referrer" />` : `<b>${escapeHtml(item.name.slice(0, 1))}</b>`}</span>
         <span class="shopping-item-copy">
           <span class="shopping-item-heading"><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(shoppingCategoryName(item.categoryId))}</em></span>
           ${item.brand ? `<small class="shopping-brand-line">品牌 · ${escapeHtml(item.brand)}</small>` : ""}
@@ -2756,19 +2758,23 @@ function openShoppingDetailSheet(itemId) {
   const item = state.shopping.items.find((candidate) => candidate.id === itemId);
   if (!item) return;
   const sourcePhoto = shoppingPhoto(item.photoId);
-  const productPhotoIds = shoppingProductPhotoIds(item);
-  const productPhotos = productPhotoIds.map((photoId) => ({ photoId, dataUrl: shoppingPhoto(photoId) }));
   const tags = item.recipientTagIds.map(shoppingTagName).filter(Boolean);
   const annotation = item.aiAnnotation;
+  const productImages = shoppingAiProductImages(item);
+  const selectedProductImage = productImages.find((image) => image.url === item.preferredProductImageUrl)?.url || productImages[0]?.url || "";
   const aiList = (title, values) => Array.isArray(values) && values.length
     ? `<div><b>${title}</b><ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul></div>`
     : "";
   const sourceLinks = Array.isArray(annotation?.sources) && annotation.sources.length
     ? `<div class="shopping-ai-sources"><b>查證來源</b>${annotation.sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title || "商品資料來源")} ↗</a>`).join("")}</div>`
     : "";
+  const aiProductPhotos = productImages.length
+    ? `<div class="shopping-product-photo-section"><div><small>AI 找到的商品照片</small><strong>從查證過的商品頁取得</strong></div><div class="shopping-product-photo-rail">${productImages.map((image, index) => `<figure class="${image.url === selectedProductImage ? "selected" : ""}"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(item.name)}商品照片 ${index + 1}" referrerpolicy="no-referrer" /><figcaption>${escapeHtml(image.sourceTitle || "商品資料來源")}</figcaption><div><a href="${escapeHtml(image.pageUrl)}" target="_blank" rel="noopener noreferrer">查看來源 ↗</a>${canManageShopping() ? `<button type="button" data-set-shopping-product-image="${escapeHtml(item.id)}" data-product-image-url="${escapeHtml(image.url)}">${image.url === selectedProductImage ? "✓ 清單封面" : "設為封面"}</button>` : ""}</div></figure>`).join("")}</div><p class="shopping-product-photo-limit">照片保留在來源網站，AI 不會把網路圖片複製進你的私人資料庫。</p></div>`
+    : `<p class="shopping-product-photo-empty">這次沒有從已查證的商品頁找到可安全顯示的實品照；可更新 AI 查詢再試一次。</p>`;
   const aiAnnotation = annotation
     ? `<section class="shopping-ai-annotation">
         <div class="shopping-ai-heading"><div><small>AI 商品註解</small><strong>採買參考 ${Number(annotation.recommendationScore) || 1} / 5</strong></div><span aria-label="採買參考指數 ${Number(annotation.recommendationScore) || 1} 分">${"★".repeat(Math.max(1, Math.min(5, Number(annotation.recommendationScore) || 1)))}${"☆".repeat(5 - Math.max(1, Math.min(5, Number(annotation.recommendationScore) || 1)))}</span></div>
+        ${aiProductPhotos}
         ${annotation.summary ? `<p>${escapeHtml(annotation.summary)}</p>` : ""}
         ${aiList("商品特色", annotation.features)}
         ${aiList("使用方式", annotation.usage)}
@@ -2779,8 +2785,8 @@ function openShoppingDetailSheet(itemId) {
         <button class="shopping-ai-refresh" type="button" data-research-shopping-item="${escapeHtml(item.id)}">更新 AI 註解</button>
       </section>`
     : `<section class="shopping-ai-annotation empty">
-        <div><small>AI 商品註解</small><strong>查詢特色、使用方式與採買參考指數</strong><p>只在你按下時使用一次 API，不會因為打開商品而自動扣款。</p></div>
-        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">用 AI 查詢商品資料</button>
+        <div><small>AI 商品註解與照片</small><strong>查詢實品照、特色、使用方式與採買參考指數</strong><p>只在你按下時使用一次 API，不會因為打開商品而自動扣款。</p></div>
+        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">用 AI 查詢資料與照片</button>
       </section>`;
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
@@ -2790,13 +2796,6 @@ function openShoppingDetailSheet(itemId) {
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         ${sourcePhoto ? `<figure class="shopping-source-photo"><img class="shopping-detail-photo" src="${escapeHtml(sourcePhoto)}" alt="${escapeHtml(item.name)}原始推薦截圖" /><figcaption>原始推薦截圖</figcaption></figure>` : `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
-        <section class="shopping-product-photo-section">
-          <div class="section-row"><div><small>商品照片</small><strong>購買時快速辨識</strong></div>${canManageShopping() && productPhotos.length < 4 ? `<label class="shopping-add-photo-button">＋ 新增照片<input class="shopping-file-input" type="file" accept="image/*" multiple data-shopping-product-photo-input="${escapeHtml(item.id)}" /></label>` : ""}</div>
-          ${productPhotos.length
-            ? `<div class="shopping-product-photo-rail">${productPhotos.map((photo, index) => `<figure><img src="${escapeHtml(photo.dataUrl)}" alt="${escapeHtml(item.name)}商品照片 ${index + 1}" /><figcaption>商品照片 ${index + 1}</figcaption></figure>`).join("")}</div>`
-            : `<p class="shopping-product-photo-empty">還沒有額外商品照片；可加入包裝正面、瓶身或實際陳列照。</p>`}
-          <small class="shopping-product-photo-limit">每項最多 4 張；新增後清單縮圖會優先顯示商品照片。</small>
-        </section>
         <div class="shopping-detail-state ${item.purchased ? "done" : ""}"><span>${item.purchased ? "✓" : "○"}</span><strong>${item.purchased ? "已經買到了" : "還沒有購買"}</strong></div>
         <section class="shopping-detail-facts"><div><small>品牌</small><strong>${escapeHtml(item.brand || "尚未辨識")}</strong></div><div><small>分類</small><strong>${escapeHtml(shoppingCategoryName(item.categoryId))}</strong></div></section>
         <section class="shopping-detail-block"><small>功效／推薦重點</small><p>${item.benefits ? escapeHtml(item.benefits) : "尚未辨識功效"}</p></section>
@@ -2811,7 +2810,7 @@ function openShoppingDetailSheet(itemId) {
 
 function openShoppingItemSheet(itemId = "") {
   const existing = state.shopping.items.find((item) => item.id === itemId);
-  const item = existing || { id: "", brand: "", name: "", benefits: "", categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "", productPhotoIds: [], aiAnnotation: null };
+  const item = existing || { id: "", brand: "", name: "", benefits: "", categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "", preferredProductImageUrl: "", aiAnnotation: null };
   const photo = shoppingPhoto(item.photoId);
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
@@ -2879,7 +2878,7 @@ function openShoppingBatchDeleteSheet(itemIds) {
 }
 
 function removeUnusedShoppingPhotos() {
-  const usedPhotoIds = new Set(state.shopping.items.flatMap((item) => [item.photoId, ...shoppingProductPhotoIds(item)]).filter(Boolean));
+  const usedPhotoIds = new Set(state.shopping.items.map((item) => item.photoId).filter(Boolean));
   Object.keys(state.shopping.photos).forEach((photoId) => {
     if (!usedPhotoIds.has(photoId)) delete state.shopping.photos[photoId];
   });
@@ -3002,48 +3001,8 @@ function pruneShoppingPhotos(limit = 16, maxTotal = 3800000) {
     delete state.shopping.photos[photoId];
     state.shopping.items.forEach((item) => {
       if (item.photoId === photoId) item.photoId = "";
-      item.productPhotoIds = (Array.isArray(item.productPhotoIds) ? item.productPhotoIds : []).filter((id) => id !== photoId);
     });
   });
-}
-
-async function handleShoppingProductPhotos(input) {
-  if (!canManageShopping()) return guestOnlyMessage();
-  const item = state.shopping.items.find((candidate) => candidate.id === input.dataset.shoppingProductPhotoInput);
-  if (!item) return;
-  const existingIds = shoppingProductPhotoIds(item);
-  const remaining = Math.max(0, 4 - existingIds.length);
-  const files = [...(input.files || [])].filter((file) => file.type.startsWith("image/")).slice(0, remaining);
-  if (!files.length) return showToast(remaining ? "請選擇商品照片" : "每個商品最多可保存 4 張照片");
-  input.disabled = true;
-  const added = [];
-  for (let index = 0; index < files.length; index += 1) {
-    try {
-      const dataUrl = await compressShoppingScreenshot(files[index]);
-      added.push({
-        photoId: `shopping-product-photo-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
-        dataUrl,
-      });
-    } catch {
-      // Keep other valid photos and report the skipped count below.
-    }
-  }
-  if (!added.length) {
-    input.disabled = false;
-    input.value = "";
-    return showToast("圖片太大或無法讀取，請換一張照片");
-  }
-  recordShoppingUndo();
-  const now = new Date().toISOString();
-  added.forEach((photo, index) => {
-    state.shopping.photos[photo.photoId] = { dataUrl: photo.dataUrl, createdAt: new Date(Date.now() + index).toISOString() };
-  });
-  item.productPhotoIds = [...existingIds, ...added.map((photo) => photo.photoId)].slice(0, 4);
-  item.updatedAt = now;
-  pruneShoppingPhotos();
-  await saveShopping();
-  openShoppingDetailSheet(item.id);
-  showToast(`已新增 ${added.length} 張商品照片`, { allowUndo: false });
 }
 
 function shoppingResearchErrorMessage(error) {
@@ -3074,10 +3033,11 @@ async function researchShoppingItem(itemId, button) {
     if (!response.ok) throw new Error(payload.error || "AI_RESEARCH_FAILED");
     recordShoppingUndo();
     item.aiAnnotation = payload.annotation;
+    item.preferredProductImageUrl = shoppingAiProductImages(item)[0]?.url || "";
     item.updatedAt = new Date().toISOString();
     await saveShopping();
     openShoppingDetailSheet(item.id);
-    showToast("AI 商品註解已更新", { allowUndo: false });
+    showToast(item.preferredProductImageUrl ? "AI 商品註解與照片已更新" : "AI 商品註解已更新；暫未找到可用商品照", { allowUndo: false });
   } catch (error) {
     if (button?.isConnected) {
       button.disabled = false;
@@ -4700,6 +4660,20 @@ document.addEventListener("click", async (event) => {
   const researchShopping = event.target.closest("[data-research-shopping-item]");
   if (researchShopping) return researchShoppingItem(researchShopping.dataset.researchShoppingItem, researchShopping);
 
+  const setShoppingProductImage = event.target.closest("[data-set-shopping-product-image]");
+  if (setShoppingProductImage) {
+    if (!canManageShopping()) return guestOnlyMessage();
+    const item = state.shopping.items.find((candidate) => candidate.id === setShoppingProductImage.dataset.setShoppingProductImage);
+    const imageUrl = String(setShoppingProductImage.dataset.productImageUrl || "");
+    if (!item || !shoppingAiProductImages(item).some((image) => image.url === imageUrl)) return;
+    recordShoppingUndo();
+    item.preferredProductImageUrl = imageUrl;
+    item.updatedAt = new Date().toISOString();
+    await saveShopping();
+    openShoppingDetailSheet(item.id);
+    return showToast("已設為清單商品封面", { allowUndo: false });
+  }
+
   const editShoppingItem = event.target.closest("[data-edit-shopping-item]");
   if (editShoppingItem) return canManageShopping() ? openShoppingItemSheet(editShoppingItem.dataset.editShoppingItem) : guestOnlyMessage();
 
@@ -5294,11 +5268,6 @@ document.addEventListener("change", (event) => {
     return;
   }
 
-  if (event.target.matches("[data-shopping-product-photo-input]")) {
-    handleShoppingProductPhotos(event.target);
-    return;
-  }
-
   if (event.target.matches("[data-flight-ticket-input]")) {
     handleFlightTicketFile(event.target);
     return;
@@ -5503,7 +5472,7 @@ document.addEventListener("submit", async (event) => {
       note: String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800),
       purchased: form.get("purchased") === "on",
       photoId: event.target.dataset.shoppingPhotoId || "",
-      productPhotoIds: shoppingProductPhotoIds(previous),
+      preferredProductImageUrl: previous?.preferredProductImageUrl || "",
       aiAnnotation: previous?.aiAnnotation || null,
       createdAt: previous?.createdAt || now,
       updatedAt: now,
@@ -5555,7 +5524,7 @@ document.addEventListener("submit", async (event) => {
         note,
         purchased: false,
         photoId,
-        productPhotoIds: [],
+        preferredProductImageUrl: "",
         aiAnnotation: null,
         createdAt: now,
         updatedAt: now,

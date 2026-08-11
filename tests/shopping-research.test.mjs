@@ -3,7 +3,7 @@ import test from "node:test";
 
 import memberHandler from "../api/member.mjs";
 import shoppingHandler from "../api/shopping.mjs";
-import shoppingResearchHandler from "../api/shopping-research.mjs";
+import shoppingResearchHandler, { productImageUrls, safeHttpsUrl } from "../api/shopping-research.mjs";
 import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
@@ -33,6 +33,13 @@ globalThis.fetch = async (url, options = {}) => {
         }],
       }],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  if (String(url) === "https://example.com/kowa") {
+    return new Response('<html><head><meta property="og:image" content="https://cdn.example.com/kowa-product.jpg"></head></html>', {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
   const [command, key, value, ...flags] = JSON.parse(options.body);
@@ -111,15 +118,36 @@ test("shopping AI research is member-only, web-grounded, structured, and never e
   assert.equal(response.payload.annotation.recommendationScore, 4);
   assert.equal(response.payload.annotation.features[0], "包裝與用途標示清楚");
   assert.deepEqual(response.payload.annotation.sources, [{ title: "Kowa 商品資訊", url: "https://example.com/kowa" }]);
+  assert.deepEqual(response.payload.annotation.productImages, [{
+    url: "https://cdn.example.com/kowa-product.jpg",
+    pageUrl: "https://example.com/kowa",
+    sourceTitle: "Kowa 商品資訊",
+  }]);
   assert.doesNotMatch(JSON.stringify(response.payload), /test-openai-key/);
 
   assert.equal(openAiRequests.length, 1);
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
   assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
+  assert.deepEqual(openAiRequests[0].include, ["web_search_call.action.sources"]);
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
   assert.equal(openAiRequests[0].text.format.strict, true);
   assert.equal(openAiRequests[0].store, false);
   assert.match(openAiRequests[0].input[0].content, /不是療效、安全性或適合個人的評分/);
+  assert.match(openAiRequests[0].input[0].content, /實際開啟.*商品頁/);
+});
+
+test("product-image discovery accepts public HTTPS metadata and rejects private destinations", () => {
+  assert.equal(safeHttpsUrl("https://brand.example/product"), "https://brand.example/product");
+  assert.equal(safeHttpsUrl("http://brand.example/product"), "");
+  assert.equal(safeHttpsUrl("https://127.0.0.1/private"), "");
+  assert.equal(safeHttpsUrl("https://192.168.1.8/private"), "");
+  assert.deepEqual(productImageUrls(`
+    <meta name="twitter:image" content="/images/front.webp">
+    <meta property="og:image" content="https://cdn.brand.example/front.jpg">
+  `, "https://brand.example/products/item"), [
+    "https://brand.example/images/front.webp",
+    "https://cdn.brand.example/front.jpg",
+  ]);
 });
 
 test("shopping AI research only accepts an item from the signed-in member's private list", async () => {

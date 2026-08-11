@@ -4874,36 +4874,20 @@ body.transport-sheet-open .app {
   background: rgba(255, 250, 242, 0.72);
 }
 
-.shopping-product-photo-section .section-row > div {
+.shopping-product-photo-section > div:first-child {
   display: grid;
   gap: 2px;
 }
 
-.shopping-product-photo-section .section-row small,
+.shopping-product-photo-section > div:first-child small,
 .shopping-product-photo-limit {
   color: var(--muted);
   font-size: 9px;
   line-height: 1.4;
 }
 
-.shopping-product-photo-section .section-row strong {
+.shopping-product-photo-section > div:first-child strong {
   font-size: 13px;
-}
-
-.shopping-add-photo-button {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 11px;
-  border: 1px solid rgba(64, 119, 122, 0.36);
-  border-radius: 11px;
-  background: var(--mineral-soft);
-  color: var(--mineral);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 850;
-  white-space: nowrap;
 }
 
 .shopping-product-photo-rail {
@@ -4921,7 +4905,15 @@ body.transport-sheet-open .app {
 .shopping-product-photo-rail figure {
   min-width: 0;
   margin: 0;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: 15px;
   scroll-snap-align: start;
+}
+
+.shopping-product-photo-rail figure.selected {
+  border-color: rgba(64, 119, 122, 0.55);
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .shopping-product-photo-rail img {
@@ -4932,6 +4924,32 @@ body.transport-sheet-open .app {
   border-radius: 13px;
   background: white;
   object-fit: contain;
+}
+
+.shopping-product-photo-rail figure > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.shopping-product-photo-rail a {
+  overflow: hidden;
+  color: var(--mineral);
+  font-size: 9px;
+  font-weight: 800;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shopping-ai-annotation .shopping-product-photo-rail button {
+  min-height: 28px;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 9px;
+  white-space: nowrap;
 }
 
 .shopping-product-photo-empty {

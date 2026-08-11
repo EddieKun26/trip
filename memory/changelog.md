@@ -2,8 +2,8 @@
 
 ## 2026-08-12
 
-- Separated each Shopping item's original recommendation screenshot from up to four added product photos. Added photos appear in a swipeable detail gallery, remain private per member/trip, and the first added photo becomes the preferred shopping-list thumbnail for easier in-store recognition.
-- Added an explicit AI product-research action to Shopping details. It uses the existing server-side OpenAI key with Responses API web search and strict structured output to return a Traditional Chinese summary, product features, general usage, cautions, source links, and a qualified 1-5 shopping-reference index. Opening details never spends API credit automatically, health-related results carry a non-medical disclaimer, and all 61 tests pass.
+- Corrected Shopping product photos to be AI-found rather than manually uploaded. The explicit research action now searches and cites matching official or trusted product pages, safely extracts up to four externally hosted product images, shows each page source, and lets the member choose a list thumbnail while preserving the original recommendation screenshot.
+- Added an explicit AI product-research action to Shopping details. It uses the existing server-side OpenAI key with Responses API web search, complete source metadata, and strict structured output to return a Traditional Chinese summary, product features, general usage, cautions, source links, and a qualified 1-5 shopping-reference index. Opening details never spends API credit automatically, health-related results carry a non-medical disclaimer, and all 62 tests pass.
 
 ## 2026-08-11
 
