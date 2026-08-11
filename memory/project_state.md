@@ -24,11 +24,13 @@
 - Flight ticket images can be selected or photographed, recognized locally in the browser, and used to prefill the flight form before confirmation.
 - A fourth Shopping tab stores a separate private list for each signed-in member and trip. Shopping data never enters the shared trip payload.
 - Shopping items support brand, product name, benefits/recommendation notes, default and custom categories, reusable recipient tags, notes, purchased/unpurchased state, higher-resolution reference photos, detail/edit/delete flows, one-level private undo, confirmed left-swipe deletion, and batch selection/deletion from a toolbar directly above the list.
+- Shopping item details preserve the original recommendation screenshot and can add up to four separate product photos for in-store recognition; the first product photo becomes the preferred list thumbnail while all photos remain private to that member and trip.
+- Shopping item details include an on-demand AI product annotation. A member explicitly requests a web-grounded summary, product features, general usage, cautions, source links, and a 1-5 shopping-reference score; results are stored privately with the item and opening a detail never triggers API usage automatically.
 - Up to eight recommendation screenshots can be selected at once. Each image is compressed on-device and sent through an authenticated server endpoint directly to OpenAI Responses API (`gpt-5.6-luna`, original image detail, structured output), which understands the whole image and returns one editable product card with translated brand, official product name, explicit benefits, category, source language, and confidence. Nothing is saved until confirmation.
 
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 58 tests passing as of 2026-08-11 after adding confirmed place-detail deletion from list and map entry points.
+- `node --test tests/*.test.mjs`: 61 tests passing as of 2026-08-12 after adding private product-photo galleries and on-demand, web-grounded AI shopping annotations.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

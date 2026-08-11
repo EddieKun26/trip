@@ -9,6 +9,7 @@ const MAX_TAGS = 80;
 const MAX_PHOTOS = 16;
 const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
+const MAX_PRODUCT_PHOTOS_PER_ITEM = 4;
 
 const defaultCategories = [
   { id: "souvenir", name: "伴手禮", builtIn: true },
@@ -83,6 +84,33 @@ function cleanText(value, length) {
   return String(value || "").normalize("NFKC").trim().slice(0, length);
 }
 
+function cleanTextList(value, limit, itemLength) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => cleanText(item, itemLength))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function cleanAiAnnotation(value) {
+  if (!value || typeof value !== "object") return null;
+  const sources = (Array.isArray(value.sources) ? value.sources : [])
+    .map((source) => ({ title: cleanText(source?.title, 140), url: cleanText(source?.url, 600) }))
+    .filter((source) => source.title && /^https:\/\//i.test(source.url))
+    .slice(0, 4);
+  const annotation = {
+    summary: cleanText(value.summary, 500),
+    features: cleanTextList(value.features, 4, 180),
+    usage: cleanTextList(value.usage, 4, 180),
+    cautions: cleanTextList(value.cautions, 4, 180),
+    recommendationScore: Math.max(1, Math.min(5, Math.round(Number(value.recommendationScore) || 1))),
+    recommendationReason: cleanText(value.recommendationReason, 300),
+    confidence: Math.max(0, Math.min(1, Number(value.confidence) || 0)),
+    sources,
+    researchedAt: cleanText(value.researchedAt, 40),
+  };
+  return annotation.summary || annotation.features.length ? annotation : null;
+}
+
 function emptyShopping() {
   return {
     scope: "private",
@@ -136,6 +164,11 @@ function cleanShopping(input, previous) {
     .slice(0, MAX_ITEMS)
     .map((item) => {
       const photoId = cleanText(item?.photoId, 80);
+      const productPhotoIds = (Array.isArray(item?.productPhotoIds) ? item.productPhotoIds : [])
+        .map((id) => cleanText(id, 80))
+        .filter((id) => photos[id])
+        .filter((id, index, list) => list.indexOf(id) === index)
+        .slice(0, MAX_PRODUCT_PHOTOS_PER_ITEM);
       return {
         id: cleanText(item?.id, 80),
         brand: cleanText(item?.brand, 100),
@@ -148,6 +181,8 @@ function cleanShopping(input, previous) {
         note: cleanText(item?.note, 800),
         purchased: Boolean(item?.purchased),
         photoId: photos[photoId] ? photoId : "",
+        productPhotoIds,
+        aiAnnotation: cleanAiAnnotation(item?.aiAnnotation),
         createdAt: cleanText(item?.createdAt, 40) || new Date().toISOString(),
         updatedAt: cleanText(item?.updatedAt, 40) || new Date().toISOString(),
       };
@@ -155,7 +190,7 @@ function cleanShopping(input, previous) {
     .filter((item) => item.id && item.name)
     .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index);
 
-  const usedPhotos = new Set(items.map((item) => item.photoId).filter(Boolean));
+  const usedPhotos = new Set(items.flatMap((item) => [item.photoId, ...item.productPhotoIds]).filter(Boolean));
   const prunedPhotos = Object.fromEntries(Object.entries(photos).filter(([id]) => usedPhotos.has(id)));
   return {
     scope: "private",

@@ -524,6 +524,20 @@ test("shopping supports left-swipe deletion, batch deletion, and clearer stored 
   assert.match(stylesSource, /\.shopping-detail-photo\s*{[^}]*object-fit:\s*contain/s);
 });
 
+test("shopping detail supports extra product photos and on-demand AI research annotations", () => {
+  const detail = sourceSection("function openShoppingDetailSheet", "function openShoppingItemSheet");
+  assert.match(detail, /原始推薦截圖/);
+  assert.match(detail, /data-shopping-product-photo-input/);
+  assert.match(detail, /每項最多 4 張/);
+  assert.match(detail, /data-research-shopping-item/);
+  assert.match(detail, /採買參考/);
+  assert.match(detail, /不代表療效、安全性或個人醫療建議/);
+  assert.match(appSource, /fetch\("\/api\/shopping-research"/);
+  assert.match(appSource, /shoppingPreferredPhoto\(item\)/);
+  assert.match(stylesSource, /\.shopping-product-photo-rail/);
+  assert.match(stylesSource, /\.shopping-ai-annotation/);
+});
+
 test("shopping import accepts multiple images and creates one editable result per image", () => {
   const importer = sourceSection("function syncPendingShoppingImportEdits", "function itineraryScreen");
   assert.match(importer, /type="file" accept="image\/\*" multiple/);

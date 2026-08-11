@@ -70,8 +70,19 @@ test("shopping lists are private per member and per trip", async () => {
   const ownerList = {
     categories: [{ id: "souvenir", name: "伴手禮", builtIn: true }],
     tags: [{ id: "tag-mom", name: "媽媽" }],
-    photos: { "photo-1": { dataUrl: `data:image/jpeg;base64,${"A".repeat(200000)}`, createdAt: "2026-08-09T00:00:00.000Z" } },
-    items: [{ id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", categoryId: "souvenir", recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1" }],
+    photos: {
+      "photo-1": { dataUrl: `data:image/jpeg;base64,${"A".repeat(200000)}`, createdAt: "2026-08-09T00:00:00.000Z" },
+      "photo-2": { dataUrl: `data:image/jpeg;base64,${"B".repeat(180000)}`, createdAt: "2026-08-12T00:00:00.000Z" },
+    },
+    items: [{
+      id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", categoryId: "souvenir",
+      recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1", productPhotoIds: ["photo-2"],
+      aiAnnotation: {
+        summary: "東京常見伴手禮。", features: ["獨立包裝"], usage: ["依包裝保存"], cautions: ["留意保存期限"],
+        recommendationScore: 4, recommendationReason: "用途清楚", confidence: 0.9,
+        sources: [{ title: "官方網站", url: "https://example.com/product" }], researchedAt: "2026-08-12T00:00:00.000Z",
+      },
+    }],
   };
   const saved = await shoppingRequest(owner.cookie, tripId, "PUT", ownerList);
   assert.equal(saved.statusCode, 200);
@@ -79,6 +90,8 @@ test("shopping lists are private per member and per trip", async () => {
   assert.equal(saved.payload.items[0].name, "東京香蕉");
   assert.equal(saved.payload.items[0].brand, "東京ばな奈");
   assert.equal(saved.payload.items[0].benefits, "旅行伴手禮");
+  assert.deepEqual(saved.payload.items[0].productPhotoIds, ["photo-2"]);
+  assert.equal(saved.payload.items[0].aiAnnotation.recommendationScore, 4);
 
   const companionRead = await shoppingRequest(companion.cookie, tripId);
   assert.equal(companionRead.statusCode, 200);
@@ -92,6 +105,7 @@ test("shopping lists are private per member and per trip", async () => {
   const ownerRead = await shoppingRequest(owner.cookie, tripId);
   assert.deepEqual(ownerRead.payload.items.map((item) => item.name), ["東京香蕉"]);
   assert.equal(ownerRead.payload.photos["photo-1"].dataUrl.startsWith("data:image/jpeg"), true);
+  assert.equal(ownerRead.payload.photos["photo-2"].dataUrl.startsWith("data:image/jpeg"), true);
 
   const otherTrip = await tripRequest(companion.cookie, { action: "create", destination: "首爾", title: "首爾旅行", startDate: "2026-10-01", endDate: "2026-10-05" });
   const otherTripRead = await shoppingRequest(companion.cookie, otherTrip.payload.trip.id);

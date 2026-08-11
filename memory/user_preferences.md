@@ -24,6 +24,8 @@
 - Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
 - A single-product screenshot should create one main shopping item, not separate items for benefits, ingredients, or descriptive copy.
 - Shopping supports both confirmed left-swipe deletion and explicit batch selection/deletion; saved reference images must remain readable in item details.
+- Shopping item details should keep the original recommendation screenshot separate from later product photos, allow several added photos for in-store recognition, and prefer a real product photo as the list thumbnail when available.
+- AI product annotations should contain researched product features, general usage, cautions, source links, and a clearly qualified shopping-reference score. API usage should occur only after an explicit tap, not merely from opening an item.
 - Screenshot recognition should extract separate brand, product name, benefits/recommendation points, and category fields, and allow several images to be processed and confirmed together.
 - Screenshot recognition must understand the complete image across languages rather than return OCR fragments. Show natural Traditional Chinese meaning while retaining useful original-language brand and product names; never use slogans, usage directions, ingredients, or benefits as the product name.
 - Shopping selection, select-all, and batch-delete controls belong directly above the item list rather than in the page header or bottom action area.
