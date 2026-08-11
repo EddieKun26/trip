@@ -12,3 +12,4 @@
 - Private shopping screenshots are higher-resolution compressed reference images stored in Redis for the web prototype. Each member/trip can retain up to 16 screenshots but the total payload ceiling may prune older photos sooner; item text remains. Photos uploaded before the 2026-08-09 quality upgrade cannot be reconstructed and must be re-uploaded to become clear.
 - Walking time is currently estimated from the two saved coordinates with a walking-route factor. It is not live Google routing and may need manual adjustment for barriers, station interiors, or inaccessible paths.
 - Shared production data depends on Vercel/Upstash availability. Device-local state is not a substitute for the shared store.
+- A browser tab that was already running code from before the 2026-08-11 deployment-version check must be refreshed or reopened once. After it loads the protected build, future deployments are detected when the tab returns to the foreground.

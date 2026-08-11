@@ -5,6 +5,7 @@ import test from "node:test";
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const vercelSource = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
 
 function sourceSection(start, end) {
   const startIndex = appSource.indexOf(start);
@@ -377,6 +378,8 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.match(appSource, /data-social-place-candidate/);
   assert.match(appSource, /data-preview-import-candidate/);
   assert.match(appSource, /data-select-import-candidate/);
+  assert.match(appSource, /<article class="import-place-row[^`]*\$\{previewTarget\}/s);
+  assert.match(appSource, /previewImportCandidate && !clickedCandidateRadio/);
   assert.match(appSource, /function openImportCandidatePreview/);
   assert.match(appSource, /\/api\/place-photo\?name=/);
   assert.match(appSource, /place\.selected === true/);
@@ -387,6 +390,17 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.match(stylesSource, /\.import-candidate-sheet\s*{[^}]*max-height:\s*88dvh[^}]*overflow-y:\s*auto/s);
   assert.match(stylesSource, /\.social-screenshot-picker-standalone\s*{/);
   assert.doesNotMatch(stylesSource, /\.social-import-fallback\s*{/);
+});
+
+test("deployed frontend revalidates assets and refreshes long-lived tabs", () => {
+  assert.match(indexSource, /styles\.css\?v=\d{8}\.\d+/);
+  assert.match(indexSource, /app\.js\?v=\d{8}\.\d+/);
+  assert.match(vercelSource, /"source": "\/app\.js"[\s\S]*"value": "[^"]*max-age=0, must-revalidate"/);
+  assert.match(vercelSource, /"source": "\/"[\s\S]*"no-cache, no-store, must-revalidate"/);
+  assert.match(appSource, /function checkForAppUpdate/);
+  assert.match(appSource, /method: "HEAD", cache: "no-store"/);
+  assert.match(appSource, /window\.addEventListener\("pageshow"/);
+  assert.match(appSource, /document\.addEventListener\("visibilitychange"/);
 });
 
 test("flight form offers city-aware airports and creates round trips as two legs", () => {

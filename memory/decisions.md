@@ -26,9 +26,14 @@
 - Social import is restricted to signed-in trip members, server-side credentials, safe allowlisted social hosts, and a per-member daily recognition limit. Login-gated or private posts fall back to a screenshot.
 - If a social caption explicitly states an address while saying the formal lodging name is in a profile or pinned link, the import keeps an address-based lodging mention instead of discarding it. Only this address-plus-hidden-name case enables an OpenAI web-search cross-check; Google Places returns up to five lodging-prioritized candidates and the user still selects the final match.
 - Social Google candidates are inspectable before import. Candidate details open as a nested sheet above the import form so the user's link, screenshot, scroll position, and candidate selection are preserved. Selecting inside the preview only marks that candidate; a separate final import confirmation remains required.
+- The complete social candidate card opens its preview; only the radio control is reserved for quick selection. This avoids relying on a small name-only target on iPhone.
 - Google Places candidate search never biases a location that AI already identified. Ambiguous mentions may use the trip center with Google's valid 50 km maximum radius, and a rejected biased request retries once without location bias.
 - Airport selection uses a local city-to-airport catalog to avoid manual airport-code entry and extra API cost.
 - Live location is opt-in and planning-map-only. It stays in browser memory, is never written to shared trip data, and stops when disabled, leaving the map, or closing the page.
+
+## Delivery reliability
+
+- Production HTML is not stored as a reusable browser response, while `app.js` and `styles.css` must revalidate. The document loads versioned asset URLs, and the running app checks the current script ETag/Last-Modified value when a long-lived tab returns to the foreground so a newer deployment can reload automatically.
 
 ## Mobile UI
 

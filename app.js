@@ -4234,8 +4234,11 @@ function importPreviewMarkup(entries) {
       const copy = place.isSocialCandidate
         ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</button>`
         : `<div class="import-place-copy"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</div>`;
+      const previewTarget = place.isSocialCandidate
+        ? ` data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}"`
+        : "";
       return `
-        <article class="import-place-row ${place.isSocialCandidate ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}">
+        <article class="import-place-row ${place.isSocialCandidate ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}"${previewTarget}>
           ${radio}
           <span class="mini-thumb" style="--swatch:${place.swatch}">${escapeHtml(place.mark)}</span>
           ${copy}
@@ -4459,7 +4462,10 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
 
   const previewImportCandidate = event.target.closest("[data-preview-import-candidate]");
-  if (previewImportCandidate) return openImportCandidatePreview(previewImportCandidate.dataset.previewImportCandidate);
+  const clickedCandidateRadio = event.target.closest("[data-social-place-candidate]");
+  if (previewImportCandidate && !clickedCandidateRadio) {
+    return openImportCandidatePreview(previewImportCandidate.dataset.previewImportCandidate);
+  }
 
   if (event.target.closest("[data-close-import-candidate]") || event.target.matches("[data-dismiss-import-candidate]")) {
     return closeImportCandidatePreview();
@@ -5751,4 +5757,34 @@ window.setInterval(() => {
     if (state.activeTab === "shopping") loadShopping({ quiet: true });
   }
 }, 15000);
+let activeAppAssetTag = "";
+let checkingAppUpdate = false;
+let lastAppUpdateCheck = 0;
+
+async function checkForAppUpdate({ reloadOnChange = false } = {}) {
+  const now = Date.now();
+  if (checkingAppUpdate || (reloadOnChange && now - lastAppUpdateCheck < 15000)) return;
+  checkingAppUpdate = true;
+  lastAppUpdateCheck = now;
+  try {
+    const response = await fetch(`./app.js?update-check=${now}`, { method: "HEAD", cache: "no-store" });
+    if (!response.ok) return;
+    const assetTag = response.headers.get("etag") || response.headers.get("last-modified") || "";
+    if (reloadOnChange && activeAppAssetTag && assetTag && assetTag !== activeAppAssetTag) {
+      window.location.reload();
+      return;
+    }
+    if (assetTag) activeAppAssetTag = assetTag;
+  } catch {
+    // Offline use remains available; the next foreground check will retry.
+  } finally {
+    checkingAppUpdate = false;
+  }
+}
+
+checkForAppUpdate();
+window.addEventListener("pageshow", () => checkForAppUpdate({ reloadOnChange: true }));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkForAppUpdate({ reloadOnChange: true });
+});
 window.addEventListener("pagehide", () => stopLiveLocation());
