@@ -375,10 +375,16 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.doesNotMatch(appSource, /id="social-share-text"/);
   assert.doesNotMatch(appSource, /data-social-import-fallback/);
   assert.match(appSource, /data-social-place-candidate/);
+  assert.match(appSource, /data-preview-import-candidate/);
+  assert.match(appSource, /data-select-import-candidate/);
+  assert.match(appSource, /function openImportCandidatePreview/);
+  assert.match(appSource, /\/api\/place-photo\?name=/);
   assert.match(appSource, /place\.selected === true/);
   assert.match(appSource, /referenceUrl/);
   assert.match(appSource, /data-open-reference/);
   assert.match(stylesSource, /\.import-place-row\.social-candidate\s*{[^}]*grid-template-columns:\s*20px 36px minmax\(0, 1fr\) auto/s);
+  assert.match(stylesSource, /\.import-candidate-backdrop\s*{[^}]*z-index:\s*130/s);
+  assert.match(stylesSource, /\.import-candidate-sheet\s*{[^}]*max-height:\s*88dvh[^}]*overflow-y:\s*auto/s);
   assert.match(stylesSource, /\.social-screenshot-picker-standalone\s*{/);
   assert.doesNotMatch(stylesSource, /\.social-import-fallback\s*{/);
 });

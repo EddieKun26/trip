@@ -3511,28 +3511,50 @@ body.transport-sheet-open .app {
   border-radius: 10px;
 }
 
-.import-place-row > div {
+.import-place-copy {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.import-place-row > div strong,
-.import-place-row > div span,
-.import-place-row > div small {
+.import-candidate-copy {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.import-candidate-copy:active {
+  transform: translateY(1px);
+}
+
+.import-place-copy strong,
+.import-place-copy span,
+.import-place-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.import-place-row > div strong {
+.import-place-copy strong {
   font-size: 13px;
 }
 
-.import-place-row > div span,
-.import-place-row > div small {
+.import-place-copy span,
+.import-place-copy small {
   color: var(--muted);
   font-size: 10px;
+}
+
+.import-open-hint {
+  color: var(--mineral);
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .import-place-row > b {
@@ -3587,6 +3609,79 @@ body.transport-sheet-open .app {
 
 .import-summary {
   margin: 3px 2px 0;
+}
+
+.import-candidate-backdrop {
+  position: fixed;
+  z-index: 130;
+  inset: 0;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  padding: 16px 18px max(16px, env(safe-area-inset-bottom));
+  background: rgba(37, 31, 26, 0.46);
+  backdrop-filter: blur(3px);
+}
+
+.import-candidate-sheet {
+  width: min(390px, 100%);
+  max-height: 88dvh;
+  overflow-y: auto;
+  padding: 18px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.import-candidate-sheet .place-byline {
+  margin-bottom: 12px;
+}
+
+.import-candidate-facts {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.import-candidate-facts > div,
+.import-candidate-address {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.7);
+}
+
+.import-candidate-facts small,
+.import-candidate-address small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.import-candidate-facts strong,
+.import-candidate-address strong {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.import-candidate-address {
+  margin-top: 8px;
+}
+
+.import-candidate-actions {
+  position: sticky;
+  bottom: -18px;
+  margin-inline: -18px;
+  padding: 14px 18px 18px;
+  background: var(--paper-2);
+  box-shadow: 0 -12px 18px rgba(246, 241, 232, 0.94);
+}
+
+.import-candidate-actions button {
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .source-reference-button {

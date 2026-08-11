@@ -4143,6 +4143,73 @@ function updateImportConfirmState() {
   }
 }
 
+function importCandidateIdentity(place) {
+  return String(place?.placeId || place?.sourceUrl || "");
+}
+
+function selectImportCandidate(groupId, identity) {
+  pendingPlaceImports.forEach((place) => {
+    if (place.candidateGroupId === groupId) place.selected = importCandidateIdentity(place) === identity;
+  });
+  const preview = document.querySelector("#import-preview");
+  if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+  updateImportConfirmState();
+}
+
+function closeImportCandidatePreview() {
+  sheetRoot.querySelector("[data-import-candidate-preview-root]")?.remove();
+}
+
+function importCandidateGalleryMarkup(place) {
+  if (place.photos?.length) {
+    return place.photos.slice(0, 3).map((photo, index) => `
+      <figure class="gallery-card gallery-${index + 1} real-photo">
+        <img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" />
+        <figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption>
+      </figure>`).join("");
+  }
+  return (place.galleryLabels || ["Google Maps 地點", "環境照片", "附近街景"]).map((label, index) => `
+    <div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch || "#587a73"}">
+      <span>${escapeHtml(label)}</span>
+    </div>`).join("");
+}
+
+function openImportCandidatePreview(identity) {
+  const place = pendingPlaceImports.find((candidate) => importCandidateIdentity(candidate) === identity);
+  if (!place?.isSocialCandidate) return;
+  closeImportCandidatePreview();
+  const rating = Number(place.rating) > 0
+    ? `★ ${Number(place.rating).toFixed(1)}${Number(place.ratingCount) > 0 ? `（${Number(place.ratingCount).toLocaleString("zh-TW")} 則評價）` : ""}`
+    : "尚無評分資料";
+  const fullName = place.fullName && place.fullName !== place.name ? `<p class="place-byline">${escapeHtml(place.fullName)}</p>` : "";
+  sheetRoot.insertAdjacentHTML("beforeend", `
+    <div class="import-candidate-backdrop" data-import-candidate-preview-root data-dismiss-import-candidate>
+      <section class="modal-sheet import-candidate-sheet" role="dialog" aria-modal="true" aria-labelledby="import-candidate-title">
+        <div class="section-row">
+          <div><p class="section-kicker">加入前確認 · 候選 ${Number(place.candidateRank) || 1}</p><h2 id="import-candidate-title">${escapeHtml(place.name)}</h2></div>
+          <button class="icon-button" type="button" data-close-import-candidate aria-label="關閉候選預覽">×</button>
+        </div>
+        ${fullName}
+        <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${importCandidateGalleryMarkup(place)}</div>
+        <div class="gallery-caption"><span>${place.photos?.length ? "Google Maps 地點照片" : "可到 Google Maps 查看更多照片"}</span><button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">查看完整地圖 ↗</button></div>
+        <section class="import-candidate-facts" aria-label="候選地點資料">
+          <div><small>類型</small><strong>${escapeHtml(place.category || kindLabel(place.kind))}</strong></div>
+          <div><small>Google 評分</small><strong>${escapeHtml(rating)}</strong></div>
+        </section>
+        <section class="import-candidate-address"><small>完整地址</small><strong>${escapeHtml(place.formattedAddress || "Google Maps 尚未提供地址")}</strong></section>
+        ${place.description ? `<p class="place-description">${escapeHtml(place.description)}</p>` : ""}
+        <section class="place-contact-grid" aria-label="營業與聯絡資訊">
+          <div class="place-contact-item"><small>營業時間</small><strong>${formatOpeningHours(place.openingHours || "待 Google Maps 同步")}</strong></div>
+          <div class="place-contact-item"><small>電話</small><strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong></div>
+        </section>
+        <div class="modal-actions import-candidate-actions">
+          <button class="secondary-button" type="button" data-close-import-candidate>返回候選</button>
+          <button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}">${place.selected ? "✓ 已選擇這個地點" : "選擇這個地點"}</button>
+        </div>
+      </section>
+    </div>`);
+}
+
 function importPreviewMarkup(entries) {
   if (!entries.length) {
     return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}<div class="import-empty"><strong>沒有找到可辨識的內容</strong><span>請貼上 Google Maps 或社群貼文連結，也可上傳截圖。</span></div>`;
@@ -4162,14 +4229,17 @@ function importPreviewMarkup(entries) {
         ? `<span>${escapeHtml(place.formattedAddress || `${place.area} · ${place.category}`)}</span><small>${escapeHtml(place.sourcePlatform || "社群貼文")}候選 ${place.candidateRank}${rating}</small>`
         : `<span>${escapeHtml(place.area)} · ${escapeHtml(place.category)}</span><small>${escapeHtml(place.openingHours)}</small>`;
       const radio = place.isSocialCandidate
-        ? `<input class="import-candidate-radio" type="radio" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(place.placeId || place.sourceUrl)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${isExisting ? "disabled" : ""} aria-label="選擇 ${escapeHtml(place.name)}" />`
+        ? `<input class="import-candidate-radio" type="radio" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(importCandidateIdentity(place))}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${isExisting ? "disabled" : ""} aria-label="選擇 ${escapeHtml(place.name)}" />`
         : "";
+      const copy = place.isSocialCandidate
+        ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</button>`
+        : `<div class="import-place-copy"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</div>`;
       return `
         <article class="import-place-row ${place.isSocialCandidate ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}">
           ${radio}
           <span class="mini-thumb" style="--swatch:${place.swatch}">${escapeHtml(place.mark)}</span>
-          <div><strong>${escapeHtml(place.name)}</strong>${socialMeta}</div>
-          <b>${status[1]}</b>
+          ${copy}
+          ${place.isSocialCandidate ? `<span class="import-open-hint" aria-hidden="true">查看 ›</span>` : `<b>${status[1]}</b>`}
         </article>`;
     })
     .join("");
@@ -4387,6 +4457,20 @@ let itineraryPlaceSelection = new Set();
 
 document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
+
+  const previewImportCandidate = event.target.closest("[data-preview-import-candidate]");
+  if (previewImportCandidate) return openImportCandidatePreview(previewImportCandidate.dataset.previewImportCandidate);
+
+  if (event.target.closest("[data-close-import-candidate]") || event.target.matches("[data-dismiss-import-candidate]")) {
+    return closeImportCandidatePreview();
+  }
+
+  const selectImportCandidateButton = event.target.closest("[data-select-import-candidate]");
+  if (selectImportCandidateButton) {
+    selectImportCandidate(selectImportCandidateButton.dataset.candidateGroup, selectImportCandidateButton.dataset.selectImportCandidate);
+    closeImportCandidatePreview();
+    return;
+  }
 
   if (event.target.closest("[data-enter-guest]")) {
     state.isGuest = true;
@@ -5057,14 +5141,7 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("[data-social-place-candidate]")) {
     const groupId = event.target.dataset.candidateGroup;
     const identity = event.target.dataset.socialPlaceCandidate;
-    pendingPlaceImports.forEach((place) => {
-      if (place.candidateGroupId === groupId) {
-        place.selected = (place.placeId || place.sourceUrl) === identity;
-      }
-    });
-    const preview = document.querySelector("#import-preview");
-    if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
-    updateImportConfirmState();
+    selectImportCandidate(groupId, identity);
     return;
   }
 
