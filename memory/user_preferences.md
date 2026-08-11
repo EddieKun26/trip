@@ -30,4 +30,5 @@
 - Input placeholders must be neutral and must not expose a real user's Google Maps list name.
 - Social place imports must show Google Places candidates for explicit selection and confirmation instead of saving an AI guess automatically. Keep the original social post link in place details. The import sheet should expose only a link field and a screenshot/photo picker; do not include a supplemental text field or hide screenshot input inside a disclosure.
 - Every social-place candidate must be openable before import so overseas lodging and similarly named places can be verified from Google photos, full address, rating, contact details, and the Google Maps page without losing the pending import form.
+- Place details opened from either a list or map should let an editor delete an unwanted attraction, restaurant, or lodging with a second confirmation.
 - Ship the web version first; build a test iOS app only after the web product matures.

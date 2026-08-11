@@ -3227,6 +3227,11 @@ function render({ preserveScroll = false } = {}) {
 function openPlaceSheet(name) {
   const place = state.places.find((item) => item.name === name);
   if (!place) return;
+  const deleteLabel = place.kind === "lodging"
+    ? "刪除這間住宿"
+    : place.kind === "restaurant"
+      ? "刪除這間餐廳"
+      : "刪除這個景點";
   const voters = placeVoters(place.name);
   const hasMyVote = voters.includes(currentMemberId());
   const voterChips = voters.length
@@ -3323,6 +3328,7 @@ function openPlaceSheet(name) {
           <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">開啟 Google Maps</button>
         </div>
+        ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
       </section>
     </div>`;
   ensurePlaceDetails(place);
@@ -3667,7 +3673,7 @@ function openTransportDeleteConfirmation(id) {
     </div>`;
 }
 
-function openDeleteConfirmation({ kind, name, date = "" }) {
+function openDeleteConfirmation({ kind, name, date = "", returnToDetails = false }) {
   const isPlace = kind === "place";
   const assignments = placeAssignments(name);
   sheetRoot.innerHTML = `
@@ -3684,7 +3690,7 @@ function openDeleteConfirmation({ kind, name, date = "" }) {
             : "只會從這一天的行程移除，地點仍保留在收藏清單中。"
         }</p>
         <div class="modal-actions">
-          <button class="secondary-button" type="button" data-close-sheet>取消</button>
+          <button class="secondary-button" type="button" ${isPlace && returnToDetails ? `data-return-place="${escapeHtml(name)}"` : "data-close-sheet"}>取消</button>
           <button class="danger-button" type="button" data-confirm-delete="${kind}" data-delete-name="${escapeHtml(name)}" data-delete-date="${escapeHtml(date)}">確認刪除</button>
         </div>
       </section>
@@ -4691,6 +4697,9 @@ document.addEventListener("click", async (event) => {
   const place = event.target.closest("[data-open-place]");
   if (place) return openPlaceSheet(place.dataset.openPlace);
 
+  const returnPlace = event.target.closest("[data-return-place]");
+  if (returnPlace) return openPlaceSheet(returnPlace.dataset.returnPlace);
+
   const vote = event.target.closest("[data-vote]");
   if (vote) {
     if (!canEdit()) return guestOnlyMessage();
@@ -4786,6 +4795,7 @@ document.addEventListener("click", async (event) => {
     return openDeleteConfirmation({
       kind: "place",
       name: requestPlaceDelete.dataset.requestDeletePlace,
+      returnToDetails: Boolean(requestPlaceDelete.closest(".place-detail-sheet")),
     });
   }
 

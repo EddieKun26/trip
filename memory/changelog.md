@@ -2,6 +2,7 @@
 
 ## 2026-08-11
 
+- Added an editor-only delete button at the bottom of place details opened from either maps or lists. Labels adapt to attractions, restaurants, and lodging; confirmation remains mandatory, cancel returns to the same details, guests remain read-only, and the existing one-level undo remains available. All 58 tests pass.
 - Expanded candidate preview activation from the candidate name to the full card while preserving the left radio as a quick-select control. Added versioned frontend assets, Vercel revalidation headers, and foreground deployment checks so iPhone tabs no longer keep obsolete candidate handlers after new releases. All 57 tests pass.
 - Added a pre-import candidate detail preview for social-place recognition. Candidate names and view hints now open a nested iPhone sheet with Google photos, full address, category, rating count, hours, phone, and Google Maps access; users can select the candidate there and return to the unchanged import form for final confirmation.
 - Added address-aware social lodging imports for Reels whose creators hide the formal property name in a profile or pinned link. Explicit caption addresses and lodging clues now survive even when no name is identified, the special case may use a conditional OpenAI web-search cross-check, and Google Places returns up to five lodging-prioritized candidates for explicit user selection.

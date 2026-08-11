@@ -235,6 +235,20 @@ test("place list keeps only the bottom add action and fully masks swipe deletion
   assert.match(stylesSource, /\.reaction-button\s*{[^}]*place-content:\s*center[^}]*place-items:\s*center/s);
 });
 
+test("place details opened from lists or maps offer confirmed deletion to editors", () => {
+  const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
+  const confirmation = sourceSection("function openDeleteConfirmation", "function openMembershipConfirmation");
+  assert.match(details, /place-detail-delete-button/);
+  assert.match(details, /data-request-delete-place/);
+  assert.match(details, /place\.kind === "lodging"[\s\S]*刪除這間住宿/);
+  assert.match(details, /canEdit\(\) \? `<button class="place-detail-delete-button"/);
+  assert.match(confirmation, /returnToDetails = false/);
+  assert.match(confirmation, /data-return-place/);
+  assert.match(appSource, /returnToDetails: Boolean\(requestPlaceDelete\.closest\("\.place-detail-sheet"\)\)/);
+  assert.match(appSource, /if \(returnPlace\) return openPlaceSheet/);
+  assert.match(stylesSource, /\.place-detail-delete-button\s*{[^}]*min-height:\s*44px[^}]*color:\s*#9d2e23/s);
+});
+
 test("day route lines terminate at pins and transport legend stays off the map", () => {
   const mapSection = sourceSection("function mapScreen", "function mapPinColor");
   assert.doesNotMatch(mapSection, /transportLegend|transport-route-legend/);

@@ -2819,6 +2819,29 @@ body.transport-sheet-open .app {
   padding: 18px;
 }
 
+.place-detail-delete-button {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  border: 1px solid rgba(157, 46, 35, 0.3);
+  border-radius: 16px;
+  background: rgba(243, 217, 211, 0.42);
+  color: #9d2e23;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.place-detail-delete-button:hover,
+.place-detail-delete-button:focus-visible {
+  border-color: rgba(157, 46, 35, 0.58);
+  background: rgba(243, 217, 211, 0.72);
+}
+
+.place-detail-delete-button:active {
+  transform: translateY(1px);
+}
+
 .place-byline {
   margin-bottom: 14px;
 }
