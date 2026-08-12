@@ -10,7 +10,7 @@ const MAX_PHOTOS = 16;
 const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
 const MAX_PRODUCT_IMAGE_LENGTH = 140000;
-const MAX_PRODUCT_IMAGE_TOTAL = 720000;
+const MAX_PRODUCT_IMAGE_TOTAL = 1200000;
 
 const defaultCategories = [
   { id: "souvenir", name: "伴手禮", builtIn: true },
@@ -126,8 +126,8 @@ function cleanAiAnnotation(value) {
     .map((image) => ({
       url: cleanGeneratedImageUrl(image?.url),
       pageUrl: "",
-      sourceTitle: "AI 依原始截圖重製",
-      kind: "ai-generated",
+      sourceTitle: cleanText(image?.sourceTitle, 120) || "網路商品頁",
+      kind: "web-product",
     }))
     .filter((image) => image.url)
     .filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index)

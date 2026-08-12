@@ -76,12 +76,12 @@ test("shopping lists are private per member and per trip", async () => {
     items: [{
       id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", categoryId: "souvenir",
       recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1",
-      preferredProductImageUrl: "data:image/webp;base64,QUJDRA==",
+      preferredProductImageUrl: "data:image/jpeg;base64,QUJDRA==",
       aiAnnotation: {
         summary: "東京常見伴手禮。", features: ["獨立包裝"], usage: ["依包裝保存"], cautions: ["留意保存期限"],
         confidence: 0.9,
         sources: [{ title: "官方網站", url: "https://example.com/product" }], researchedAt: "2026-08-12T00:00:00.000Z",
-        productImages: [{ url: "data:image/webp;base64,QUJDRA==", pageUrl: "", sourceTitle: "AI 依原始截圖重製", kind: "ai-generated" }],
+        productImages: [{ url: "data:image/jpeg;base64,QUJDRA==", pageUrl: "", sourceTitle: "品牌官方商品頁", kind: "web-product" }],
       },
     }],
   };
@@ -91,8 +91,9 @@ test("shopping lists are private per member and per trip", async () => {
   assert.equal(saved.payload.items[0].name, "東京香蕉");
   assert.equal(saved.payload.items[0].brand, "東京ばな奈");
   assert.equal(saved.payload.items[0].benefits, "旅行伴手禮");
-  assert.equal(saved.payload.items[0].preferredProductImageUrl, "data:image/webp;base64,QUJDRA==");
-  assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].sourceTitle, "AI 依原始截圖重製");
+  assert.equal(saved.payload.items[0].preferredProductImageUrl, "data:image/jpeg;base64,QUJDRA==");
+  assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].sourceTitle, "品牌官方商品頁");
+  assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].kind, "web-product");
   assert.deepEqual(saved.payload.items[0].aiAnnotation.sources, []);
   assert.equal(saved.payload.items[0].aiAnnotation.recommendationScore, undefined);
 

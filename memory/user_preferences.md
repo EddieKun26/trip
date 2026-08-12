@@ -29,6 +29,8 @@
 - Shopping item details should show the selected product image first, readable product information/features/general usage/cautions without URLs, domains, source links, stars, or a numeric recommendation index, and place the original recommendation screenshot last.
 - Custom categories should be created from a `自訂` choice inside the category selector and removable later. Reusable `買給誰` tags also need visible remove controls, plus a person-oriented view showing bought and unbought items.
 - Screenshot recognition should extract separate brand, product name, benefits/recommendation points, and category fields, and allow several images to be processed and confirmed together.
+- When several Shopping screenshots are selected, recognize all accepted images concurrently instead of waiting for each one sequentially. A selection over eight must be rejected with an explicit message rather than silently dropping the extra images.
+- `換一批圖片` should become usable as soon as that product finishes recognition, and the selected candidate must appear in the final Shopping list and item detail.
 - Screenshot recognition must understand the complete image across languages rather than return OCR fragments. Show natural Traditional Chinese meaning while retaining useful original-language brand and product names; never use slogans, usage directions, ingredients, or benefits as the product name.
 - Shopping selection, select-all, and batch-delete controls belong directly above the item list rather than in the page header or bottom action area.
 - Overview completion must reflect actual planning coverage, not how close the departure date is.
