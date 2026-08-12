@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { searchProductImageCandidates } from "../product-image-search.mjs";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";

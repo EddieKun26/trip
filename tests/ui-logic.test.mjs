@@ -564,6 +564,10 @@ test("shopping import offers three web product-photo candidates and can refresh 
   assert.match(importer, /result\.annotation\?\.productImages/);
   assert.match(importer, /slice\(0, 3\)/);
   assert.match(importer, /data-import-product-image/);
+  assert.match(importer, /data-preview-shopping-image/);
+  assert.match(importer, /function openShoppingImagePreview/);
+  assert.match(importer, /data-step-shopping-image-preview/);
+  assert.match(importer, /data-select-shopping-image-preview/);
   assert.match(importer, /data-refresh-shopping-images/);
   assert.match(importer, /fetch\("\/api\/shopping-images"/);
   assert.match(importer, /換一批圖片/);
@@ -579,6 +583,8 @@ test("shopping import offers three web product-photo candidates and can refresh 
   assert.match(importer, /shopping-original-screenshot/);
   assert.match(stylesSource, /\.shopping-import-fields\s*{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
   assert.match(stylesSource, /\.shopping-import-image-options\s*{[^}]*repeat\(3, minmax\(0, 1fr\)\)/s);
+  assert.match(stylesSource, /\.shopping-image-preview-backdrop\s*{[^}]*place-items:\s*center/s);
+  assert.match(stylesSource, /\.shopping-image-preview-stage img\s*{[^}]*max-height:\s*58dvh/s);
   assert.match(stylesSource, /\.shopping-import-item-progress\[data-stage="recognizing"\] i::before/);
   assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)/);
 });

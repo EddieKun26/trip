@@ -3097,12 +3097,67 @@ function shoppingImportImageOptions(entry, index) {
   const images = Array.isArray(entry.productImages) ? entry.productImages.slice(0, 3) : [];
   const options = images.length
     ? `<div class="shopping-import-image-options">${images.map((image, imageIndex) => `
-        <label class="shopping-import-image-option">
-          <input type="radio" name="shopping-product-image-${escapeHtml(entry.id)}" value="${escapeHtml(image.id || String(imageIndex))}" data-import-product-image ${entry.selectedProductImageId === (image.id || String(imageIndex)) ? "checked" : ""} />
-          <span><img src="${escapeHtml(image.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}候選商品圖 ${imageIndex + 1}" /><b>選擇第 ${imageIndex + 1} 張</b></span>
-        </label>`).join("")}</div>`
+        <div class="shopping-import-image-option">
+          <input id="shopping-product-image-${escapeHtml(entry.id)}-${imageIndex}" type="radio" name="shopping-product-image-${escapeHtml(entry.id)}" value="${escapeHtml(image.id || String(imageIndex))}" data-import-product-image ${entry.selectedProductImageId === (image.id || String(imageIndex)) ? "checked" : ""} />
+          <button type="button" class="shopping-import-image-preview-button" data-preview-shopping-image="${escapeHtml(entry.id)}" data-shopping-image-id="${escapeHtml(image.id || String(imageIndex))}" aria-label="放大預覽第 ${imageIndex + 1} 張商品圖">
+            <img src="${escapeHtml(image.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}候選商品圖 ${imageIndex + 1}" />
+          </button>
+          <label for="shopping-product-image-${escapeHtml(entry.id)}-${imageIndex}">選擇第 ${imageIndex + 1} 張</label>
+        </div>`).join("")}</div>`
     : `<p class="shopping-ai-result-note">${escapeHtml(shoppingProductImageErrorMessage(entry.productImageError))}</p>`;
   return `<section class="shopping-import-image-picker"><div class="shopping-import-image-heading"><b>選擇商品圖</b><span>${images.length ? `${images.length} 張候選` : "尚無候選圖"}</span></div>${options}<button type="button" data-refresh-shopping-images="${escapeHtml(entry.id)}" ${entry.imageSearchBusy || entry.recognitionBusy ? "disabled" : ""}>${entry.imageSearchBusy ? "正在搜尋…" : "↻ 換一批圖片"}</button></section>`;
+}
+
+function closeShoppingImagePreview() {
+  sheetRoot.querySelector("[data-shopping-image-preview-root]")?.remove();
+}
+
+function openShoppingImagePreview(entryId, imageId) {
+  const form = sheetRoot.querySelector("#shopping-import-form");
+  syncPendingShoppingImportEdits(form);
+  const entry = pendingShoppingImports.find((candidate) => candidate.id === entryId);
+  const images = Array.isArray(entry?.productImages) ? entry.productImages.slice(0, 3) : [];
+  const imageIndex = images.findIndex((candidate, index) => (candidate.id || String(index)) === imageId);
+  if (!entry || imageIndex < 0) return;
+  const image = images[imageIndex];
+  const selected = entry.selectedProductImageId === (image.id || String(imageIndex));
+  closeShoppingImagePreview();
+  sheetRoot.insertAdjacentHTML("beforeend", `
+    <div class="shopping-image-preview-backdrop" data-shopping-image-preview-root data-dismiss-shopping-image-preview>
+      <section class="modal-sheet shopping-image-preview-sheet" role="dialog" aria-modal="true" aria-labelledby="shopping-image-preview-title">
+        <div class="section-row">
+          <div><p class="section-kicker">商品圖預覽 · ${imageIndex + 1} / ${images.length}</p><h2 id="shopping-image-preview-title">${escapeHtml(entry.details?.name || "候選商品圖")}</h2></div>
+          <button class="icon-button" type="button" data-close-shopping-image-preview aria-label="關閉商品圖預覽">×</button>
+        </div>
+        <div class="shopping-image-preview-stage"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(entry.details?.name || "商品")}候選商品圖 ${imageIndex + 1} 放大預覽" /></div>
+        <div class="shopping-image-preview-pager" aria-label="切換候選商品圖">
+          <button type="button" data-step-shopping-image-preview="-1" data-shopping-entry-id="${escapeHtml(entry.id)}" data-shopping-image-id="${escapeHtml(image.id || String(imageIndex))}" ${images.length < 2 ? "disabled" : ""} aria-label="上一張候選商品圖">‹</button>
+          <span>可左右切換確認圖片細節</span>
+          <button type="button" data-step-shopping-image-preview="1" data-shopping-entry-id="${escapeHtml(entry.id)}" data-shopping-image-id="${escapeHtml(image.id || String(imageIndex))}" ${images.length < 2 ? "disabled" : ""} aria-label="下一張候選商品圖">›</button>
+        </div>
+        <button class="primary-button shopping-image-preview-select" type="button" data-select-shopping-image-preview="${escapeHtml(image.id || String(imageIndex))}" data-shopping-entry-id="${escapeHtml(entry.id)}">${selected ? "✓ 已選擇這張商品圖" : "選擇這張商品圖"}</button>
+      </section>
+    </div>`);
+  requestAnimationFrame(() => sheetRoot.querySelector("[data-close-shopping-image-preview]")?.focus());
+}
+
+function stepShoppingImagePreview(entryId, imageId, direction) {
+  const entry = pendingShoppingImports.find((candidate) => candidate.id === entryId);
+  const images = Array.isArray(entry?.productImages) ? entry.productImages.slice(0, 3) : [];
+  const currentIndex = images.findIndex((candidate, index) => (candidate.id || String(index)) === imageId);
+  if (currentIndex < 0 || images.length < 2) return;
+  const nextIndex = (currentIndex + Number(direction) + images.length) % images.length;
+  openShoppingImagePreview(entryId, images[nextIndex].id || String(nextIndex));
+}
+
+function selectShoppingImagePreview(entryId, imageId) {
+  const form = sheetRoot.querySelector("#shopping-import-form");
+  syncPendingShoppingImportEdits(form);
+  const entry = pendingShoppingImports.find((candidate) => candidate.id === entryId);
+  if (!entry?.productImages?.some((candidate, index) => (candidate.id || String(index)) === imageId)) return;
+  entry.selectedProductImageId = imageId;
+  closeShoppingImagePreview();
+  renderShoppingImportRows(form);
 }
 
 function shoppingImportProgressMarkup(entry, index) {
@@ -4722,6 +4777,25 @@ let itineraryPlaceSelection = new Set();
 document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
 
+  const previewShoppingImage = event.target.closest("[data-preview-shopping-image]");
+  if (previewShoppingImage) {
+    return openShoppingImagePreview(previewShoppingImage.dataset.previewShoppingImage, previewShoppingImage.dataset.shoppingImageId);
+  }
+
+  if (event.target.closest("[data-close-shopping-image-preview]") || event.target.matches("[data-dismiss-shopping-image-preview]")) {
+    return closeShoppingImagePreview();
+  }
+
+  const stepShoppingImage = event.target.closest("[data-step-shopping-image-preview]");
+  if (stepShoppingImage) {
+    return stepShoppingImagePreview(stepShoppingImage.dataset.shoppingEntryId, stepShoppingImage.dataset.shoppingImageId, stepShoppingImage.dataset.stepShoppingImagePreview);
+  }
+
+  const selectShoppingImage = event.target.closest("[data-select-shopping-image-preview]");
+  if (selectShoppingImage) {
+    return selectShoppingImagePreview(selectShoppingImage.dataset.shoppingEntryId, selectShoppingImage.dataset.selectShoppingImagePreview);
+  }
+
   const previewImportCandidate = event.target.closest("[data-preview-import-candidate]");
   const clickedCandidateRadio = event.target.closest("[data-social-place-candidate]");
   if (previewImportCandidate && !clickedCandidateRadio) {
@@ -5656,6 +5730,12 @@ document.addEventListener("pointercancel", finishItineraryDrag);
 
 document.addEventListener("contextmenu", (event) => {
   if (event.target.closest(".timeline")) event.preventDefault();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !sheetRoot.querySelector("[data-shopping-image-preview-root]")) return;
+  event.preventDefault();
+  closeShoppingImagePreview();
 });
 
 document.addEventListener("submit", async (event) => {

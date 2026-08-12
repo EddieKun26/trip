@@ -187,15 +187,24 @@ async function findProductImages(sources, { limit = 3, excludeIds = [] } = {}) {
   return images;
 }
 
-async function searchProductImageCandidates(apiKey, { brand = "", name = "", excludeIds = [], round = 0 } = {}) {
-  const product = [cleanText(brand, 100), cleanText(name, 120)].filter(Boolean).join(" ");
-  if (!product) return [];
+function imageSearchPrompt(product, round, strategy = "primary") {
+  const roundText = `這是第 ${Number(round) + 1} 輪搜尋`;
+  if (strategy === "official") {
+    return `搜尋「${product}」的官方商品頁、品牌型錄頁與可信賴零售商商品頁。${roundText}的備援目標是找到可公開讀取、含 Product JSON-LD、og:image 或 twitter:image 的頁面；請優先列出不同網域，避開社群貼文、影片、廣告文章、人物代言圖、比價列表與搜尋結果頁。至少提供 10 個最可能含商品正面圖的來源頁。`;
+  }
+  if (strategy === "multilingual") {
+    return `以繁體中文、商品原文與英文交叉搜尋「${product}」的精確商品頁。${roundText}的備援目標是補齊三張清楚商品圖；請找品牌官網、原產國藥妝或大型零售通路中可直接開啟的獨立商品頁，優先含結構化 Product image 或 og:image 的不同網域，排除社群、影片、廣告與人物圖。至少提供 10 個來源頁。`;
+  }
+  return `搜尋「${product}」的正確商品頁，優先品牌官網、原產國官方型錄與可信賴大型零售商。需要三張可公開讀取的清楚商品正面圖；來源頁應含 Product JSON-LD、og:image 或 twitter:image。排除社群貼文、影片、廣告文章、人物代言圖、比價列表與搜尋結果頁。${roundText}，請提供至少 10 個不同且最相關的商品頁來源。`;
+}
+
+async function searchProductSources(apiKey, prompt) {
   const response = await fetch(OPENAI_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: OPENAI_MODEL,
-      input: [{ role: "user", content: `搜尋「${product}」完全相符的商品頁，提供至少 10 個不同的品牌官方頁或可信零售商品頁來源，供系統擷取清晰正面商品照。不要使用新聞、文章、人物代言或泛用分類頁。這是第 ${Number(round) + 1} 輪，請優先找不同通路與圖片。` }],
+      input: [{ role: "user", content: prompt }],
       tools: [{ type: "web_search" }],
       tool_choice: "required",
       include: ["web_search_call.action.sources"],
@@ -208,7 +217,41 @@ async function searchProductImageCandidates(apiKey, { brand = "", name = "", exc
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`OPENAI_${response.status}`);
-  return findProductImages(openAiSources(payload), { limit: 3, excludeIds });
+  return openAiSources(payload);
+}
+
+function interleaveSources(sourceLists) {
+  const sources = [];
+  const seen = new Set();
+  const longest = Math.max(0, ...sourceLists.map((list) => list.length));
+  for (let index = 0; index < longest && sources.length < MAX_SOURCE_PAGES; index += 1) {
+    for (const list of sourceLists) {
+      const source = list[index];
+      if (!source || seen.has(source.url)) continue;
+      seen.add(source.url);
+      sources.push(source);
+      if (sources.length >= MAX_SOURCE_PAGES) break;
+    }
+  }
+  return sources;
+}
+
+async function searchProductImageCandidates(apiKey, { brand = "", name = "", excludeIds = [], round = 0 } = {}) {
+  const product = [cleanText(brand, 100), cleanText(name, 120)].filter(Boolean).join(" ");
+  if (!product) return [];
+  const primarySources = await searchProductSources(apiKey, imageSearchPrompt(product, round, "primary"));
+  const primaryImages = await findProductImages(primarySources, { limit: 3, excludeIds });
+  if (primaryImages.length >= 3) return primaryImages;
+
+  const fallbackSourceLists = await Promise.all([
+    searchProductSources(apiKey, imageSearchPrompt(product, round + 1, "official")).catch(() => []),
+    searchProductSources(apiKey, imageSearchPrompt(product, round + 2, "multilingual")).catch(() => []),
+  ]);
+  const fallbackImages = await findProductImages(interleaveSources(fallbackSourceLists), {
+    limit: 3 - primaryImages.length,
+    excludeIds: [...excludeIds, ...primaryImages.map((image) => image.id)],
+  });
+  return [...primaryImages, ...fallbackImages].slice(0, 3);
 }
 
 export { findProductImages, openAiSources, productImageUrls, searchProductImageCandidates };
