@@ -287,6 +287,7 @@ let flightTicketRecognitionToken = 0;
 let flightOcrLoader = null;
 let shoppingRecognitionToken = 0;
 let pendingShoppingImports = [];
+const SHOPPING_IMPORT_MAX_FILES = 12;
 let shoppingSaveBusy = false;
 let shoppingSavePending = false;
 let shoppingUndoSnapshot = null;
@@ -3104,16 +3105,33 @@ function shoppingImportImageOptions(entry, index) {
   return `<section class="shopping-import-image-picker"><div class="shopping-import-image-heading"><b>選擇商品圖</b><span>${images.length ? `${images.length} 張候選` : "尚無候選圖"}</span></div>${options}<button type="button" data-refresh-shopping-images="${escapeHtml(entry.id)}" ${entry.imageSearchBusy || entry.recognitionBusy ? "disabled" : ""}>${entry.imageSearchBusy ? "正在搜尋…" : "↻ 換一批圖片"}</button></section>`;
 }
 
+function shoppingImportProgressMarkup(entry, index) {
+  const stage = entry.recognitionStage
+    || (entry.recognitionBusy ? "recognizing" : entry.recognized ? "complete" : entry.recognitionError ? "error" : "queued");
+  const labels = {
+    queued: "等待處理",
+    preparing: "正在準備圖片",
+    ready: "圖片準備完成",
+    recognizing: "AI 正在辨識",
+    complete: "辨識完成",
+    error: "辨識失敗",
+  };
+  const label = labels[stage] || labels.queued;
+  const completed = stage === "complete";
+  return `<div class="shopping-import-item-progress" data-stage="${escapeHtml(stage)}" role="progressbar" aria-label="商品 ${index + 1} 辨識進度" aria-valuetext="${escapeHtml(label)}" ${completed ? 'aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"' : ""}><span><b>辨識進度</b><em>${escapeHtml(label)}</em></span><i aria-hidden="true"></i></div>`;
+}
+
 function renderShoppingImportRows(form) {
   const host = form?.querySelector("[data-shopping-import-results]");
   if (!host) return;
-  const busy = form.dataset.shoppingOcrBusy === "true";
+  const busy = form.dataset.shoppingOcrBusy === "true" || form.dataset.shoppingPreparing === "true";
   host.innerHTML = pendingShoppingImports.map((entry, index) => `
     <article class="shopping-import-result" data-shopping-import-row="${escapeHtml(entry.id)}">
       <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
+      ${shoppingImportProgressMarkup(entry, index)}
       ${entry.recognized ? shoppingImportImageOptions(entry, index) : ""}
-      ${entry.recognitionBusy ? `<p class="shopping-ai-result-note">正在同時辨識這項商品並搜尋照片…</p>` : ""}
       ${entry.recognitionError ? `<p class="shopping-ai-result-note error">${escapeHtml(entry.recognitionError)}</p>` : ""}
+      ${entry.recognized || entry.recognitionError ? `
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
@@ -3122,7 +3140,7 @@ function renderShoppingImportRows(form) {
         <div class="field full shopping-custom-category-field" data-shopping-custom-category ${entry.details?.categoryId === "__custom__" ? "" : "hidden"}><label>自訂分類名稱</label><input data-import-custom-category maxlength="24" value="${escapeHtml(entry.details?.newCategory || "")}" placeholder="例如 文具、紀念品" /></div>
       </div>
       ${entry.annotation?.summary ? `<p class="shopping-import-summary">${escapeHtml(entry.annotation.summary)}</p>` : ""}
-      <details class="shopping-original-screenshot"><summary>查看原始辨識圖片</summary><img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張原始推薦截圖" /></details>
+      ${entry.dataUrl ? `<details class="shopping-original-screenshot"><summary>查看原始辨識圖片</summary><img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張原始推薦截圖" /></details>` : ""}` : ""}
     </article>`).join("");
 }
 
@@ -3231,9 +3249,13 @@ async function recognizeShoppingScreenshots(form) {
   const confirm = form.querySelector('button[type="submit"]');
   if (confirm) confirm.disabled = true;
   try {
-    const entries = [...pendingShoppingImports];
+    const entries = pendingShoppingImports.filter((entry) => entry.dataUrl && !entry.recognitionError);
+    if (!entries.length) throw new Error("NO_PREPARED_IMAGES");
     let completedCount = 0;
-    entries.forEach((entry) => { entry.recognitionBusy = true; });
+    entries.forEach((entry) => {
+      entry.recognitionBusy = true;
+      entry.recognitionStage = "recognizing";
+    });
     renderShoppingImportRows(form);
     setShoppingRecognitionStatus(form, `AI 正在同時辨識 ${entries.length} 張圖片…`, { progress: 0.03 });
     await Promise.all(entries.map(async (entry) => {
@@ -3251,9 +3273,11 @@ async function recognizeShoppingScreenshots(form) {
         if (entry.annotation) entry.annotation = { ...entry.annotation, productImages: [] };
         entry.recognitionError = "";
         entry.recognized = true;
+        entry.recognitionStage = "complete";
       } catch (error) {
         entry.recognitionError = shoppingRecognitionErrorMessage(error);
         entry.recognized = false;
+        entry.recognitionStage = "error";
       } finally {
         entry.recognitionBusy = false;
         completedCount += 1;
@@ -3286,37 +3310,46 @@ async function recognizeShoppingScreenshots(form) {
 async function handleShoppingScreenshotFile(input) {
   const form = input?.closest("#shopping-import-form");
   const selectedFiles = [...(input?.files || [])];
-  if (selectedFiles.length > 8) {
+  if (selectedFiles.length > SHOPPING_IMPORT_MAX_FILES) {
     input.value = "";
-    setShoppingRecognitionStatus(form, `一次最多只能選擇 8 張；這次選了 ${selectedFiles.length} 張，請重新選擇。`, { progress: 0, tone: "error" });
-    return showToast(`一次最多 8 張；你選了 ${selectedFiles.length} 張，請重新選擇`);
+    setShoppingRecognitionStatus(form, `一次最多處理 ${SHOPPING_IMPORT_MAX_FILES} 張；這次選了 ${selectedFiles.length} 張，請重新選擇。`, { progress: 0, tone: "error" });
+    return showToast(`一次最多 ${SHOPPING_IMPORT_MAX_FILES} 張；你選了 ${selectedFiles.length} 張，請重新選擇`);
   }
   const files = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= 15 * 1024 * 1024);
-  if (!form || !files.length) return showToast("請選擇 1 至 8 張商品截圖，每張小於 15 MB");
-  pendingShoppingImports = [];
+  if (!form || !files.length) return showToast(`請選擇 1 至 ${SHOPPING_IMPORT_MAX_FILES} 張商品截圖，每張小於 15 MB`);
+  pendingShoppingImports = files.map((file, index) => ({
+    id: `shopping-import-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
+    file,
+    dataUrl: "",
+    details: { brand: "", name: "", benefits: "", categoryId: "daily", newCategory: "" },
+    productImages: [],
+    seenProductImageIds: [],
+    selectedProductImageId: "",
+    imageSearchRound: 0,
+    recognitionStage: "queued",
+  }));
   const confirm = form.querySelector('button[type="submit"]');
   if (confirm) confirm.disabled = true;
+  form.dataset.shoppingPreparing = "true";
+  renderShoppingImportRows(form);
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
+    const entry = pendingShoppingImports[index];
+    entry.recognitionStage = "preparing";
+    renderShoppingImportRows(form);
     setShoppingRecognitionStatus(form, `正在準備第 ${index + 1}／${files.length} 張圖片…`, { progress: (index + 0.15) / files.length });
     try {
-      const dataUrl = await compressShoppingScreenshot(file);
-      pendingShoppingImports.push({
-        id: `shopping-import-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
-        file,
-        dataUrl,
-        details: { brand: "", name: "", benefits: "", categoryId: "daily", newCategory: "" },
-        productImages: [],
-        seenProductImageIds: [],
-        selectedProductImageId: "",
-        imageSearchRound: 0,
-      });
-      renderShoppingImportRows(form);
+      entry.dataUrl = await compressShoppingScreenshot(file);
+      entry.recognitionStage = "ready";
     } catch {
-      showToast(`第 ${index + 1} 張圖片太大，已略過`);
+      entry.recognitionError = "這張圖片無法準備，請移除後重新選擇或手動填寫。";
+      entry.recognitionStage = "error";
     }
+    renderShoppingImportRows(form);
   }
-  if (!pendingShoppingImports.length) return setShoppingRecognitionStatus(form, "沒有可處理的圖片，請先裁切或縮小後再試。", { tone: "error" });
+  form.dataset.shoppingPreparing = "false";
+  renderShoppingImportRows(form);
+  if (!pendingShoppingImports.some((entry) => entry.dataUrl)) return setShoppingRecognitionStatus(form, "沒有可處理的圖片，請先裁切或縮小後再試。", { tone: "error" });
   await recognizeShoppingScreenshots(form);
 }
 
@@ -3327,8 +3360,8 @@ function openShoppingImportSheet() {
       <form id="shopping-import-form" class="modal-sheet shopping-form-sheet shopping-import-sheet" data-shopping-sheet>
         <div class="section-row shopping-sheet-header"><div><p class="section-kicker">SCREENSHOT TO LIST</p><h2>辨識推薦截圖</h2></div><div class="header-actions">${shoppingUndoButtonMarkup("sheet-undo-button")}<button class="icon-button" type="button" data-close-sheet>×</button></div></div>
         <div class="shopping-sheet-body">
-          <label class="shopping-upload-card" for="shopping-screenshot-input"><span>▧</span><strong>一次選擇多張商品截圖</strong><small>最多 8 張，選取後會同時辨識；超過 8 張會要求重新選擇。</small></label>
-          <input id="shopping-screenshot-input" class="shopping-file-input" type="file" accept="image/*" multiple data-max-files="8" data-shopping-screenshot-input />
+          <label class="shopping-upload-card" for="shopping-screenshot-input"><span>▧</span><strong>一次選擇多張商品截圖</strong><small>最多 ${SHOPPING_IMPORT_MAX_FILES} 張；系統相簿仍可多選，回到 App 後會檢查數量並同時辨識。</small></label>
+          <input id="shopping-screenshot-input" class="shopping-file-input" type="file" accept="image/*" multiple data-max-files="${SHOPPING_IMPORT_MAX_FILES}" data-shopping-screenshot-input />
           <div class="shopping-recognition-state"><span data-shopping-recognition-status>多語言 AI 會理解品牌、正式商品名稱、功效與分類</span><i data-shopping-recognition-progress></i></div>
           <div class="shopping-import-results" data-shopping-import-results></div>
           <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions()}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /></fieldset>
@@ -5669,7 +5702,7 @@ document.addEventListener("submit", async (event) => {
     if (!canManageShopping()) return guestOnlyMessage();
     const form = new FormData(event.target);
     syncPendingShoppingImportEdits(event.target);
-    const imports = pendingShoppingImports.filter((entry) => entry.details?.name).slice(0, 8);
+    const imports = pendingShoppingImports.filter((entry) => entry.details?.name).slice(0, SHOPPING_IMPORT_MAX_FILES);
     if (!imports.length) return showToast("請保留至少一個有商品名稱的項目");
     if (imports.some((entry) => entry.details.categoryId === "__custom__" && !entry.details.newCategory)) return showToast("請輸入自訂分類名稱");
     recordShoppingUndo();

@@ -2,6 +2,7 @@
 
 ## 2026-08-12
 
+- Raised Shopping screenshot imports from eight to twelve. The native iOS picker limitation is now stated accurately, over-twelve selections are rejected after returning to the App, AI recognition remains concurrent, and every product card shows an accessible queued/preparing/recognizing/complete/failed progress indicator. All 64 tests pass.
 - Fixed Shopping candidate selection persistence on iPhone by switching selected-image export to bounded JPEG, increasing the private product-image total, and reconciling new items with the server save response. Up to eight screenshots now recognize concurrently, each completed card unlocks `換一批圖片` independently, and over-eight selections are rejected with a clear message. All 64 tests pass.
 - Removed the slow and unreliable GPT Image generation path from Shopping. Recognition now extracts up to three product-image candidates from matching public product pages, the import review lets the user choose one, and `換一批圖片` retrieves a different round while excluding seen candidate IDs. Only the selected image is compressed and stored; all 64 tests pass.
 - Fixed successful product recognition that silently returned no image: generic required tool choice had only forced web search, not image generation. Each upload now runs a dedicated GPT Image Edit request in parallel with Responses recognition, uses the screenshot as the sole reference, and returns safe image-specific permission, quota, input, or service diagnostics while preserving recognized text. All 64 tests pass.

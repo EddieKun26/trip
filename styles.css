@@ -5581,6 +5581,84 @@ body.transport-sheet-open .app {
   opacity: 0.4;
 }
 
+.shopping-import-item-progress {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.shopping-import-item-progress > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.shopping-import-item-progress b,
+.shopping-import-item-progress em {
+  font-style: normal;
+  font-weight: 850;
+}
+
+.shopping-import-item-progress i {
+  position: relative;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(64, 119, 122, 0.13);
+}
+
+.shopping-import-item-progress i::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--mineral);
+}
+
+.shopping-import-item-progress[data-stage="ready"] i::before {
+  width: 18%;
+}
+
+.shopping-import-item-progress[data-stage="preparing"] i::before,
+.shopping-import-item-progress[data-stage="recognizing"] i::before {
+  width: 38%;
+  animation: shopping-import-progress 1.15s ease-in-out infinite;
+}
+
+.shopping-import-item-progress[data-stage="complete"] {
+  color: var(--mineral);
+}
+
+.shopping-import-item-progress[data-stage="complete"] i::before,
+.shopping-import-item-progress[data-stage="error"] i::before {
+  width: 100%;
+}
+
+.shopping-import-item-progress[data-stage="error"] > span {
+  color: #a93429;
+}
+
+.shopping-import-item-progress[data-stage="error"] i::before {
+  background: #a93429;
+}
+
+@keyframes shopping-import-progress {
+  from { transform: translateX(-115%); }
+  to { transform: translateX(310%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shopping-import-item-progress[data-stage="preparing"] i::before,
+  .shopping-import-item-progress[data-stage="recognizing"] i::before {
+    width: 55%;
+    animation: none;
+  }
+}
+
 .shopping-import-product-photo {
   display: grid;
   gap: 8px;

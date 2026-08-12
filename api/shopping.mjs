@@ -10,7 +10,7 @@ const MAX_PHOTOS = 16;
 const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
 const MAX_PRODUCT_IMAGE_LENGTH = 140000;
-const MAX_PRODUCT_IMAGE_TOTAL = 1200000;
+const MAX_PRODUCT_IMAGE_TOTAL = 1600000;
 
 const defaultCategories = [
   { id: "souvenir", name: "伴手禮", builtIn: true },

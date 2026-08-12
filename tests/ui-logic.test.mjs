@@ -552,8 +552,9 @@ test("shopping detail uses the selected web product photo and readable annotatio
 test("shopping import offers three web product-photo candidates and can refresh the batch", () => {
   const importer = sourceSection("function syncPendingShoppingImportEdits", "function itineraryScreen");
   assert.match(importer, /type="file" accept="image\/\*" multiple/);
-  assert.match(importer, /data-max-files="8"/);
-  assert.match(importer, /selectedFiles\.length > 8/);
+  assert.match(appSource, /SHOPPING_IMPORT_MAX_FILES = 12/);
+  assert.match(importer, /data-max-files="\$\{SHOPPING_IMPORT_MAX_FILES\}"/);
+  assert.match(importer, /selectedFiles\.length > SHOPPING_IMPORT_MAX_FILES/);
   assert.match(importer, /input\.value = ""/);
   assert.match(importer, /data-import-brand/);
   assert.match(importer, /data-import-name/);
@@ -569,12 +570,17 @@ test("shopping import offers three web product-photo candidates and can refresh 
   assert.match(importer, /shopping-import-image-options/);
   assert.match(importer, /Promise\.all\(entries\.map\(async \(entry\)/);
   assert.match(importer, /AI 正在同時辨識/);
+  assert.match(importer, /shoppingImportProgressMarkup/);
+  assert.match(importer, /recognitionStage = "recognizing"/);
+  assert.match(importer, /recognitionStage = "complete"/);
   assert.match(importer, /toDataURL\("image\/jpeg"/);
   assert.doesNotMatch(importer, /for \(let currentIndex = 0; currentIndex < pendingShoppingImports\.length/);
   assert.doesNotMatch(appSource, /OPENAI_IMAGE_403|API 組織驗證|AI 純白商品圖/);
   assert.match(importer, /shopping-original-screenshot/);
   assert.match(stylesSource, /\.shopping-import-fields\s*{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
   assert.match(stylesSource, /\.shopping-import-image-options\s*{[^}]*repeat\(3, minmax\(0, 1fr\)\)/s);
+  assert.match(stylesSource, /\.shopping-import-item-progress\[data-stage="recognizing"\] i::before/);
+  assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
 test("shopping categories and recipient filters can be managed from the list and forms", () => {
