@@ -253,6 +253,7 @@ const state = {
   shoppingLoaded: false,
   shoppingFilter: "all",
   shoppingStatus: "all",
+  shoppingRecipientFilter: "all",
 };
 
 const app = document.querySelector("#app");
@@ -1456,6 +1457,7 @@ async function switchTrip(tripId) {
   state.shoppingLoaded = false;
   state.shopping = emptyShoppingState();
   state.shoppingFilter = "all";
+  state.shoppingRecipientFilter = "all";
   shoppingUndoSnapshot = null;
   shoppingSelectionMode = false;
   shoppingSelectedIds.clear();
@@ -1634,12 +1636,17 @@ function overviewPlanningSummary() {
   const scheduledPlaces = scheduledItems.filter((item) => item.type !== "flight");
   const scheduledNames = new Set(scheduledPlaces.map((item) => item.name));
   const plannedDays = dateMeta.filter(([date]) => (state.itinerary[date] || []).some((item) => item.type !== "flight")).length;
+  const itineraryDays = dateMeta.filter(([date]) => (state.itinerary[date] || []).length > 0).length;
   const favoritePlaces = state.places.filter((place) => placeVoters(place.name).length > 0);
   const unplannedFavorites = favoritePlaces.filter((place) => !scheduledNames.has(place.name));
   const lodgingCount = state.places.filter((place) => place.kind === "lodging").length;
   const pairs = dateMeta.flatMap(([date]) => itineraryAdjacentPairs(date).map((pair) => ({ date, ...pair })));
   const missingTransport = pairs.filter(({ date, from, to }) => !transportForPair(date, itineraryItemKey(from), itineraryItemKey(to))).length;
-  const checks = [state.flights.length > 0, lodgingCount > 0, scheduledPlaces.length > 0, pairs.length > 0 && missingTransport === 0];
+  const flightProgress = Math.min(1, state.flights.length / 2);
+  const lodgingProgress = lodgingCount > 0 ? 1 : 0;
+  const itineraryProgress = dateMeta.length ? itineraryDays / dateMeta.length : 0;
+  const transportProgress = pairs.length ? (pairs.length - missingTransport) / pairs.length : 0;
+  const readiness = Math.round((flightProgress * 20) + (lodgingProgress * 20) + (itineraryProgress * 40) + (transportProgress * 20));
   const actions = [];
   if (!state.flights.length) actions.push({ icon: "✈", title: "加入航班資料", detail: "讓去回程自動出現在每日行程", action: "flight" });
   if (!lodgingCount) actions.push({ icon: "◇", title: "住宿尚未決定", detail: "加入住宿後可直接比較景點距離", action: "lodging" });
@@ -1653,7 +1660,7 @@ function overviewPlanningSummary() {
     favoritePlaces,
     lodgingCount,
     missingTransport,
-    readiness: Math.round((checks.filter(Boolean).length / checks.length) * 100),
+    readiness,
     actions: actions.slice(0, 3),
   };
 }
@@ -1686,8 +1693,8 @@ function overviewScreen() {
 
       <section class="overview-status-card">
         <div><small>${escapeHtml(status.eyebrow)}</small><strong>${escapeHtml(status.title)}</strong><span>${escapeHtml(state.destination)} · ${dateMeta.length} 天</span></div>
-        <div class="overview-readiness"><strong>${summary.readiness}<small>%</small></strong><span>準備度</span></div>
-        <div class="overview-progress" aria-label="旅程準備度 ${summary.readiness}%"><i style="width:${summary.readiness}%"></i></div>
+        <div class="overview-readiness"><strong>${summary.readiness}<small>%</small></strong><span>規劃完成度</span></div>
+        <div class="overview-progress" aria-label="行程規劃完成度 ${summary.readiness}%"><i style="width:${summary.readiness}%"></i></div>
       </section>
 
       <section class="flight-section overview-flight-section">
@@ -2619,7 +2626,7 @@ function shoppingAiProductImages(item) {
   return (Array.isArray(item?.aiAnnotation?.productImages) ? item.aiAnnotation.productImages : [])
     .filter((image) => /^https:\/\//i.test(String(image?.url || "")) && /^https:\/\//i.test(String(image?.pageUrl || "")))
     .filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index)
-    .slice(0, 4);
+    .slice(0, 1);
 }
 
 function shoppingPreferredPhoto(item) {
@@ -2657,6 +2664,7 @@ async function restoreShoppingAction() {
 function shoppingFilteredItems() {
   return [...state.shopping.items]
     .filter((item) => state.shoppingFilter === "all" || item.categoryId === state.shoppingFilter)
+    .filter((item) => state.shoppingRecipientFilter === "all" || item.recipientTagIds.includes(state.shoppingRecipientFilter))
     .filter((item) => state.shoppingStatus === "all" || (state.shoppingStatus === "done" ? item.purchased : !item.purchased))
     .sort((a, b) => Number(a.purchased) - Number(b.purchased) || String(b.createdAt).localeCompare(String(a.createdAt)));
 }
@@ -2695,6 +2703,15 @@ function shoppingScreen() {
   const total = state.shopping.items.length;
   const done = state.shopping.items.filter((item) => item.purchased).length;
   const pending = total - done;
+  const recipientOptions = state.shopping.tags
+    .map((tag) => {
+      const taggedItems = state.shopping.items.filter((item) => item.recipientTagIds.includes(tag.id));
+      return { ...tag, total: taggedItems.length, done: taggedItems.filter((item) => item.purchased).length };
+    })
+    .filter((tag) => tag.total > 0);
+  if (state.shoppingRecipientFilter !== "all" && !recipientOptions.some((tag) => tag.id === state.shoppingRecipientFilter)) state.shoppingRecipientFilter = "all";
+  const activeRecipient = recipientOptions.find((tag) => tag.id === state.shoppingRecipientFilter);
+  const recipientFilter = recipientOptions.length ? `<section class="shopping-recipient-filter"><div><span>買給誰</span><div><button type="button" data-shopping-recipient="all" class="${state.shoppingRecipientFilter === "all" ? "active" : ""}">全部</button>${recipientOptions.map((tag) => `<button type="button" data-shopping-recipient="${escapeHtml(tag.id)}" class="${state.shoppingRecipientFilter === tag.id ? "active" : ""}">${escapeHtml(tag.name)} <b>${tag.done}/${tag.total}</b></button>`).join("")}</div></div><p>${activeRecipient ? `${escapeHtml(activeRecipient.name)} · 已買 ${activeRecipient.done} 項 · 未買 ${activeRecipient.total - activeRecipient.done} 項` : "選擇對象後，可配合未購買／已購買查看他的採買項目。"}</p></section>` : "";
   const categoryTabs = [
     `<button type="button" data-shopping-category="all" class="${state.shoppingFilter === "all" ? "active" : ""}">全部 <b>${total}</b></button>`,
     ...state.shopping.categories.map((category) => {
@@ -2720,6 +2737,7 @@ function shoppingScreen() {
         <i style="--shopping-progress:${total ? Math.round((done / total) * 100) : 0}%"></i>
       </section>
       <div class="shopping-category-tabs">${categoryTabs}</div>
+      ${recipientFilter}
       <div class="shopping-status-tabs" role="group" aria-label="購買狀態">
         <button type="button" data-shopping-status="all" class="${state.shoppingStatus === "all" ? "active" : ""}">全部</button>
         <button type="button" data-shopping-status="pending" class="${state.shoppingStatus === "pending" ? "active" : ""}">未購買</button>
@@ -2744,14 +2762,14 @@ function shoppingTagOptions(selectedIds = []) {
   const selected = new Set(selectedIds);
   if (!state.shopping.tags.length) return `<p class="shopping-tags-empty">儲存第一個標記後，下次就能直接點選。</p>`;
   return state.shopping.tags.map((tag) => `
-    <label class="shopping-tag-option" data-shopping-tag-name="${escapeHtml(tag.name)}">
-      <input type="checkbox" name="recipientTag" value="${escapeHtml(tag.id)}" ${selected.has(tag.id) ? "checked" : ""} />
-      <span>${escapeHtml(tag.name)}</span>
-    </label>`).join("");
+    <span class="shopping-tag-option-row">
+      <label class="shopping-tag-option" data-shopping-tag-name="${escapeHtml(tag.name)}"><input type="checkbox" name="recipientTag" value="${escapeHtml(tag.id)}" ${selected.has(tag.id) ? "checked" : ""} /><span>${escapeHtml(tag.name)}</span></label>
+      <button type="button" data-remove-shopping-tag="${escapeHtml(tag.id)}" aria-label="移除${escapeHtml(tag.name)}">×</button>
+    </span>`).join("");
 }
 
-function shoppingCategoryOptions(selectedId = "daily") {
-  return state.shopping.categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedId ? "selected" : ""}>${escapeHtml(category.name)}</option>`).join("");
+function shoppingCategoryOptions(selectedId = "daily", includeCustom = true) {
+  return `${state.shopping.categories.map((category) => `<option value="${escapeHtml(category.id)}" ${category.id === selectedId ? "selected" : ""}>${escapeHtml(category.name)}</option>`).join("")}${includeCustom ? `<option value="__custom__" ${selectedId === "__custom__" ? "selected" : ""}>＋ 新增自訂分類</option>` : ""}`;
 }
 
 function openShoppingDetailSheet(itemId) {
@@ -2761,47 +2779,39 @@ function openShoppingDetailSheet(itemId) {
   const tags = item.recipientTagIds.map(shoppingTagName).filter(Boolean);
   const annotation = item.aiAnnotation;
   const productImages = shoppingAiProductImages(item);
-  const selectedProductImage = productImages.find((image) => image.url === item.preferredProductImageUrl)?.url || productImages[0]?.url || "";
+  const productImage = productImages[0];
   const aiList = (title, values) => Array.isArray(values) && values.length
     ? `<div><b>${title}</b><ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul></div>`
     : "";
-  const sourceLinks = Array.isArray(annotation?.sources) && annotation.sources.length
-    ? `<div class="shopping-ai-sources"><b>查證來源</b>${annotation.sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title || "商品資料來源")} ↗</a>`).join("")}</div>`
-    : "";
-  const aiProductPhotos = productImages.length
-    ? `<div class="shopping-product-photo-section"><div><small>AI 找到的商品照片</small><strong>從查證過的商品頁取得</strong></div><div class="shopping-product-photo-rail">${productImages.map((image, index) => `<figure class="${image.url === selectedProductImage ? "selected" : ""}"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(item.name)}商品照片 ${index + 1}" referrerpolicy="no-referrer" /><figcaption>${escapeHtml(image.sourceTitle || "商品資料來源")}</figcaption><div><a href="${escapeHtml(image.pageUrl)}" target="_blank" rel="noopener noreferrer">查看來源 ↗</a>${canManageShopping() ? `<button type="button" data-set-shopping-product-image="${escapeHtml(item.id)}" data-product-image-url="${escapeHtml(image.url)}">${image.url === selectedProductImage ? "✓ 清單封面" : "設為封面"}</button>` : ""}</div></figure>`).join("")}</div><p class="shopping-product-photo-limit">照片保留在來源網站，AI 不會把網路圖片複製進你的私人資料庫。</p></div>`
-    : `<p class="shopping-product-photo-empty">這次沒有從已查證的商品頁找到可安全顯示的實品照；可更新 AI 查詢再試一次。</p>`;
+  const aiProductPhoto = productImage ? `<figure class="shopping-ai-product-photo"><img src="${escapeHtml(productImage.url)}" alt="${escapeHtml(item.name)}商品正面圖" referrerpolicy="no-referrer" /><figcaption>AI 找到的商品正面圖</figcaption></figure>` : "";
   const aiAnnotation = annotation
     ? `<section class="shopping-ai-annotation">
-        <div class="shopping-ai-heading"><div><small>AI 商品註解</small><strong>採買參考 ${Number(annotation.recommendationScore) || 1} / 5</strong></div><span aria-label="採買參考指數 ${Number(annotation.recommendationScore) || 1} 分">${"★".repeat(Math.max(1, Math.min(5, Number(annotation.recommendationScore) || 1)))}${"☆".repeat(5 - Math.max(1, Math.min(5, Number(annotation.recommendationScore) || 1)))}</span></div>
-        ${aiProductPhotos}
+        <div class="shopping-ai-heading"><div><small>AI 商品註解</small><strong>商品資訊</strong></div></div>
         ${annotation.summary ? `<p>${escapeHtml(annotation.summary)}</p>` : ""}
         ${aiList("商品特色", annotation.features)}
         ${aiList("使用方式", annotation.usage)}
         ${aiList("注意事項", annotation.cautions)}
-        ${annotation.recommendationReason ? `<div class="shopping-ai-reason"><b>指數依據</b><p>${escapeHtml(annotation.recommendationReason)}</p></div>` : ""}
-        ${sourceLinks}
-        <p class="shopping-ai-disclaimer">此指數只供採買辨識參考，不代表療效、安全性或個人醫療建議；藥品與保健品請以產品標示及醫師、藥師建議為準。</p>
-        <button class="shopping-ai-refresh" type="button" data-research-shopping-item="${escapeHtml(item.id)}">更新 AI 註解</button>
+        <p class="shopping-ai-disclaimer">資訊供採買辨識參考；藥品與保健品請以產品標示及醫師、藥師建議為準。</p>
       </section>`
     : `<section class="shopping-ai-annotation empty">
-        <div><small>AI 商品註解與照片</small><strong>查詢實品照、特色、使用方式與採買參考指數</strong><p>只在你按下時使用一次 API，不會因為打開商品而自動扣款。</p></div>
-        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">用 AI 查詢資料與照片</button>
+        <div><small>舊商品／手動新增</small><strong>尚未有 AI 商品資料</strong><p>新截圖會在第一次辨識時一起取得；只有舊資料需要補查。</p></div>
+        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">補查資料與照片</button>
       </section>`;
   sheetRoot.innerHTML = `
-    <div class="modal-backdrop" data-dismiss-sheet>
+    <div class="modal-backdrop shopping-detail-backdrop" data-dismiss-sheet>
       <section class="modal-sheet shopping-detail-sheet" data-shopping-sheet role="dialog" aria-modal="true" aria-labelledby="shopping-detail-title">
         <div class="section-row">
           <div><p class="section-kicker">${escapeHtml(shoppingCategoryName(item.categoryId))}</p><h2 id="shopping-detail-title">${escapeHtml(item.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        ${sourcePhoto ? `<figure class="shopping-source-photo"><img class="shopping-detail-photo" src="${escapeHtml(sourcePhoto)}" alt="${escapeHtml(item.name)}原始推薦截圖" /><figcaption>原始推薦截圖</figcaption></figure>` : `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
+        ${aiProductPhoto || `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
         <div class="shopping-detail-state ${item.purchased ? "done" : ""}"><span>${item.purchased ? "✓" : "○"}</span><strong>${item.purchased ? "已經買到了" : "還沒有購買"}</strong></div>
         <section class="shopping-detail-facts"><div><small>品牌</small><strong>${escapeHtml(item.brand || "尚未辨識")}</strong></div><div><small>分類</small><strong>${escapeHtml(shoppingCategoryName(item.categoryId))}</strong></div></section>
         <section class="shopping-detail-block"><small>功效／推薦重點</small><p>${item.benefits ? escapeHtml(item.benefits) : "尚未辨識功效"}</p></section>
         <section class="shopping-detail-block"><small>購買對象</small><div class="shopping-recipient-tags">${tags.length ? tags.map((name) => `<span>${escapeHtml(name)}</span>`).join("") : `<em>尚未標記</em>`}</div></section>
         <section class="shopping-detail-block"><small>備註</small><p>${item.note ? escapeHtml(item.note) : "尚未新增備註"}</p></section>
         ${aiAnnotation}
+        ${sourcePhoto ? `<details class="shopping-source-photo"><summary>查看原始辨識圖片</summary><img class="shopping-detail-photo" src="${escapeHtml(sourcePhoto)}" alt="${escapeHtml(item.name)}原始推薦截圖" /></details>` : ""}
         <div class="shopping-privacy-note"><b>鎖</b><span>這筆採買只屬於你的「${escapeHtml(state.tripTitle)}」清單，旅伴無法查看。</span></div>
         <div class="modal-actions shopping-detail-actions"><button class="secondary-button" type="button" data-request-delete-shopping="${escapeHtml(item.id)}">刪除</button><button class="primary-button" type="button" data-edit-shopping-item="${escapeHtml(item.id)}">編輯資料</button></div>
       </section>
@@ -2824,8 +2834,8 @@ function openShoppingItemSheet(itemId = "") {
           <div class="field"><label>品牌名稱</label><input name="brand" maxlength="100" value="${escapeHtml(item.brand || "")}" placeholder="例如 興和製藥" /></div>
           <div class="field"><label>物品名稱</label><input name="name" required maxlength="100" value="${escapeHtml(item.name)}" placeholder="例如 東京香蕉" /></div>
           <div class="field"><label>功效／推薦重點</label><textarea name="benefits" maxlength="500" placeholder="例如 關節保養、維持靈活行動">${escapeHtml(item.benefits || "")}</textarea></div>
-          <div class="field"><label>分類</label><select name="categoryId">${shoppingCategoryOptions(item.categoryId)}</select></div>
-          <div class="field"><label>新增自訂分類（選填）</label><input name="newCategory" maxlength="24" placeholder="輸入後會保留在分類列" /></div>
+          <div class="field"><label>分類</label><select name="categoryId" data-shopping-category-select>${shoppingCategoryOptions(item.categoryId)}</select></div>
+          <div class="field shopping-custom-category-field" data-shopping-custom-category hidden><label>自訂分類名稱</label><input name="newCategory" maxlength="24" placeholder="例如 文具、紀念品" /></div>
           <fieldset class="shopping-tags-field"><legend>買給誰</legend><div class="shopping-tag-options">${shoppingTagOptions(item.recipientTagIds)}</div><input name="newTags" maxlength="100" placeholder="新增標記，例如：媽媽、同事" /><small>多個標記可用逗號分隔；儲存後下次可直接點選。</small></fieldset>
           <div class="field"><label>備註</label><textarea name="note" maxlength="800" placeholder="數量、尺寸、口味、送給誰或購買地點…">${escapeHtml(item.note)}</textarea></div>
           <label class="shopping-purchased-toggle"><input type="checkbox" name="purchased" ${item.purchased ? "checked" : ""} /><span><b>已經買到了</b><small>勾選後會移到已購買</small></span></label>
@@ -2837,16 +2847,23 @@ function openShoppingItemSheet(itemId = "") {
 }
 
 function openShoppingCategorySheet() {
-  const rows = state.shopping.categories.map((category) => `<div><strong>${escapeHtml(category.name)}</strong><span>${category.builtIn ? "預設分類" : "自訂分類"}</span></div>`).join("");
+  const rows = state.shopping.categories.map((category) => `<div><span><strong>${escapeHtml(category.name)}</strong><small>${category.builtIn ? "預設分類" : "自訂分類"}</small></span>${category.builtIn ? "" : `<button type="button" data-request-delete-shopping-category="${escapeHtml(category.id)}" aria-label="移除${escapeHtml(category.name)}">×</button>`}</div>`).join("");
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
-      <form id="shopping-category-form" class="modal-sheet" data-shopping-sheet>
+      <section class="modal-sheet" data-shopping-sheet>
         <div class="section-row"><div><p class="section-kicker">整理方式</p><h2>採買分類</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
         <div class="shopping-category-list">${rows}</div>
-        <div class="field"><label>新增自訂分類</label><input name="name" maxlength="24" required placeholder="例如 文具、紀念品" /></div>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">新增分類</button></div>
-      </form>
+        <p class="shopping-category-hint">新增分類請在商品的「分類」下拉選單選擇「＋ 新增自訂分類」。</p>
+        <div class="modal-actions"><button class="primary-button" type="button" data-close-sheet>完成</button></div>
+      </section>
     </div>`;
+}
+
+function openShoppingCategoryDeleteSheet(categoryId) {
+  const category = state.shopping.categories.find((candidate) => candidate.id === categoryId && !candidate.builtIn);
+  if (!category) return;
+  const affected = state.shopping.items.filter((item) => item.categoryId === category.id).length;
+  sheetRoot.innerHTML = `<div class="modal-backdrop" data-dismiss-sheet><section class="modal-sheet" data-shopping-sheet role="alertdialog" aria-modal="true"><div class="danger-mark">刪</div><h2>移除「${escapeHtml(category.name)}」分類？</h2><p>${affected ? `其中 ${affected} 個商品會改到「日常」分類。` : "目前沒有商品使用這個分類。"}</p><div class="modal-actions"><button class="secondary-button" type="button" data-manage-shopping-categories>取消</button><button class="danger-button" type="button" data-confirm-delete-shopping-category="${escapeHtml(category.id)}">確認移除</button></div></section></div>`;
 }
 
 function openShoppingDeleteSheet(itemId) {
@@ -3057,7 +3074,9 @@ function syncPendingShoppingImportEdits(form) {
       name: String(row.querySelector("[data-import-name]")?.value || "").normalize("NFKC").trim().slice(0, 100),
       benefits: String(row.querySelector("[data-import-benefits]")?.value || "").normalize("NFKC").trim().slice(0, 500),
       categoryId: String(row.querySelector("[data-import-category]")?.value || "daily"),
+      newCategory: String(row.querySelector("[data-import-custom-category]")?.value || "").normalize("NFKC").trim().slice(0, 24),
     };
+    entry.useProductImage = Boolean(row.querySelector("[data-import-use-product-image]")?.checked);
   });
 }
 
@@ -3068,15 +3087,17 @@ function renderShoppingImportRows(form) {
   host.innerHTML = pendingShoppingImports.map((entry, index) => `
     <article class="shopping-import-result" data-shopping-import-row="${escapeHtml(entry.id)}">
       <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
-      <img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張推薦商品截圖" />
-      ${entry.recognition?.language ? `<p class="shopping-ai-result-note">AI 已理解${escapeHtml(entry.recognition.language)}內容${entry.recognition.confidence ? ` · 判讀信心 ${Math.round(entry.recognition.confidence * 100)}%` : ""}</p>` : ""}
+      ${entry.productImage?.url ? `<figure class="shopping-import-product-photo"><img src="${escapeHtml(entry.productImage.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}正面商品圖" referrerpolicy="no-referrer" /><label><input type="checkbox" data-import-use-product-image ${entry.useProductImage === false ? "" : "checked"} /><span>使用這張作為清單商品圖</span></label></figure>` : ""}
       ${entry.recognitionError ? `<p class="shopping-ai-result-note error">${escapeHtml(entry.recognitionError)}</p>` : ""}
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
         <div class="field full"><label>功效／推薦重點</label><textarea data-import-benefits maxlength="500" placeholder="可修改自動辨識結果">${escapeHtml(entry.details?.benefits || "")}</textarea></div>
-        <div class="field full"><label>自動分類</label><select data-import-category>${shoppingCategoryOptions(entry.details?.categoryId || "daily")}</select></div>
+        <div class="field full"><label>分類</label><select data-import-category data-shopping-category-select>${shoppingCategoryOptions(entry.details?.categoryId || "daily")}</select></div>
+        <div class="field full shopping-custom-category-field" data-shopping-custom-category ${entry.details?.categoryId === "__custom__" ? "" : "hidden"}><label>自訂分類名稱</label><input data-import-custom-category maxlength="24" value="${escapeHtml(entry.details?.newCategory || "")}" placeholder="例如 文具、紀念品" /></div>
       </div>
+      ${entry.annotation?.summary ? `<p class="shopping-import-summary">${escapeHtml(entry.annotation.summary)}</p>` : ""}
+      <details class="shopping-original-screenshot"><summary>查看原始辨識圖片</summary><img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張原始推薦截圖" /></details>
     </article>`).join("");
 }
 
@@ -3127,6 +3148,9 @@ async function recognizeShoppingScreenshots(form) {
         syncPendingShoppingImportEdits(form);
         entry.details = result.details;
         entry.recognition = { language: result.source?.language || "多語言", confidence: Number(result.confidence) || 0 };
+        entry.annotation = result.annotation || null;
+        entry.productImage = result.annotation?.productImages?.[0] || null;
+        entry.useProductImage = Boolean(entry.productImage);
         entry.recognitionError = "";
         entry.recognized = true;
         renderShoppingImportRows(form);
@@ -3172,7 +3196,7 @@ async function handleShoppingScreenshotFile(input) {
         id: `shopping-import-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
         file,
         dataUrl,
-        details: { brand: "", name: "", benefits: "", categoryId: "daily" },
+      details: { brand: "", name: "", benefits: "", categoryId: "daily", newCategory: "" },
       });
       renderShoppingImportRows(form);
     } catch {
@@ -4607,6 +4631,13 @@ document.addEventListener("click", async (event) => {
     return render({ preserveScroll: true });
   }
 
+  const shoppingRecipient = event.target.closest("[data-shopping-recipient]");
+  if (shoppingRecipient) {
+    state.shoppingRecipientFilter = shoppingRecipient.dataset.shoppingRecipient;
+    shoppingSelectedIds.clear();
+    return render({ preserveScroll: true });
+  }
+
   const shoppingStatus = event.target.closest("[data-shopping-status]");
   if (shoppingStatus) {
     state.shoppingStatus = shoppingStatus.dataset.shoppingStatus;
@@ -4643,6 +4674,41 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-add-shopping-item]")) return canManageShopping() ? openShoppingItemSheet() : guestOnlyMessage();
   if (event.target.closest("[data-import-shopping-screenshot]")) return canManageShopping() ? openShoppingImportSheet() : guestOnlyMessage();
 
+  const removeShoppingTag = event.target.closest("[data-remove-shopping-tag]");
+  if (removeShoppingTag) {
+    if (!canManageShopping()) return guestOnlyMessage();
+    const tagId = removeShoppingTag.dataset.removeShoppingTag;
+    const tag = state.shopping.tags.find((candidate) => candidate.id === tagId);
+    if (!tag) return;
+    recordShoppingUndo();
+    state.shopping.tags = state.shopping.tags.filter((candidate) => candidate.id !== tagId);
+    state.shopping.items.forEach((item) => { item.recipientTagIds = item.recipientTagIds.filter((id) => id !== tagId); });
+    if (state.shoppingRecipientFilter === tagId) state.shoppingRecipientFilter = "all";
+    removeShoppingTag.closest(".shopping-tag-option-row")?.remove();
+    render({ preserveScroll: true });
+    await saveShopping();
+    return showToast(`已移除「${tag.name}」購買對象`, { allowUndo: false });
+  }
+
+  const requestDeleteShoppingCategory = event.target.closest("[data-request-delete-shopping-category]");
+  if (requestDeleteShoppingCategory) return canManageShopping() ? openShoppingCategoryDeleteSheet(requestDeleteShoppingCategory.dataset.requestDeleteShoppingCategory) : guestOnlyMessage();
+
+  const confirmDeleteShoppingCategory = event.target.closest("[data-confirm-delete-shopping-category]");
+  if (confirmDeleteShoppingCategory) {
+    if (!canManageShopping()) return guestOnlyMessage();
+    const categoryId = confirmDeleteShoppingCategory.dataset.confirmDeleteShoppingCategory;
+    const category = state.shopping.categories.find((candidate) => candidate.id === categoryId && !candidate.builtIn);
+    if (!category) return openShoppingCategorySheet();
+    recordShoppingUndo();
+    state.shopping.categories = state.shopping.categories.filter((candidate) => candidate.id !== categoryId);
+    state.shopping.items.forEach((item) => { if (item.categoryId === categoryId) item.categoryId = "daily"; });
+    if (state.shoppingFilter === categoryId) state.shoppingFilter = "all";
+    await saveShopping();
+    openShoppingCategorySheet();
+    render({ preserveScroll: true });
+    return showToast(`已移除「${category.name}」分類`, { allowUndo: false });
+  }
+
   const removeShoppingImport = event.target.closest("[data-remove-shopping-import]");
   if (removeShoppingImport) {
     const form = removeShoppingImport.closest("#shopping-import-form");
@@ -4659,20 +4725,6 @@ document.addEventListener("click", async (event) => {
 
   const researchShopping = event.target.closest("[data-research-shopping-item]");
   if (researchShopping) return researchShoppingItem(researchShopping.dataset.researchShoppingItem, researchShopping);
-
-  const setShoppingProductImage = event.target.closest("[data-set-shopping-product-image]");
-  if (setShoppingProductImage) {
-    if (!canManageShopping()) return guestOnlyMessage();
-    const item = state.shopping.items.find((candidate) => candidate.id === setShoppingProductImage.dataset.setShoppingProductImage);
-    const imageUrl = String(setShoppingProductImage.dataset.productImageUrl || "");
-    if (!item || !shoppingAiProductImages(item).some((image) => image.url === imageUrl)) return;
-    recordShoppingUndo();
-    item.preferredProductImageUrl = imageUrl;
-    item.updatedAt = new Date().toISOString();
-    await saveShopping();
-    openShoppingDetailSheet(item.id);
-    return showToast("已設為清單商品封面", { allowUndo: false });
-  }
 
   const editShoppingItem = event.target.closest("[data-edit-shopping-item]");
   if (editShoppingItem) return canManageShopping() ? openShoppingItemSheet(editShoppingItem.dataset.editShoppingItem) : guestOnlyMessage();
@@ -5251,6 +5303,13 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-shopping-category-select]")) {
+    const owner = event.target.closest("[data-shopping-import-row], #shopping-item-form");
+    const customField = owner?.querySelector("[data-shopping-custom-category]");
+    if (customField) customField.hidden = event.target.value !== "__custom__";
+    return;
+  }
+
   if (event.target.matches("[data-social-place-screenshot]")) {
     handlePlaceImportScreenshotFile(event.target);
     return;
@@ -5457,6 +5516,9 @@ document.addEventListener("submit", async (event) => {
     const form = new FormData(event.target);
     const name = String(form.get("name") || "").normalize("NFKC").trim().slice(0, 100);
     if (!name) return showToast("請輸入採買物品名稱");
+    const selectedCategoryId = String(form.get("categoryId") || "daily");
+    const newCategoryName = String(form.get("newCategory") || "").normalize("NFKC").trim().slice(0, 24);
+    if (selectedCategoryId === "__custom__" && !newCategoryName) return showToast("請輸入自訂分類名稱");
     recordShoppingUndo();
     const now = new Date().toISOString();
     const itemId = event.target.dataset.shoppingItemId || `shopping-${crypto.randomUUID?.() || Date.now()}`;
@@ -5467,7 +5529,7 @@ document.addEventListener("submit", async (event) => {
       brand: String(form.get("brand") || "").normalize("NFKC").trim().slice(0, 100),
       name,
       benefits: String(form.get("benefits") || "").normalize("NFKC").trim().slice(0, 500),
-      categoryId: shoppingCustomCategory(form.get("newCategory"), String(form.get("categoryId") || "daily")),
+      categoryId: selectedCategoryId === "__custom__" ? shoppingCustomCategory(newCategoryName) : selectedCategoryId,
       recipientTagIds: shoppingRecipientTagIds(form),
       note: String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800),
       purchased: form.get("purchased") === "on",
@@ -5486,20 +5548,6 @@ document.addEventListener("submit", async (event) => {
     return showToast(index >= 0 ? "採買資料已更新" : "已加入私人採買清單", { allowUndo: false });
   }
 
-  if (event.target.id === "shopping-category-form") {
-    event.preventDefault();
-    if (!canManageShopping()) return guestOnlyMessage();
-    const name = String(new FormData(event.target).get("name") || "").normalize("NFKC").trim().slice(0, 24);
-    if (!name) return showToast("請輸入分類名稱");
-    recordShoppingUndo();
-    const categoryId = shoppingCustomCategory(name);
-    state.shoppingFilter = categoryId;
-    closeSheet();
-    render();
-    await saveShopping();
-    return showToast(`已新增「${name}」分類`, { allowUndo: false });
-  }
-
   if (event.target.id === "shopping-import-form") {
     event.preventDefault();
     if (!canManageShopping()) return guestOnlyMessage();
@@ -5507,6 +5555,7 @@ document.addEventListener("submit", async (event) => {
     syncPendingShoppingImportEdits(event.target);
     const imports = pendingShoppingImports.filter((entry) => entry.details?.name).slice(0, 8);
     if (!imports.length) return showToast("請保留至少一個有商品名稱的項目");
+    if (imports.some((entry) => entry.details.categoryId === "__custom__" && !entry.details.newCategory)) return showToast("請輸入自訂分類名稱");
     recordShoppingUndo();
     const recipientTagIds = shoppingRecipientTagIds(form);
     const note = String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800);
@@ -5514,18 +5563,21 @@ document.addEventListener("submit", async (event) => {
     const additions = imports.map((entry, index) => {
       const photoId = `shopping-photo-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`;
       state.shopping.photos[photoId] = { dataUrl: entry.dataUrl, createdAt: new Date(Date.now() + index).toISOString() };
+      const categoryId = entry.details.categoryId === "__custom__" ? shoppingCustomCategory(entry.details.newCategory) : entry.details.categoryId || "daily";
+      const productImages = entry.useProductImage && entry.productImage ? [entry.productImage] : [];
+      const aiAnnotation = entry.annotation ? { ...entry.annotation, productImages } : null;
       return {
         id: `shopping-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
         brand: entry.details.brand,
         name: entry.details.name,
         benefits: entry.details.benefits,
-        categoryId: entry.details.categoryId || "daily",
+        categoryId,
         recipientTagIds,
         note,
         purchased: false,
         photoId,
-        preferredProductImageUrl: "",
-        aiAnnotation: null,
+        preferredProductImageUrl: productImages[0]?.url || "",
+        aiAnnotation,
         createdAt: now,
         updatedAt: now,
       };

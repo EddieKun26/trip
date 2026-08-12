@@ -95,10 +95,9 @@ function researchPrompt() {
 1. 只研究輸入指定的商品；若品牌或品名不足以確認，清楚標示不確定，不可混用同系列其他產品。
 2. featuresZh 整理商品特色與適用情境；usageZh 只整理來源可支持的一般使用方式或標示用法，不可提供個人化醫療建議。
 3. cautionsZh 整理重要限制、保存或安全提醒。藥品、保健品與保養品不得宣稱保證療效，也不得替代醫師、藥師或產品標示。
-4. recommendationScore 是 1 到 5 的「採買參考指數」，只衡量資料完整度、來源一致性、用途清楚度與旅途中辨識實用性，不是療效、安全性或適合個人的評分。資料不足時不得高於 3。
-5. recommendationReason 必須說明分數依據；summaryZh 用一至兩句話說明這是什麼商品。
-6. 不要捏造售價、成分、用量、功效或來源沒有支持的資訊。
-7. 請實際開啟與這個商品完全相符的官方商品頁或可信零售商品頁，並在回答中引用它們；系統會從你查證過的商品頁中尋找實際商品照片。不要只引用首頁、搜尋結果頁或泛用文章。`;
+4. summaryZh 用一至兩句話說明這是什麼商品，不要重複其餘欄位。
+5. 不要捏造售價、成分、用量、功效或來源沒有支持的資訊。
+6. 請實際開啟與這個商品完全相符的官方商品頁或可信零售商品頁，並在回答中引用它們；系統會從你查證過的商品頁中尋找一張正面商品照片。不要只引用首頁、搜尋結果頁或泛用文章。`;
 }
 
 const responseSchema = {
@@ -108,11 +107,9 @@ const responseSchema = {
     featuresZh: { type: "array", items: { type: "string" } },
     usageZh: { type: "array", items: { type: "string" } },
     cautionsZh: { type: "array", items: { type: "string" } },
-    recommendationScore: { type: "integer", minimum: 1, maximum: 5 },
-    recommendationReason: { type: "string" },
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
-  required: ["summaryZh", "featuresZh", "usageZh", "cautionsZh", "recommendationScore", "recommendationReason", "confidence"],
+  required: ["summaryZh", "featuresZh", "usageZh", "cautionsZh", "confidence"],
   additionalProperties: false,
 };
 
@@ -232,6 +229,13 @@ function jsonLdImages(value, found = []) {
 
 function productImageUrls(html, pageUrl) {
   const preferred = [];
+  for (const match of String(html || "").matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      preferred.push(...jsonLdImages(JSON.parse(decodeHtml(match[1]))));
+    } catch {
+      // Invalid third-party JSON-LD is ignored; Open Graph metadata can still supply a photo.
+    }
+  }
   for (const tag of String(html || "").match(/<meta\b[^>]*>/gi) || []) {
     const attributes = htmlAttributes(tag);
     const key = String(attributes.property || attributes.name || "").toLocaleLowerCase();
@@ -240,13 +244,6 @@ function productImageUrls(html, pageUrl) {
   for (const tag of String(html || "").match(/<link\b[^>]*>/gi) || []) {
     const attributes = htmlAttributes(tag);
     if (String(attributes.rel || "").toLocaleLowerCase() === "image_src") preferred.push(attributes.href);
-  }
-  for (const match of String(html || "").matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      preferred.push(...jsonLdImages(JSON.parse(decodeHtml(match[1]))));
-    } catch {
-      // Invalid third-party JSON-LD is ignored; Open Graph metadata can still supply a photo.
-    }
   }
   return preferred
     .map((value) => absoluteImageUrl(value, pageUrl))
@@ -285,10 +282,20 @@ async function fetchProductPage(source) {
   return [];
 }
 
-async function findProductImages(sources) {
-  const settled = await Promise.allSettled((Array.isArray(sources) ? sources : []).slice(0, 5).map(fetchProductPage));
-  const images = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-  return images.filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index).slice(0, 4);
+async function findProductImages(sources, limit = 1) {
+  const images = [];
+  for (const source of (Array.isArray(sources) ? sources : []).slice(0, 5)) {
+    try {
+      const found = await fetchProductPage(source);
+      for (const image of found) {
+        if (!images.some((candidate) => candidate.url === image.url)) images.push(image);
+        if (images.length >= limit) return images;
+      }
+    } catch {
+      // A blocked source page should not prevent text research or trying the next cited page.
+    }
+  }
+  return images;
 }
 
 function openAiError(status, payload) {
@@ -304,11 +311,9 @@ function cleanAnnotation(value, sources = [], productImages = []) {
     features: cleanList(value?.featuresZh),
     usage: cleanList(value?.usageZh),
     cautions: cleanList(value?.cautionsZh),
-    recommendationScore: Math.max(1, Math.min(5, Math.round(Number(value?.recommendationScore) || 1))),
-    recommendationReason: cleanText(value?.recommendationReason, 300),
     confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
     sources: sources.slice(0, 4),
-    productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 4),
+    productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 1),
     researchedAt: new Date().toISOString(),
   };
 }
@@ -392,4 +397,4 @@ export default async function shoppingResearchHandler(request, response) {
   }
 }
 
-export { cleanAnnotation, findProductImages, openAiCredential, productImageUrls, responseSchema, safeHttpsUrl };
+export { cleanAnnotation, findProductImages, openAiCredential, openAiSources, productImageUrls, responseSchema, safeHttpsUrl };

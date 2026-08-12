@@ -204,7 +204,9 @@ test("transport UI supports compact and scheduled cards, route links, members, a
 
 test("overview is a decision dashboard and one-level undo is available", () => {
   const overviewSection = sourceSection("function overviewTripStatus", "function placesScreen");
-  assert.match(overviewSection, /準備度/);
+  assert.match(overviewSection, /規劃完成度/);
+  assert.match(overviewSection, /flightProgress \* 20/);
+  assert.match(overviewSection, /itineraryProgress \* 40/);
   assert.match(overviewSection, /接下來處理/);
   assert.match(overviewSection, /overview-flight-section/);
   assert.match(overviewSection, /data-add-flight/);
@@ -524,25 +526,27 @@ test("shopping supports left-swipe deletion, batch deletion, and clearer stored 
   assert.match(stylesSource, /\.shopping-detail-photo\s*{[^}]*object-fit:\s*contain/s);
 });
 
-test("shopping detail uses AI-found product photos and on-demand research annotations", () => {
+test("shopping detail uses one large AI-found product photo and readable annotations", () => {
   const detail = sourceSection("function openShoppingDetailSheet", "function openShoppingItemSheet");
   assert.match(detail, /原始推薦截圖/);
-  assert.match(detail, /AI 找到的商品照片/);
-  assert.match(detail, /data-set-shopping-product-image/);
-  assert.match(detail, /查看來源/);
+  assert.match(detail, /AI 找到的商品正面圖/);
+  assert.match(detail, /shopping-ai-product-photo/);
+  assert.doesNotMatch(detail, /data-set-shopping-product-image/);
+  assert.doesNotMatch(detail, /查看來源/);
   assert.doesNotMatch(detail, /data-shopping-product-photo-input/);
   assert.doesNotMatch(detail, /新增照片/);
   assert.match(detail, /data-research-shopping-item/);
-  assert.match(detail, /採買參考/);
-  assert.match(detail, /不代表療效、安全性或個人醫療建議/);
+  assert.doesNotMatch(detail, /採買參考/);
+  assert.match(detail, /請以產品標示及醫師、藥師建議為準/);
   assert.match(appSource, /fetch\("\/api\/shopping-research"/);
   assert.match(appSource, /shoppingPreferredPhoto\(item\)/);
   assert.match(appSource, /shoppingAiProductImages\(item\)/);
-  assert.match(stylesSource, /\.shopping-product-photo-rail/);
+  assert.match(stylesSource, /\.shopping-ai-product-photo img\s*{[^}]*max-height:\s*310px/s);
+  assert.match(stylesSource, /\.shopping-detail-backdrop\s*{[^}]*align-items:\s*center/s);
   assert.match(stylesSource, /\.shopping-ai-annotation/);
 });
 
-test("shopping import accepts multiple images and creates one editable result per image", () => {
+test("shopping import accepts multiple images and combines recognition research and one photo", () => {
   const importer = sourceSection("function syncPendingShoppingImportEdits", "function itineraryScreen");
   assert.match(importer, /type="file" accept="image\/\*" multiple/);
   assert.match(importer, /slice\(0, 8\)/);
@@ -550,6 +554,24 @@ test("shopping import accepts multiple images and creates one editable result pe
   assert.match(importer, /data-import-name/);
   assert.match(importer, /data-import-benefits/);
   assert.match(importer, /data-import-category/);
+  assert.match(importer, /entry\.annotation = result\.annotation/);
+  assert.match(importer, /result\.annotation\?\.productImages\?\.\[0\]/);
+  assert.match(importer, /shopping-import-product-photo/);
+  assert.match(importer, /shopping-original-screenshot/);
   assert.match(importer, /for \(let currentIndex = 0; currentIndex < pendingShoppingImports\.length/);
   assert.match(stylesSource, /\.shopping-import-fields\s*{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
+});
+
+test("shopping categories and recipient filters can be managed from the list and forms", () => {
+  const screen = sourceSection("function shoppingScreen", "function openShoppingDetailSheet");
+  assert.match(screen, /shopping-recipient-filter/);
+  assert.match(screen, /data-shopping-recipient/);
+  assert.match(screen, /已買/);
+  assert.match(screen, /未買/);
+  assert.match(screen, /data-remove-shopping-tag/);
+  assert.match(screen, /__custom__/);
+  assert.match(appSource, /data-confirm-delete-shopping-category/);
+  assert.match(appSource, /data-shopping-category-select/);
+  assert.match(stylesSource, /\.shopping-tag-option-row > button/);
+  assert.match(stylesSource, /\.shopping-custom-category-field\[hidden\]/);
 });

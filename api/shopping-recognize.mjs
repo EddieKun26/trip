@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { findProductImages, openAiSources } from "./shopping-research.mjs";
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
@@ -93,7 +94,15 @@ function cleanCategory(value) {
   return ["souvenir", "appliance", "daily", "medicine", "skincare"].includes(category) ? category : "daily";
 }
 
-function cleanRecognition(value) {
+function cleanList(value, limit = 4, itemLength = 180) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => cleanText(item, itemLength))
+    .filter(Boolean)
+    .filter((item, index, list) => list.findIndex((candidate) => comparableText(candidate) === comparableText(item)) === index)
+    .slice(0, limit);
+}
+
+function cleanRecognition(value, sources = [], productImages = []) {
   const benefits = (Array.isArray(value?.benefitsZh) ? value.benefitsZh : [])
     .map((item) => cleanText(item, 80))
     .filter(Boolean)
@@ -111,6 +120,16 @@ function cleanRecognition(value) {
       productNameOriginal: cleanText(value?.productNameOriginal, 100),
       language: cleanText(value?.language, 40),
     },
+    annotation: {
+      summary: cleanText(value?.summaryZh, 500),
+      features: cleanList(value?.featuresZh),
+      usage: cleanList(value?.usageZh),
+      cautions: cleanList(value?.cautionsZh),
+      confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
+      sources: (Array.isArray(sources) ? sources : []).slice(0, 4),
+      productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 1),
+      researchedAt: new Date().toISOString(),
+    },
     confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
   };
 }
@@ -118,7 +137,7 @@ function cleanRecognition(value) {
 function recognitionPrompt() {
   return `你是多語言商品影像辨識專家。請直接理解整張商品推薦圖，而不是只抄 OCR 字串。圖片可能包含繁體中文、簡體中文、日文、韓文、英文、泰文或其他語言。
 
-目標：找出圖片中唯一主要、可購買的商品，並輸出可供台灣旅客使用的結構化資料。
+  目標：找出圖片中唯一主要、可購買的商品，接著使用網路搜尋查證完全相符的官方商品頁或可信零售商品頁，一次輸出可供台灣旅客使用的結構化資料。系統會從引用的商品頁擷取一張正面商品圖。
 
 判讀規則：
 1. 品牌必須是製造商或商品品牌；不可把「日本製造」「安心選擇」「推薦」等標語當品牌。
@@ -127,7 +146,9 @@ function recognitionPrompt() {
 4. benefitsZh 最多四項，只整理圖片明確寫出的功效或推薦重點並翻成繁體中文；不要自行提供診斷、療效保證或圖片未提及的醫療主張。
 5. category 只能是：souvenir（伴手禮）、appliance（家電）、daily（日常）、medicine（藥品／保健食品）、skincare（保養品）。藥品、漢方、維他命與營養補充品皆歸 medicine。
 6. 一張圖只回傳一個主要商品。若圖片文字不清楚，仍應依包裝、商標與版面做最佳整體判斷，並降低 confidence；不可用不連貫的 OCR 碎字填欄位。
-7. 所有欄位都必須有值；真的無法辨識品牌時 brandOriginal 與 brandZh 可填空字串。`;
+7. summaryZh 用一至兩句說明商品；featuresZh 整理商品特色；usageZh 整理一般使用方式；cautionsZh 整理重要注意事項。這四欄必須由圖片與查證來源支持，使用自然繁體中文，避免重複。
+8. 請實際開啟並引用完全相符的商品頁，不可只引用首頁、搜尋結果頁、泛用文章或同系列其他商品。
+9. 所有欄位都必須有值；真的無法辨識品牌時 brandOriginal 與 brandZh 可填空字串。藥品與保健品不得提供個人化醫療建議。`;
 }
 
 const responseSchema = {
@@ -139,10 +160,14 @@ const responseSchema = {
     productNameZh: { type: "string" },
     benefitsZh: { type: "array", items: { type: "string" } },
     category: { type: "string", enum: ["souvenir", "appliance", "daily", "medicine", "skincare"] },
+    summaryZh: { type: "string" },
+    featuresZh: { type: "array", items: { type: "string" } },
+    usageZh: { type: "array", items: { type: "string" } },
+    cautionsZh: { type: "array", items: { type: "string" } },
     language: { type: "string" },
     confidence: { type: "number" },
   },
-  required: ["brandOriginal", "brandZh", "productNameOriginal", "productNameZh", "benefitsZh", "category", "language", "confidence"],
+  required: ["brandOriginal", "brandZh", "productNameOriginal", "productNameZh", "benefitsZh", "category", "summaryZh", "featuresZh", "usageZh", "cautionsZh", "language", "confidence"],
   additionalProperties: false,
 };
 
@@ -203,6 +228,8 @@ async function callOpenAi(apiKey, imageDataUrl) {
           ],
         },
       ],
+      tools: [{ type: "web_search" }],
+      include: ["web_search_call.action.sources"],
       reasoning: { effort: "low" },
       text: {
         verbosity: "low",
@@ -213,14 +240,14 @@ async function callOpenAi(apiKey, imageDataUrl) {
           schema: responseSchema,
         },
       },
-      max_output_tokens: 1200,
+      max_output_tokens: 2000,
       store: false,
     }),
     signal: AbortSignal.timeout(50000),
   });
   const payload = await result.json().catch(() => ({}));
   if (!result.ok) throw openAiError(result.status, payload);
-  return parseOpenAiContent(openAiOutputText(payload));
+  return { value: parseOpenAiContent(openAiOutputText(payload)), payload };
 }
 
 async function enforceDailyLimit(memberId) {
@@ -255,7 +282,10 @@ export default async function shoppingRecognizeHandler(request, response) {
     const apiKey = openAiCredential();
     if (!apiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
     if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
-    const result = cleanRecognition(await callOpenAi(apiKey, imageDataUrl));
+    const openAiResult = await callOpenAi(apiKey, imageDataUrl);
+    const sources = openAiSources(openAiResult.payload);
+    const productImages = await findProductImages(sources, 1);
+    const result = cleanRecognition(openAiResult.value, sources, productImages);
     if (!result.details.name) return sendJson(response, 422, { error: "PRODUCT_NOT_RECOGNIZED" });
     return sendJson(response, 200, result);
   } catch (error) {

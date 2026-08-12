@@ -4395,6 +4395,66 @@ body.transport-sheet-open .app {
   color: var(--mineral);
 }
 
+.shopping-recipient-filter {
+  display: grid;
+  gap: 7px;
+  margin: 7px 0 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(64, 119, 122, 0.25);
+  border-radius: 15px;
+  background: var(--mineral-soft);
+}
+
+.shopping-recipient-filter > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.shopping-recipient-filter > div > span {
+  color: var(--mineral);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.shopping-recipient-filter > div > div {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.shopping-recipient-filter button {
+  flex: 0 0 auto;
+  min-height: 31px;
+  padding: 0 10px;
+  border: 1px solid rgba(64, 119, 122, 0.25);
+  border-radius: 999px;
+  background: white;
+  color: var(--mineral);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.shopping-recipient-filter button.active {
+  background: var(--mineral);
+  color: white;
+}
+
+.shopping-recipient-filter button b {
+  font-size: 9px;
+}
+
+.shopping-recipient-filter p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .shopping-status-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -4851,8 +4911,58 @@ body.transport-sheet-open .app {
   font-size: 48px;
 }
 
+.shopping-detail-backdrop {
+  align-items: center;
+  padding: 14px;
+}
+
+.shopping-detail-sheet {
+  width: min(430px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+  overflow-y: auto;
+  padding: 18px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.shopping-ai-product-photo {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.shopping-ai-product-photo img {
+  width: 100%;
+  max-height: 310px;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  object-fit: contain;
+}
+
+.shopping-ai-product-photo figcaption {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
 .shopping-source-photo {
-  margin: 0;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.shopping-source-photo summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.shopping-source-photo .shopping-detail-photo {
+  max-height: 300px;
 }
 
 .shopping-source-photo figcaption,
@@ -5039,7 +5149,7 @@ body.transport-sheet-open .app {
 .shopping-detail-block p {
   margin: 0;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -5076,20 +5186,13 @@ body.transport-sheet-open .app {
 }
 
 .shopping-ai-heading strong {
-  font-size: 14px;
-}
-
-.shopping-ai-heading > span {
-  color: #b77620;
-  font-size: 15px;
-  letter-spacing: 1px;
-  white-space: nowrap;
+  font-size: 16px;
 }
 
 .shopping-ai-annotation p {
   margin: 0;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
 }
 
@@ -5104,7 +5207,7 @@ body.transport-sheet-open .app {
   margin: 0;
   padding-left: 18px;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -5239,6 +5342,17 @@ body.transport-sheet-open .app {
   gap: 7px;
 }
 
+.shopping-tag-option-row {
+  display: inline-grid;
+  grid-template-columns: auto 24px;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+}
+
 .shopping-tag-option {
   position: relative;
   cursor: pointer;
@@ -5255,12 +5369,23 @@ body.transport-sheet-open .app {
   display: inline-flex;
   align-items: center;
   padding: 0 11px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 999px;
   background: white;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.shopping-tag-option-row > button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1e8dc;
+  color: #9d4338;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .shopping-tag-option input:checked + span {
@@ -5334,13 +5459,39 @@ body.transport-sheet-open .app {
   border-radius: 13px;
 }
 
+.shopping-category-list > div > span {
+  display: grid;
+  gap: 2px;
+}
+
+.shopping-category-list > div > button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(185, 63, 49, 0.3);
+  border-radius: 10px;
+  background: #fff8f4;
+  color: #a93429;
+  font-size: 18px;
+}
+
 .shopping-category-list strong {
   font-size: 13px;
 }
 
-.shopping-category-list span {
+.shopping-category-list small {
   color: var(--muted);
   font-size: 10px;
+}
+
+.shopping-category-hint {
+  margin: 12px 2px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.shopping-custom-category-field[hidden] {
+  display: none;
 }
 
 .shopping-file-input {
@@ -5428,6 +5579,72 @@ body.transport-sheet-open .app {
 .shopping-import-result-head button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+.shopping-import-product-photo {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px;
+  border: 1px solid rgba(64, 119, 122, 0.28);
+  border-radius: 16px;
+  background: white;
+}
+
+.shopping-import-product-photo img {
+  width: 100%;
+  max-height: 310px;
+  display: block;
+  border-radius: 12px;
+  background: white;
+  object-fit: contain;
+}
+
+.shopping-import-product-photo label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.shopping-import-product-photo input {
+  width: 19px;
+  height: 19px;
+  accent-color: var(--mineral);
+}
+
+.shopping-import-summary {
+  margin: 9px 2px 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.shopping-original-screenshot {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.shopping-original-screenshot summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.shopping-original-screenshot img {
+  width: 100%;
+  max-height: 240px;
+  display: block;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: white;
+  object-fit: contain;
 }
 
 .shopping-import-result > img {

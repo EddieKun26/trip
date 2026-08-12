@@ -2,8 +2,9 @@
 
 ## 2026-08-12
 
-- Corrected Shopping product photos to be AI-found rather than manually uploaded. The explicit research action now searches and cites matching official or trusted product pages, safely extracts up to four externally hosted product images, shows each page source, and lets the member choose a list thumbnail while preserving the original recommendation screenshot.
-- Added an explicit AI product-research action to Shopping details. It uses the existing server-side OpenAI key with Responses API web search, complete source metadata, and strict structured output to return a Traditional Chinese summary, product features, general usage, cautions, source links, and a qualified 1-5 shopping-reference index. Opening details never spends API credit automatically, health-related results carry a non-medical disclaimer, and all 62 tests pass.
+- Combined each new Shopping screenshot's multilingual visual recognition, web-grounded product research, structured annotation, and single front-facing product-image discovery into one OpenAI Responses request. Import review saves that result directly, while legacy/manual items retain an explicit optional backfill action.
+- Simplified Shopping import and detail layouts: one larger AI-found product image appears first, editable recognized fields and readable features/usage/cautions follow, source links, stars, and numeric indexes are removed, and the original uploaded screenshot is last in a collapsed disclosure.
+- Added removable custom categories and recipient tags, moved custom-category creation into the category dropdown, and added recipient filters with bought/unbought counts. Corrected Overview's percentage to measure actual flight/lodging/itinerary/transport planning coverage rather than departure proximity. All 63 tests pass.
 
 ## 2026-08-11
 

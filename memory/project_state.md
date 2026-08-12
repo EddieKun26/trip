@@ -3,7 +3,7 @@
 ## Implemented
 
 - Public responsive web app optimized for iPhone 15 Pro.
-- Overview is a decision dashboard with complete trip title/date text, trip status, readiness, planning metrics, prioritized next actions, and a full editable flight list with an add-flight entry point.
+- Overview is a decision dashboard with complete trip title/date text, trip status, a planning-completion percentage derived from flights, lodging, itinerary-day coverage, and transport coverage, prioritized next actions, and a full editable flight list with an add-flight entry point. Days until departure remain a separate status fact and do not affect completion.
 - Four-digit PIN identities persist across devices; guest mode is read-only.
 - Multiple private trips per member, invite-code joining, trip switching, member removal, leaving a trip, and native share links.
 - Shared Redis-backed trip data with revision-aware updates.
@@ -23,14 +23,14 @@
 - Flight date/time values use centered app-rendered labels over native iPhone pickers, avoiding Safari's top-aligned text.
 - Flight ticket images can be selected or photographed, recognized locally in the browser, and used to prefill the flight form before confirmation.
 - A fourth Shopping tab stores a separate private list for each signed-in member and trip. Shopping data never enters the shared trip payload.
-- Shopping items support brand, product name, benefits/recommendation notes, default and custom categories, reusable recipient tags, notes, purchased/unpurchased state, higher-resolution reference photos, detail/edit/delete flows, one-level private undo, confirmed left-swipe deletion, and batch selection/deletion from a toolbar directly above the list.
-- Shopping item details preserve the original recommendation screenshot. An explicit AI research action finds matching official or trusted product pages, extracts up to four externally hosted product images with visible source links, and lets the member choose a list thumbnail without manually uploading product photos.
-- Shopping item details include an on-demand AI product annotation with a web-grounded summary, product features, general usage, cautions, source links, and a qualified 1-5 shopping-reference score; results and the selected image URL are stored privately with the item, while opening a detail never triggers API usage automatically.
-- Up to eight recommendation screenshots can be selected at once. Each image is compressed on-device and sent through an authenticated server endpoint directly to OpenAI Responses API (`gpt-5.6-luna`, original image detail, structured output), which understands the whole image and returns one editable product card with translated brand, official product name, explicit benefits, category, source language, and confidence. Nothing is saved until confirmation.
+- Shopping items support brand, product name, benefits/recommendation notes, removable default/custom categories, reusable removable recipient tags, notes, purchased/unpurchased state, higher-resolution reference photos, detail/edit/delete flows, one-level private undo, confirmed left-swipe deletion, and batch selection/deletion from a toolbar directly above the list. Recipient filters show each person's bought and unbought counts and combine with the status filter.
+- New screenshot imports use one OpenAI Responses request per image to perform multilingual visual identification, web-grounded product research, and structured output together. The server then safely reads the cited product page metadata to attach one likely front-facing external product image; no second AI request or detail-open request is required.
+- Import review shows the single larger product image first, editable brand/product/benefits/category fields and concise AI annotation next, and the member's original screenshot last in a collapsed disclosure. Detail views use larger readable text, show no source-link list, stars, or recommendation index, and preserve the original screenshot at the end.
+- Up to eight recommendation screenshots can be selected at once. Each image is compressed on-device and returns one independently editable product card; the combined annotation and chosen image URL are saved only after explicit confirmation. Legacy or manually created items can still use an explicit backfill action.
 
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 62 tests passing as of 2026-08-12 after replacing manual product-photo uploads with source-linked AI product-image discovery.
+- `node --test tests/*.test.mjs`: 63 tests passing as of 2026-08-12 after combining product recognition/research/photo discovery, adding removable Shopping categories/tags and recipient filters, and correcting Overview completion.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.

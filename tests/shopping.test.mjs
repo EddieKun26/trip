@@ -79,7 +79,7 @@ test("shopping lists are private per member and per trip", async () => {
       preferredProductImageUrl: "https://cdn.example.com/tokyo-banana.jpg",
       aiAnnotation: {
         summary: "東京常見伴手禮。", features: ["獨立包裝"], usage: ["依包裝保存"], cautions: ["留意保存期限"],
-        recommendationScore: 4, recommendationReason: "用途清楚", confidence: 0.9,
+        confidence: 0.9,
         sources: [{ title: "官方網站", url: "https://example.com/product" }], researchedAt: "2026-08-12T00:00:00.000Z",
         productImages: [{ url: "https://cdn.example.com/tokyo-banana.jpg", pageUrl: "https://example.com/product", sourceTitle: "官方網站" }],
       },
@@ -93,7 +93,7 @@ test("shopping lists are private per member and per trip", async () => {
   assert.equal(saved.payload.items[0].benefits, "旅行伴手禮");
   assert.equal(saved.payload.items[0].preferredProductImageUrl, "https://cdn.example.com/tokyo-banana.jpg");
   assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].sourceTitle, "官方網站");
-  assert.equal(saved.payload.items[0].aiAnnotation.recommendationScore, 4);
+  assert.equal(saved.payload.items[0].aiAnnotation.recommendationScore, undefined);
 
   const companionRead = await shoppingRequest(companion.cookie, tripId);
   assert.equal(companionRead.statusCode, 200);

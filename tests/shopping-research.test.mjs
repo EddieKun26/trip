@@ -25,8 +25,6 @@ globalThis.fetch = async (url, options = {}) => {
             featuresZh: ["包裝與用途標示清楚", "適合作為旅行採買辨識資料"],
             usageZh: ["依產品包裝或官方說明使用"],
             cautionsZh: ["若有疾病、用藥或不適，應先詢問醫師或藥師"],
-            recommendationScore: 4,
-            recommendationReason: "官方資料完整，商品名稱與用途一致。",
             confidence: 0.91,
           }),
           annotations: [{ type: "url_citation", title: "Kowa 商品資訊", url: "https://example.com/kowa" }],
@@ -115,7 +113,6 @@ test("shopping AI research is member-only, web-grounded, structured, and never e
   const response = responseMock();
   await shoppingResearchHandler({ method: "POST", headers: { cookie: owner.cookie }, body: { tripId: trip.id, itemId: "item-1" } }, response);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.payload.annotation.recommendationScore, 4);
   assert.equal(response.payload.annotation.features[0], "包裝與用途標示清楚");
   assert.deepEqual(response.payload.annotation.sources, [{ title: "Kowa 商品資訊", url: "https://example.com/kowa" }]);
   assert.deepEqual(response.payload.annotation.productImages, [{
@@ -132,7 +129,7 @@ test("shopping AI research is member-only, web-grounded, structured, and never e
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
   assert.equal(openAiRequests[0].text.format.strict, true);
   assert.equal(openAiRequests[0].store, false);
-  assert.match(openAiRequests[0].input[0].content, /不是療效、安全性或適合個人的評分/);
+  assert.match(openAiRequests[0].input[0].content, /一張正面商品照片/);
   assert.match(openAiRequests[0].input[0].content, /實際開啟.*商品頁/);
 });
 

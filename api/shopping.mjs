@@ -114,14 +114,12 @@ function cleanAiAnnotation(value) {
     }))
     .filter((image) => image.url && image.pageUrl)
     .filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index)
-    .slice(0, 4);
+    .slice(0, 1);
   const annotation = {
     summary: cleanText(value.summary, 500),
     features: cleanTextList(value.features, 4, 180),
     usage: cleanTextList(value.usage, 4, 180),
     cautions: cleanTextList(value.cautions, 4, 180),
-    recommendationScore: Math.max(1, Math.min(5, Math.round(Number(value.recommendationScore) || 1))),
-    recommendationReason: cleanText(value.recommendationReason, 300),
     confidence: Math.max(0, Math.min(1, Number(value.confidence) || 0)),
     sources,
     productImages,
