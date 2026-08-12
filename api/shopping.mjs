@@ -9,6 +9,8 @@ const MAX_TAGS = 80;
 const MAX_PHOTOS = 16;
 const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
+const MAX_PRODUCT_IMAGE_LENGTH = 140000;
+const MAX_PRODUCT_IMAGE_TOTAL = 720000;
 
 const defaultCategories = [
   { id: "souvenir", name: "伴手禮", builtIn: true },
@@ -90,6 +92,19 @@ function cleanTextList(value, limit, itemLength) {
     .slice(0, limit);
 }
 
+function cleanDisplayText(value, length) {
+  return cleanText(value, Math.max(length * 3, 600))
+    .replace(/\[([^\]]+)\]\(\s*https?:\/\/[^)]+\)/gi, "$1")
+    .replace(/\(\s*\[[^\]]+\]\s*\)/g, " ")
+    .replace(/\[\s*(?:https?:\/\/)?(?:www\.)?[\w.-]+\.[a-z]{2,}[^\]]*\]/gi, " ")
+    .replace(/\(?\s*https?:\/\/[^\s<>()\]]+(?:\([^\s<>()]*\)[^\s<>()]*)?\s*\)?/gi, " ")
+    .replace(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s]*)?/gi, " ")
+    .replace(/\s+([，。；、：])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s()（）\[\]]+|[\s()（）\[\]]+$/g, "")
+    .slice(0, length);
+}
+
 function cleanHttpsUrl(value, length = 1000) {
   const url = cleanText(value, length);
   try {
@@ -100,28 +115,30 @@ function cleanHttpsUrl(value, length = 1000) {
   }
 }
 
+function cleanGeneratedImageUrl(value) {
+  const image = String(value || "");
+  return /^data:image\/(?:jpeg|png|webp);base64,/i.test(image) && image.length <= MAX_PRODUCT_IMAGE_LENGTH ? image : "";
+}
+
 function cleanAiAnnotation(value) {
   if (!value || typeof value !== "object") return null;
-  const sources = (Array.isArray(value.sources) ? value.sources : [])
-    .map((source) => ({ title: cleanText(source?.title, 140), url: cleanText(source?.url, 600) }))
-    .filter((source) => source.title && /^https:\/\//i.test(source.url))
-    .slice(0, 4);
   const productImages = (Array.isArray(value.productImages) ? value.productImages : [])
     .map((image) => ({
-      url: cleanHttpsUrl(image?.url),
-      pageUrl: cleanHttpsUrl(image?.pageUrl),
-      sourceTitle: cleanText(image?.sourceTitle, 140),
+      url: cleanGeneratedImageUrl(image?.url),
+      pageUrl: "",
+      sourceTitle: "AI 依原始截圖重製",
+      kind: "ai-generated",
     }))
-    .filter((image) => image.url && image.pageUrl)
+    .filter((image) => image.url)
     .filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index)
     .slice(0, 1);
   const annotation = {
-    summary: cleanText(value.summary, 500),
-    features: cleanTextList(value.features, 4, 180),
-    usage: cleanTextList(value.usage, 4, 180),
-    cautions: cleanTextList(value.cautions, 4, 180),
+    summary: cleanDisplayText(value.summary, 500),
+    features: (Array.isArray(value.features) ? value.features : []).map((item) => cleanDisplayText(item, 180)).filter(Boolean).slice(0, 4),
+    usage: (Array.isArray(value.usage) ? value.usage : []).map((item) => cleanDisplayText(item, 180)).filter(Boolean).slice(0, 4),
+    cautions: (Array.isArray(value.cautions) ? value.cautions : []).map((item) => cleanDisplayText(item, 180)).filter(Boolean).slice(0, 4),
     confidence: Math.max(0, Math.min(1, Number(value.confidence) || 0)),
-    sources,
+    sources: [],
     productImages,
     researchedAt: cleanText(value.researchedAt, 40),
   };
@@ -177,12 +194,16 @@ function cleanShopping(input, previous) {
     photoTotal += dataUrl.length;
   }
 
+  let productImageTotal = 0;
   const items = (Array.isArray(input?.items) ? input.items : [])
     .slice(0, MAX_ITEMS)
     .map((item) => {
       const photoId = cleanText(item?.photoId, 80);
-      const aiAnnotation = cleanAiAnnotation(item?.aiAnnotation);
-      const requestedProductImage = cleanHttpsUrl(item?.preferredProductImageUrl);
+      let aiAnnotation = cleanAiAnnotation(item?.aiAnnotation);
+      const imageLength = String(aiAnnotation?.productImages?.[0]?.url || "").length;
+      if (imageLength && productImageTotal + imageLength <= MAX_PRODUCT_IMAGE_TOTAL) productImageTotal += imageLength;
+      else if (aiAnnotation?.productImages?.length) aiAnnotation = { ...aiAnnotation, productImages: [] };
+      const requestedProductImage = cleanGeneratedImageUrl(item?.preferredProductImageUrl);
       const preferredProductImageUrl = aiAnnotation?.productImages.some((image) => image.url === requestedProductImage)
         ? requestedProductImage
         : aiAnnotation?.productImages[0]?.url || "";
@@ -190,7 +211,7 @@ function cleanShopping(input, previous) {
         id: cleanText(item?.id, 80),
         brand: cleanText(item?.brand, 100),
         name: cleanText(item?.name, 100),
-        benefits: cleanText(item?.benefits, 500),
+        benefits: cleanDisplayText(item?.benefits, 500),
         categoryId: categoryIds.has(item?.categoryId) ? item.categoryId : "daily",
         recipientTagIds: (Array.isArray(item?.recipientTagIds) ? item.recipientTagIds : [])
           .filter((id) => tagIds.has(id))
@@ -231,7 +252,19 @@ export default async function shoppingHandler(request, response) {
 
     const key = `${SHOPPING_PREFIX}${member.id}:${tripId}`;
     const previous = (await readJson(key)) || emptyShopping();
-    if (request.method === "GET") return sendJson(response, 200, previous);
+    if (request.method === "GET") {
+      const sanitized = {
+        ...previous,
+        items: (Array.isArray(previous.items) ? previous.items : []).map((item) => {
+          const aiAnnotation = cleanAiAnnotation(item?.aiAnnotation);
+          const preferredProductImageUrl = aiAnnotation?.productImages?.some((image) => image.url === item?.preferredProductImageUrl)
+            ? item.preferredProductImageUrl
+            : aiAnnotation?.productImages?.[0]?.url || "";
+          return { ...item, preferredProductImageUrl, aiAnnotation };
+        }),
+      };
+      return sendJson(response, 200, sanitized);
+    }
     if (request.method === "PUT") {
       const updated = cleanShopping(request.body, previous);
       await redisCommand(["SET", key, JSON.stringify(updated)]);
@@ -245,4 +278,4 @@ export default async function shoppingHandler(request, response) {
   }
 }
 
-export { defaultCategories };
+export { cleanAiAnnotation, cleanDisplayText, defaultCategories };

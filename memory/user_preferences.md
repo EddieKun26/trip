@@ -24,8 +24,9 @@
 - Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
 - A single-product screenshot should create one main shopping item, not separate items for benefits, ingredients, or descriptive copy.
 - Shopping supports both confirmed left-swipe deletion and explicit batch selection/deletion; saved reference images must remain readable in item details.
-- Shopping import should use the initial screenshot recognition call to also prepare researched product information and one large, likely front-facing product image from a trustworthy product page; do not require a second lookup after opening the item and do not ask the user to upload a product photo manually.
-- Shopping item details should show the AI-found product image first, readable product information/features/general usage/cautions without source links, stars, or a numeric recommendation index, and place the original recommendation screenshot last.
+- Shopping import should use the initial screenshot recognition call to prepare researched product information and one large product image; do not require a second lookup after opening the item and do not ask the user to upload a product photo manually.
+- The product image must be generated from the user's uploaded screenshot, not copied or hotlinked from the web: pure white background, only the matching product, front-facing and centered, with no advertising layout, celebrity, model, hand, prop, or scene. Web research may verify product facts but must not supply the displayed image.
+- Shopping item details should show the AI-generated product image first, readable product information/features/general usage/cautions without URLs, domains, source links, stars, or a numeric recommendation index, and place the original recommendation screenshot last.
 - Custom categories should be created from a `自訂` choice inside the category selector and removable later. Reusable `買給誰` tags also need visible remove controls, plus a person-oriented view showing bought and unbought items.
 - Screenshot recognition should extract separate brand, product name, benefits/recommendation points, and category fields, and allow several images to be processed and confirmed together.
 - Screenshot recognition must understand the complete image across languages rather than return OCR fragments. Show natural Traditional Chinese meaning while retaining useful original-language brand and product names; never use slogans, usage directions, ingredients, or benefits as the product name.
@@ -36,3 +37,4 @@
 - Every social-place candidate must be openable before import so overseas lodging and similarly named places can be verified from Google photos, full address, rating, contact details, and the Google Maps page without losing the pending import form.
 - Place details opened from either a list or map should let an editor delete an unwanted attraction, restaurant, or lodging with a second confirmation.
 - Ship the web version first; build a test iOS app only after the web product matures.
+- For this travel-app project, deploy completed and validated changes directly to the public GitHub/Vercel production site without asking again each time; always return the latest public App link after deployment.

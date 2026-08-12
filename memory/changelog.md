@@ -2,6 +2,9 @@
 
 ## 2026-08-12
 
+- Recorded standing authorization to publish completed, validated project changes directly through GitHub `main` to Vercel production and to return the live App link after each release.
+- Replaced third-party product-photo scraping and hotlinking with one screenshot-grounded GPT Image edit inside the existing recognition request. Each review now requests a centered front-facing product-only image on pure white, compresses it before private storage, drops legacy external image URLs, and offers legacy records a repair action using their original screenshot.
+- Removed URLs, domains, Markdown links, and source citations from Shopping annotations at both response and persistence boundaries. Extended Vercel function duration for the combined vision, web-verification, and image-generation request; all 63 tests pass.
 - Combined each new Shopping screenshot's multilingual visual recognition, web-grounded product research, structured annotation, and single front-facing product-image discovery into one OpenAI Responses request. Import review saves that result directly, while legacy/manual items retain an explicit optional backfill action.
 - Simplified Shopping import and detail layouts: one larger AI-found product image appears first, editable recognized fields and readable features/usage/cautions follow, source links, stars, and numeric indexes are removed, and the original uploaded screenshot is last in a collapsed disclosure.
 - Added removable custom categories and recipient tags, moved custom-category creation into the category dropdown, and added recipient filters with bought/unbought counts. Corrected Overview's percentage to measure actual flight/lodging/itinerary/transport planning coverage rather than departure proximity. All 63 tests pass.

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+export const maxDuration = 180;
+
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
 const SHOPPING_PREFIX = "tokyo-family-trip:shopping:";
@@ -72,9 +74,22 @@ function cleanText(value, length) {
   return String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, length);
 }
 
+function stripSourceReferences(value, length) {
+  return cleanText(value, Math.max(length * 3, 600))
+    .replace(/\[([^\]]+)\]\(\s*https?:\/\/[^)]+\)/gi, "$1")
+    .replace(/\(\s*\[[^\]]+\]\s*\)/g, " ")
+    .replace(/\[\s*(?:https?:\/\/)?(?:www\.)?[\w.-]+\.[a-z]{2,}[^\]]*\]/gi, " ")
+    .replace(/\(?\s*https?:\/\/[^\s<>()\]]+(?:\([^\s<>()]*\)[^\s<>()]*)?\s*\)?/gi, " ")
+    .replace(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s]*)?/gi, " ")
+    .replace(/\s+([，。；、：])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s()（）\[\]]+|[\s()（）\[\]]+$/g, "")
+    .slice(0, length);
+}
+
 function cleanList(value, limit = 4, itemLength = 180) {
   return (Array.isArray(value) ? value : [])
-    .map((item) => cleanText(item, itemLength))
+    .map((item) => stripSourceReferences(item, itemLength))
     .filter(Boolean)
     .filter((item, index, list) => list.findIndex((candidate) => candidate.toLocaleLowerCase() === item.toLocaleLowerCase()) === index)
     .slice(0, limit);
@@ -88,8 +103,8 @@ function categoryLabel(value) {
   return ({ souvenir: "伴手禮", appliance: "家電", daily: "日常用品", medicine: "藥品或保健品", skincare: "保養品" })[value] || "一般商品";
 }
 
-function researchPrompt() {
-  return `你是旅遊採買清單的商品資料研究助理。請使用網路搜尋，優先查找品牌／製造商官方頁、官方說明書、政府或可信賴零售通路，整理成自然、易讀的繁體中文。
+function researchPrompt(hasReferenceImage) {
+  return `你是旅遊採買清單的商品資料研究助理。使用網路搜尋核對完全相符的品牌／製造商官方頁、官方說明書、政府或可信賴零售通路，整理成自然、易讀的繁體中文。
 
 安全與品質規則：
 1. 只研究輸入指定的商品；若品牌或品名不足以確認，清楚標示不確定，不可混用同系列其他產品。
@@ -97,7 +112,8 @@ function researchPrompt() {
 3. cautionsZh 整理重要限制、保存或安全提醒。藥品、保健品與保養品不得宣稱保證療效，也不得替代醫師、藥師或產品標示。
 4. summaryZh 用一至兩句話說明這是什麼商品，不要重複其餘欄位。
 5. 不要捏造售價、成分、用量、功效或來源沒有支持的資訊。
-6. 請實際開啟與這個商品完全相符的官方商品頁或可信零售商品頁，並在回答中引用它們；系統會從你查證過的商品頁中尋找一張正面商品照片。不要只引用首頁、搜尋結果頁或泛用文章。`;
+6. 結構化文字中禁止出現網址、網域、Markdown 連結、引用標記或「資料來源」段落。
+${hasReferenceImage ? "7. 必須呼叫 image_generation，以提供的原始推薦截圖為唯一視覺參考，重製一張 1:1 純白背景商品攝影圖。只保留單一主要商品，正面或最具辨識度的包裝角度、完整置中並留白；保持可確認的品牌、包裝色、容器、型號與外觀。禁止人物、手、模特兒、情境、裝飾、價格、宣傳字、功效圖示與額外物品；不得從網路複製圖片。" : "7. 這筆資料沒有原始截圖，不可生成或猜測商品外觀，只輸出可查證的文字資料。"}`;
 }
 
 const responseSchema = {
@@ -126,7 +142,7 @@ function parseOpenAiContent(content) {
       try {
         return JSON.parse(text.slice(start, end + 1));
       } catch {
-        // Fall through to the stable error below.
+        // Use the stable error below.
       }
     }
     throw new Error("AI_INVALID_RESULT");
@@ -144,158 +160,17 @@ function openAiOutputText(payload) {
   return "";
 }
 
-function openAiSources(payload) {
-  const sources = [];
-  const addSource = (value) => {
-    const url = cleanText(value?.url, 600);
-    if (!safeHttpsUrl(url) || sources.some((source) => source.url === url)) return;
-    sources.push({ title: cleanText(value?.title, 140) || "商品資料來源", url });
-  };
+function openAiGeneratedProductImage(payload) {
   for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    if (item?.type !== "message") continue;
-    for (const part of Array.isArray(item.content) ? item.content : []) {
-      for (const annotation of Array.isArray(part?.annotations) ? part.annotations : []) {
-        if (annotation?.type === "url_citation") addSource(annotation);
-      }
-    }
+    if (item?.type !== "image_generation_call" || typeof item.result !== "string" || !item.result.trim()) continue;
+    return {
+      url: `data:image/webp;base64,${item.result.trim()}`,
+      pageUrl: "",
+      sourceTitle: "AI 依原始截圖重製",
+      kind: "ai-generated",
+    };
   }
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    if (item?.type === "web_search_call") {
-      for (const source of Array.isArray(item?.action?.sources) ? item.action.sources : []) addSource(source);
-    }
-  }
-  return sources.slice(0, 6);
-}
-
-function safeHttpsUrl(value) {
-  try {
-    const url = new URL(String(value || ""));
-    if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) return "";
-    const host = url.hostname.toLocaleLowerCase().replace(/^\[|\]$/g, "");
-    if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return "";
-    if (/^(?:0|10|127|169\.254|172\.(?:1[6-9]|2\d|3[01])|192\.168)(?:\.|$)/.test(host)) return "";
-    if (host === "::1" || host === "::" || /^f[cd][0-9a-f:]*$/i.test(host) || /^fe8[0-9a-f:]*$/i.test(host)) return "";
-    return url.href;
-  } catch {
-    return "";
-  }
-}
-
-function decodeHtml(value) {
-  return String(value || "")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(Number.parseInt(code, 16)));
-}
-
-function htmlAttributes(tag) {
-  const attributes = {};
-  for (const match of String(tag || "").matchAll(/([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g)) {
-    attributes[match[1].toLocaleLowerCase()] = decodeHtml(match[2] ?? match[3] ?? match[4] ?? "");
-  }
-  return attributes;
-}
-
-function absoluteImageUrl(value, pageUrl) {
-  try {
-    return safeHttpsUrl(new URL(decodeHtml(value), pageUrl).href);
-  } catch {
-    return "";
-  }
-}
-
-function jsonLdImages(value, found = []) {
-  if (!value || found.length >= 5) return found;
-  if (typeof value === "string") return found;
-  if (Array.isArray(value)) {
-    value.forEach((entry) => jsonLdImages(entry, found));
-    return found;
-  }
-  if (typeof value !== "object") return found;
-  const image = value.image;
-  const add = (candidate) => {
-    if (typeof candidate === "string") found.push(candidate);
-    else if (candidate && typeof candidate === "object") add(candidate.url || candidate.contentUrl);
-  };
-  if (Array.isArray(image)) image.forEach(add);
-  else add(image);
-  Object.values(value).forEach((entry) => jsonLdImages(entry, found));
-  return found;
-}
-
-function productImageUrls(html, pageUrl) {
-  const preferred = [];
-  for (const match of String(html || "").matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      preferred.push(...jsonLdImages(JSON.parse(decodeHtml(match[1]))));
-    } catch {
-      // Invalid third-party JSON-LD is ignored; Open Graph metadata can still supply a photo.
-    }
-  }
-  for (const tag of String(html || "").match(/<meta\b[^>]*>/gi) || []) {
-    const attributes = htmlAttributes(tag);
-    const key = String(attributes.property || attributes.name || "").toLocaleLowerCase();
-    if (["og:image", "og:image:secure_url", "twitter:image", "twitter:image:src"].includes(key)) preferred.push(attributes.content);
-  }
-  for (const tag of String(html || "").match(/<link\b[^>]*>/gi) || []) {
-    const attributes = htmlAttributes(tag);
-    if (String(attributes.rel || "").toLocaleLowerCase() === "image_src") preferred.push(attributes.href);
-  }
-  return preferred
-    .map((value) => absoluteImageUrl(value, pageUrl))
-    .filter(Boolean)
-    .filter((url, index, list) => list.indexOf(url) === index)
-    .slice(0, 3);
-}
-
-async function fetchProductPage(source) {
-  let pageUrl = safeHttpsUrl(source?.url);
-  if (!pageUrl) return [];
-  for (let redirect = 0; redirect <= 2; redirect += 1) {
-    const result = await fetch(pageUrl, {
-      method: "GET",
-      redirect: "manual",
-      headers: {
-        Accept: "text/html,application/xhtml+xml;q=0.9",
-        "User-Agent": "Mozilla/5.0 (compatible; TripShoppingResearch/1.0)",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (result.status >= 300 && result.status < 400) {
-      const nextUrl = absoluteImageUrl(result.headers.get("location"), pageUrl);
-      if (!nextUrl) return [];
-      pageUrl = nextUrl;
-      continue;
-    }
-    if (!result.ok || !String(result.headers.get("content-type") || "").toLocaleLowerCase().includes("text/html")) return [];
-    const html = (await result.text()).slice(0, 1200000);
-    return productImageUrls(html, pageUrl).map((url) => ({
-      url,
-      pageUrl,
-      sourceTitle: cleanText(source?.title, 140) || "商品資料來源",
-    }));
-  }
-  return [];
-}
-
-async function findProductImages(sources, limit = 1) {
-  const images = [];
-  for (const source of (Array.isArray(sources) ? sources : []).slice(0, 5)) {
-    try {
-      const found = await fetchProductPage(source);
-      for (const image of found) {
-        if (!images.some((candidate) => candidate.url === image.url)) images.push(image);
-        if (images.length >= limit) return images;
-      }
-    } catch {
-      // A blocked source page should not prevent text research or trying the next cited page.
-    }
-  }
-  return images;
+  return null;
 }
 
 function openAiError(status, payload) {
@@ -305,36 +180,56 @@ function openAiError(status, payload) {
   return new Error(`OPENAI_${status}${type ? `_${type}` : ""}`);
 }
 
-function cleanAnnotation(value, sources = [], productImages = []) {
+function cleanAnnotation(value, productImages = []) {
   return {
-    summary: cleanText(value?.summaryZh, 500),
+    summary: stripSourceReferences(value?.summaryZh, 500),
     features: cleanList(value?.featuresZh),
     usage: cleanList(value?.usageZh),
     cautions: cleanList(value?.cautionsZh),
     confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
-    sources: sources.slice(0, 4),
+    sources: [],
     productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 1),
     researchedAt: new Date().toISOString(),
   };
 }
 
-async function callOpenAi(apiKey, item) {
+async function callOpenAi(apiKey, item, referenceImage = "") {
   const product = {
     brand: cleanText(item.brand, 100),
     productName: cleanText(item.name, 100),
     currentImageNotes: cleanText(item.benefits, 500),
     category: categoryLabel(item.categoryId),
   };
+  const hasReferenceImage = /^data:image\/(?:jpeg|png|webp);base64,/i.test(referenceImage);
+  const content = [{
+    type: "input_text",
+    text: `${hasReferenceImage ? "查證商品，並以原圖重製純白背景、只有商品本體的清單商品圖。" : "查證並整理商品文字資料；沒有原圖時不要生成商品圖。"}\n${JSON.stringify(product)}`,
+  }];
+  if (hasReferenceImage) content.push({ type: "input_image", image_url: referenceImage, detail: "original" });
+  const tools = [{ type: "web_search" }];
+  if (hasReferenceImage) {
+    tools.push({
+      type: "image_generation",
+      action: "edit",
+      model: "gpt-image-2",
+      size: "816x816",
+      quality: "medium",
+      background: "opaque",
+      output_format: "webp",
+      output_compression: 55,
+    });
+  }
   const result = await fetch(OPENAI_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: OPENAI_MODEL,
       input: [
-        { role: "system", content: researchPrompt() },
-        { role: "user", content: `請查證並整理這個商品：\n${JSON.stringify(product)}` },
+        { role: "system", content: researchPrompt(hasReferenceImage) },
+        { role: "user", content },
       ],
-      tools: [{ type: "web_search" }],
+      tools,
+      tool_choice: "required",
       include: ["web_search_call.action.sources"],
       reasoning: { effort: "low" },
       text: {
@@ -346,16 +241,15 @@ async function callOpenAi(apiKey, item) {
           schema: responseSchema,
         },
       },
-      max_output_tokens: 2200,
+      max_output_tokens: 2400,
       store: false,
     }),
-    signal: AbortSignal.timeout(50000),
+    signal: AbortSignal.timeout(hasReferenceImage ? 150000 : 50000),
   });
   const payload = await result.json().catch(() => ({}));
   if (!result.ok) throw openAiError(result.status, payload);
-  const sources = openAiSources(payload);
-  const productImages = await findProductImages(sources);
-  return cleanAnnotation(parseOpenAiContent(openAiOutputText(payload)), sources, productImages);
+  const productImage = openAiGeneratedProductImage(payload);
+  return cleanAnnotation(parseOpenAiContent(openAiOutputText(payload)), productImage ? [productImage] : []);
 }
 
 async function enforceDailyLimit(memberId) {
@@ -386,7 +280,8 @@ export default async function shoppingResearchHandler(request, response) {
     const apiKey = openAiCredential();
     if (!apiKey) return sendJson(response, 503, { error: "AI_RESEARCH_NOT_CONFIGURED" });
     if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RESEARCH_LIMIT" });
-    const annotation = await callOpenAi(apiKey, item);
+    const referenceImage = shopping?.photos?.[item.photoId]?.dataUrl || "";
+    const annotation = await callOpenAi(apiKey, item, referenceImage);
     if (!annotation.summary && !annotation.features.length) return sendJson(response, 422, { error: "PRODUCT_RESEARCH_EMPTY" });
     return sendJson(response, 200, { annotation });
   } catch (error) {
@@ -397,4 +292,4 @@ export default async function shoppingResearchHandler(request, response) {
   }
 }
 
-export { cleanAnnotation, findProductImages, openAiCredential, openAiSources, productImageUrls, responseSchema, safeHttpsUrl };
+export { cleanAnnotation, openAiCredential, openAiGeneratedProductImage, responseSchema, stripSourceReferences };

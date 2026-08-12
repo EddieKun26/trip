@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "fluid": true,
+  "functions": {
+    "api/shopping-recognize.mjs": { "maxDuration": 180 },
+    "api/shopping-research.mjs": { "maxDuration": 180 }
+  },
   "headers": [
     {
       "source": "/(.*)",

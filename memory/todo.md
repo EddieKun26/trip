@@ -1,7 +1,7 @@
 # Todo
 
 - Verify representative Japanese, Chinese, Korean, and English shopping posters on a signed-in production iPhone session, then set an OpenAI project spend limit from observed usage.
-- Verify the combined one-request Shopping flow, single front-facing product image, larger detail/import layout, removable categories/tags, and per-recipient bought/unbought filtering with representative food, appliance, cosmetic, medicine, and supplement items on a signed-in production iPhone session.
+- Verify the combined one-request Shopping flow and screenshot-grounded pure-white product image with representative food, appliance, cosmetic, medicine, supplement, and footwear screenshots on a signed-in production iPhone session. Confirm package shape/colors and reject or retry images whose tiny label text changes materially.
 - Verify representative public, login-gated, private, and address-only hidden-lodging Instagram/Threads posts on a signed-in production iPhone session and tune matching prompts only from observed failures.
 - Consider an iOS Shortcut or native Share Extension after the web import flow is stable; the web version deliberately starts with pasted links rather than claiming direct app-share-sheet integration.
 - Rotate the exposed Google Maps key, then restrict the browser key by production HTTP referrer and enable only required APIs.

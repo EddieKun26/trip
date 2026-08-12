@@ -2624,7 +2624,7 @@ function shoppingPhoto(photoId) {
 
 function shoppingAiProductImages(item) {
   return (Array.isArray(item?.aiAnnotation?.productImages) ? item.aiAnnotation.productImages : [])
-    .filter((image) => /^https:\/\//i.test(String(image?.url || "")) && /^https:\/\//i.test(String(image?.pageUrl || "")))
+    .filter((image) => /^data:image\/(?:jpeg|png|webp);base64,/i.test(String(image?.url || "")))
     .filter((image, index, list) => list.findIndex((candidate) => candidate.url === image.url) === index)
     .slice(0, 1);
 }
@@ -2783,7 +2783,7 @@ function openShoppingDetailSheet(itemId) {
   const aiList = (title, values) => Array.isArray(values) && values.length
     ? `<div><b>${title}</b><ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul></div>`
     : "";
-  const aiProductPhoto = productImage ? `<figure class="shopping-ai-product-photo"><img src="${escapeHtml(productImage.url)}" alt="${escapeHtml(item.name)}商品正面圖" referrerpolicy="no-referrer" /><figcaption>AI 找到的商品正面圖</figcaption></figure>` : "";
+  const aiProductPhoto = productImage ? `<figure class="shopping-ai-product-photo"><img src="${escapeHtml(productImage.url)}" alt="${escapeHtml(item.name)}商品正面圖" /><figcaption>AI 依原始截圖重製的純白商品圖</figcaption></figure>` : "";
   const aiAnnotation = annotation
     ? `<section class="shopping-ai-annotation">
         <div class="shopping-ai-heading"><div><small>AI 商品註解</small><strong>商品資訊</strong></div></div>
@@ -2792,10 +2792,11 @@ function openShoppingDetailSheet(itemId) {
         ${aiList("使用方式", annotation.usage)}
         ${aiList("注意事項", annotation.cautions)}
         <p class="shopping-ai-disclaimer">資訊供採買辨識參考；藥品與保健品請以產品標示及醫師、藥師建議為準。</p>
+        ${sourcePhoto && !productImage ? `<button type="button" data-research-shopping-item="${escapeHtml(item.id)}">用原始截圖重製商品圖</button>` : ""}
       </section>`
     : `<section class="shopping-ai-annotation empty">
         <div><small>舊商品／手動新增</small><strong>尚未有 AI 商品資料</strong><p>新截圖會在第一次辨識時一起取得；只有舊資料需要補查。</p></div>
-        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">補查資料與照片</button>
+        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">${sourcePhoto ? "補查資料並重製商品圖" : "補查商品資料"}</button>
       </section>`;
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-detail-backdrop" data-dismiss-sheet>
@@ -3049,12 +3050,14 @@ async function researchShoppingItem(itemId, button) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "AI_RESEARCH_FAILED");
     recordShoppingUndo();
-    item.aiAnnotation = payload.annotation;
+    const rawProductImage = payload.annotation?.productImages?.[0] || null;
+    const productImage = await compressAiProductImage(rawProductImage);
+    item.aiAnnotation = payload.annotation ? { ...payload.annotation, productImages: productImage ? [productImage] : [] } : null;
     item.preferredProductImageUrl = shoppingAiProductImages(item)[0]?.url || "";
     item.updatedAt = new Date().toISOString();
     await saveShopping();
     openShoppingDetailSheet(item.id);
-    showToast(item.preferredProductImageUrl ? "AI 商品註解與照片已更新" : "AI 商品註解已更新；暫未找到可用商品照", { allowUndo: false });
+    showToast(item.preferredProductImageUrl ? "商品資料與純白商品圖已更新" : "商品資料已更新；商品圖可稍後再重試", { allowUndo: false });
   } catch (error) {
     if (button?.isConnected) {
       button.disabled = false;
@@ -3087,8 +3090,9 @@ function renderShoppingImportRows(form) {
   host.innerHTML = pendingShoppingImports.map((entry, index) => `
     <article class="shopping-import-result" data-shopping-import-row="${escapeHtml(entry.id)}">
       <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
-      ${entry.productImage?.url ? `<figure class="shopping-import-product-photo"><img src="${escapeHtml(entry.productImage.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}正面商品圖" referrerpolicy="no-referrer" /><label><input type="checkbox" data-import-use-product-image ${entry.useProductImage === false ? "" : "checked"} /><span>使用這張作為清單商品圖</span></label></figure>` : ""}
+      ${entry.productImage?.url ? `<figure class="shopping-import-product-photo"><img src="${escapeHtml(entry.productImage.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}正面商品圖" /><label><input type="checkbox" data-import-use-product-image ${entry.useProductImage === false ? "" : "checked"} /><span>使用這張 AI 純白商品圖</span></label></figure>` : ""}
       ${entry.recognitionError ? `<p class="shopping-ai-result-note error">${escapeHtml(entry.recognitionError)}</p>` : ""}
+      ${entry.recognized && !entry.productImage ? `<p class="shopping-ai-result-note">商品資料已完成；這張圖暫時無法重製，可加入後再重試。</p>` : ""}
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
@@ -3116,6 +3120,39 @@ async function recognizeShoppingScreenshotWithAi(entry) {
   return payload;
 }
 
+async function compressAiProductImage(image) {
+  if (!image?.url || !/^data:image\/(?:jpeg|png|webp);base64,/i.test(image.url)) return null;
+  try {
+    const source = await loadImageElement(image.url);
+    const canvas = document.createElement("canvas");
+    const draw = (edge) => {
+      const scale = Math.min(1, edge / Math.max(source.naturalWidth, source.naturalHeight));
+      canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    };
+    draw(720);
+    let quality = 0.82;
+    let dataUrl = canvas.toDataURL("image/webp", quality);
+    while (dataUrl.length > 92000 && quality > 0.48) {
+      quality -= 0.07;
+      dataUrl = canvas.toDataURL("image/webp", quality);
+    }
+    if (dataUrl.length > 120000) {
+      draw(560);
+      dataUrl = canvas.toDataURL("image/webp", 0.7);
+    }
+    return dataUrl.length <= 135000
+      ? { ...image, url: dataUrl, pageUrl: "", sourceTitle: "AI 依原始截圖重製", kind: "ai-generated" }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function shoppingRecognitionErrorMessage(error) {
   const code = String(error?.message || "");
   if (code === "DAILY_RECOGNITION_LIMIT") return "今天的 AI 辨識次數已達上限，仍可手動輸入。";
@@ -3141,7 +3178,7 @@ async function recognizeShoppingScreenshots(form) {
     setShoppingRecognitionStatus(form, `AI 正在理解 ${pendingShoppingImports.length} 張圖片…`, { progress: 0.03 });
     for (let currentIndex = 0; currentIndex < pendingShoppingImports.length; currentIndex += 1) {
       const entry = pendingShoppingImports[currentIndex];
-      setShoppingRecognitionStatus(form, `AI 正在理解第 ${currentIndex + 1}／${pendingShoppingImports.length} 張商品圖…`, { progress: currentIndex / pendingShoppingImports.length });
+      setShoppingRecognitionStatus(form, `AI 正在辨識並重製第 ${currentIndex + 1}／${pendingShoppingImports.length} 張商品圖…`, { progress: currentIndex / pendingShoppingImports.length });
       try {
         const result = await recognizeShoppingScreenshotWithAi(entry);
         if (!form.isConnected || token !== shoppingRecognitionToken) return;
@@ -3149,7 +3186,8 @@ async function recognizeShoppingScreenshots(form) {
         entry.details = result.details;
         entry.recognition = { language: result.source?.language || "多語言", confidence: Number(result.confidence) || 0 };
         entry.annotation = result.annotation || null;
-        entry.productImage = result.annotation?.productImages?.[0] || null;
+        entry.productImage = await compressAiProductImage(result.annotation?.productImages?.[0] || null);
+        if (entry.annotation) entry.annotation = { ...entry.annotation, productImages: entry.productImage ? [entry.productImage] : [] };
         entry.useProductImage = Boolean(entry.productImage);
         entry.recognitionError = "";
         entry.recognized = true;

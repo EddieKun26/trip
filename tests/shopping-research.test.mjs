@@ -3,7 +3,7 @@ import test from "node:test";
 
 import memberHandler from "../api/member.mjs";
 import shoppingHandler from "../api/shopping.mjs";
-import shoppingResearchHandler, { productImageUrls, safeHttpsUrl } from "../api/shopping-research.mjs";
+import shoppingResearchHandler, { stripSourceReferences } from "../api/shopping-research.mjs";
 import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
@@ -16,28 +16,23 @@ globalThis.fetch = async (url, options = {}) => {
   if (String(url).includes("api.openai.com/v1/responses")) {
     openAiRequests.push(JSON.parse(options.body));
     return new Response(JSON.stringify({
-      output: [{
-        type: "message",
-        content: [{
-          type: "output_text",
-          text: JSON.stringify({
-            summaryZh: "日本製的胃腸保健商品。",
-            featuresZh: ["包裝與用途標示清楚", "適合作為旅行採買辨識資料"],
-            usageZh: ["依產品包裝或官方說明使用"],
-            cautionsZh: ["若有疾病、用藥或不適，應先詢問醫師或藥師"],
-            confidence: 0.91,
-          }),
-          annotations: [{ type: "url_citation", title: "Kowa 商品資訊", url: "https://example.com/kowa" }],
-        }],
-      }],
+      output: [
+        { type: "image_generation_call", status: "completed", result: "QUJDRA==" },
+        {
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              summaryZh: "日本製的胃腸保健商品。([kowa.example])(https://kowa.example/product?utm_source=openai)",
+              featuresZh: ["包裝與用途標示清楚", "適合作為旅行採買辨識資料"],
+              usageZh: ["依產品包裝或官方說明使用"],
+              cautionsZh: ["若有疾病、用藥或不適，應先詢問醫師或藥師"],
+              confidence: 0.91,
+            }),
+          }],
+        },
+      ],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
-
-  if (String(url) === "https://example.com/kowa") {
-    return new Response('<html><head><meta property="og:image" content="https://cdn.example.com/kowa-product.jpg"></head></html>', {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
   }
 
   const [command, key, value, ...flags] = JSON.parse(options.body);
@@ -87,7 +82,7 @@ async function createTrip(cookie) {
   return response.payload.trip;
 }
 
-test("shopping AI research is member-only, web-grounded, structured, and never exposes the key", async () => {
+test("legacy shopping research uses its private screenshot as the generated-photo reference", async () => {
   store.clear();
   openAiRequests.length = 0;
   const owner = await login();
@@ -99,8 +94,9 @@ test("shopping AI research is member-only, web-grounded, structured, and never e
     url: `/api/shopping?tripId=${trip.id}`,
     headers: { cookie: owner.cookie },
     body: {
-      categories: [], tags: [], photos: {},
-      items: [{ id: "item-1", brand: "Kowa", name: "新表飛鳴 S 錠", benefits: "幫助整腸", categoryId: "medicine" }],
+      categories: [], tags: [],
+      photos: { "photo-1": { dataUrl: "data:image/jpeg;base64,QUJDRA==", createdAt: "2026-08-12T00:00:00.000Z" } },
+      items: [{ id: "item-1", brand: "Kowa", name: "新表飛鳴 S 錠", benefits: "幫助整腸", categoryId: "medicine", photoId: "photo-1" }],
     },
   }, save);
   assert.equal(save.statusCode, 200);
@@ -113,38 +109,37 @@ test("shopping AI research is member-only, web-grounded, structured, and never e
   const response = responseMock();
   await shoppingResearchHandler({ method: "POST", headers: { cookie: owner.cookie }, body: { tripId: trip.id, itemId: "item-1" } }, response);
   assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.annotation.summary, "日本製的胃腸保健商品。");
   assert.equal(response.payload.annotation.features[0], "包裝與用途標示清楚");
-  assert.deepEqual(response.payload.annotation.sources, [{ title: "Kowa 商品資訊", url: "https://example.com/kowa" }]);
+  assert.deepEqual(response.payload.annotation.sources, []);
   assert.deepEqual(response.payload.annotation.productImages, [{
-    url: "https://cdn.example.com/kowa-product.jpg",
-    pageUrl: "https://example.com/kowa",
-    sourceTitle: "Kowa 商品資訊",
+    url: "data:image/webp;base64,QUJDRA==",
+    pageUrl: "",
+    sourceTitle: "AI 依原始截圖重製",
+    kind: "ai-generated",
   }]);
+  assert.doesNotMatch(JSON.stringify(response.payload), /https?:\/\//);
   assert.doesNotMatch(JSON.stringify(response.payload), /test-openai-key/);
 
   assert.equal(openAiRequests.length, 1);
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
-  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
-  assert.deepEqual(openAiRequests[0].include, ["web_search_call.action.sources"]);
+  assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
+  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }, {
+    type: "image_generation", action: "edit", model: "gpt-image-2", size: "816x816", quality: "medium",
+    background: "opaque", output_format: "webp", output_compression: 55,
+  }]);
+  assert.equal(openAiRequests[0].tool_choice, "required");
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
-  assert.equal(openAiRequests[0].text.format.strict, true);
   assert.equal(openAiRequests[0].store, false);
-  assert.match(openAiRequests[0].input[0].content, /一張正面商品照片/);
-  assert.match(openAiRequests[0].input[0].content, /實際開啟.*商品頁/);
+  assert.match(openAiRequests[0].input[0].content, /純白背景商品攝影圖/);
+  assert.match(openAiRequests[0].input[0].content, /禁止出現網址/);
 });
 
-test("product-image discovery accepts public HTTPS metadata and rejects private destinations", () => {
-  assert.equal(safeHttpsUrl("https://brand.example/product"), "https://brand.example/product");
-  assert.equal(safeHttpsUrl("http://brand.example/product"), "");
-  assert.equal(safeHttpsUrl("https://127.0.0.1/private"), "");
-  assert.equal(safeHttpsUrl("https://192.168.1.8/private"), "");
-  assert.deepEqual(productImageUrls(`
-    <meta name="twitter:image" content="/images/front.webp">
-    <meta property="og:image" content="https://cdn.brand.example/front.jpg">
-  `, "https://brand.example/products/item"), [
-    "https://brand.example/images/front.webp",
-    "https://cdn.brand.example/front.jpg",
-  ]);
+test("source-reference cleanup removes markdown links, bare URLs, and domains", () => {
+  const dirty = "商品說明。([example.com])(https://example.com/item?utm_source=openai) 更多見 www.brand.example/help";
+  const clean = stripSourceReferences(dirty, 200);
+  assert.equal(clean, "商品說明。 更多見");
+  assert.doesNotMatch(clean, /https|example/i);
 });
 
 test("shopping AI research only accepts an item from the signed-in member's private list", async () => {

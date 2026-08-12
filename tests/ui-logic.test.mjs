@@ -526,10 +526,11 @@ test("shopping supports left-swipe deletion, batch deletion, and clearer stored 
   assert.match(stylesSource, /\.shopping-detail-photo\s*{[^}]*object-fit:\s*contain/s);
 });
 
-test("shopping detail uses one large AI-found product photo and readable annotations", () => {
+test("shopping detail uses one large AI-generated product photo and readable annotations", () => {
   const detail = sourceSection("function openShoppingDetailSheet", "function openShoppingItemSheet");
   assert.match(detail, /原始推薦截圖/);
-  assert.match(detail, /AI 找到的商品正面圖/);
+  assert.match(detail, /AI 依原始截圖重製的純白商品圖/);
+  assert.match(detail, /用原始截圖重製商品圖/);
   assert.match(detail, /shopping-ai-product-photo/);
   assert.doesNotMatch(detail, /data-set-shopping-product-image/);
   assert.doesNotMatch(detail, /查看來源/);
@@ -541,12 +542,14 @@ test("shopping detail uses one large AI-found product photo and readable annotat
   assert.match(appSource, /fetch\("\/api\/shopping-research"/);
   assert.match(appSource, /shoppingPreferredPhoto\(item\)/);
   assert.match(appSource, /shoppingAiProductImages\(item\)/);
+  assert.match(appSource, /compressAiProductImage/);
+  assert.match(appSource, /data:image\\\/\(\?:jpeg\|png\|webp\);base64/);
   assert.match(stylesSource, /\.shopping-ai-product-photo img\s*{[^}]*max-height:\s*310px/s);
   assert.match(stylesSource, /\.shopping-detail-backdrop\s*{[^}]*align-items:\s*center/s);
   assert.match(stylesSource, /\.shopping-ai-annotation/);
 });
 
-test("shopping import accepts multiple images and combines recognition research and one photo", () => {
+test("shopping import accepts multiple images and combines recognition research and one generated photo", () => {
   const importer = sourceSection("function syncPendingShoppingImportEdits", "function itineraryScreen");
   assert.match(importer, /type="file" accept="image\/\*" multiple/);
   assert.match(importer, /slice\(0, 8\)/);
@@ -557,6 +560,7 @@ test("shopping import accepts multiple images and combines recognition research 
   assert.match(importer, /entry\.annotation = result\.annotation/);
   assert.match(importer, /result\.annotation\?\.productImages\?\.\[0\]/);
   assert.match(importer, /shopping-import-product-photo/);
+  assert.match(importer, /AI 純白商品圖/);
   assert.match(importer, /shopping-original-screenshot/);
   assert.match(importer, /for \(let currentIndex = 0; currentIndex < pendingShoppingImports\.length/);
   assert.match(stylesSource, /\.shopping-import-fields\s*{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);

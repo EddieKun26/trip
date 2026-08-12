@@ -18,7 +18,7 @@ globalThis.fetch = async (url, options = {}) => {
     openAiRequests.push(body);
     openAiAuthorizations.push(options.headers.Authorization);
     return new Response(JSON.stringify({
-      output: [{
+      output: [{ type: "image_generation_call", status: "completed", result: "QUJDRA==" }, {
         type: "message",
         content: [{
           type: "output_text",
@@ -29,7 +29,7 @@ globalThis.fetch = async (url, options = {}) => {
             productNameZh: "新表飛鳴 S 錠",
             benefitsZh: ["幫助整腸", "改善便秘與腹部脹氣"],
             category: "medicine",
-            summaryZh: "日本興和的整腸商品。",
+            summaryZh: "日本興和的整腸商品。[官方資料](https://example.com/kowa)",
             featuresZh: ["含多種乳酸菌"],
             usageZh: ["依商品包裝標示使用"],
             cautionsZh: ["使用前閱讀包裝說明"],
@@ -137,12 +137,14 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(response.payload.details.benefits, "幫助整腸、改善便秘與腹部脹氣");
   assert.equal(response.payload.source.language, "日文");
   assert.equal(response.payload.confidence, 0.94);
-  assert.equal(response.payload.annotation.summary, "日本興和的整腸商品。");
+  assert.equal(response.payload.annotation.summary, "日本興和的整腸商品。官方資料");
   assert.deepEqual(response.payload.annotation.productImages, [{
-    url: "https://cdn.example.com/kowa-front.jpg",
-    pageUrl: "https://example.com/kowa",
-    sourceTitle: "Kowa 商品資訊",
+    url: "data:image/webp;base64,QUJDRA==",
+    pageUrl: "",
+    sourceTitle: "AI 依原始截圖重製",
+    kind: "ai-generated",
   }]);
+  assert.deepEqual(response.payload.annotation.sources, []);
 
   assert.equal(openAiRequests.length, 1);
   assert.equal(openAiAuthorizations[0], "Bearer test-openai-key");
@@ -151,10 +153,15 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
   assert.equal(openAiRequests[0].text.format.strict, true);
   assert.equal(openAiRequests[0].store, false);
-  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
+  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }, {
+    type: "image_generation", action: "edit", model: "gpt-image-2", size: "816x816", quality: "medium",
+    background: "opaque", output_format: "webp", output_compression: 55,
+  }]);
+  assert.equal(openAiRequests[0].tool_choice, "required");
   assert.deepEqual(openAiRequests[0].include, ["web_search_call.action.sources"]);
   assert.match(openAiRequests[0].input[0].content, /繁體中文、簡體中文、日文、韓文、英文、泰文/);
-  assert.match(openAiRequests[0].input[0].content, /一次輸出/);
+  assert.match(openAiRequests[0].input[0].content, /純白背景/);
+  assert.match(openAiRequests[0].input[0].content, /禁止出現網址/);
 });
 
 test("shopping recognition rejects invalid images before calling AI", async () => {
