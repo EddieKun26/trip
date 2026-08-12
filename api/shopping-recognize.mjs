@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { callOpenAiProductImage, generatedProductImage } from "../shopping-image.mjs";
 
 export const maxDuration = 180;
 
@@ -224,20 +225,12 @@ function openAiOutputText(payload) {
   return "";
 }
 
-function openAiGeneratedProductImage(payload) {
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    if (item?.type !== "image_generation_call" || typeof item.result !== "string" || !item.result.trim()) continue;
-    return {
-      url: `data:image/webp;base64,${item.result.trim()}`,
-      pageUrl: "",
-      sourceTitle: "AI 依原始截圖重製",
-      kind: "ai-generated",
-    };
-  }
-  return null;
-}
+const openAiGeneratedProductImage = generatedProductImage;
 
 async function callOpenAi(apiKey, imageDataUrl) {
+  const productImagePromise = callOpenAiProductImage(apiKey, imageDataUrl)
+    .then((productImage) => ({ productImage, imageError: "" }))
+    .catch((error) => ({ productImage: null, imageError: error instanceof Error ? error.message : "OPENAI_IMAGE_FAILED" }));
   const result = await fetch(OPENAI_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -258,16 +251,6 @@ async function callOpenAi(apiKey, imageDataUrl) {
       ],
       tools: [
         { type: "web_search" },
-        {
-          type: "image_generation",
-          action: "edit",
-          model: "gpt-image-2",
-          size: "816x816",
-          quality: "medium",
-          background: "opaque",
-          output_format: "webp",
-          output_compression: 55,
-        },
       ],
       tool_choice: "required",
       include: ["web_search_call.action.sources"],
@@ -288,9 +271,12 @@ async function callOpenAi(apiKey, imageDataUrl) {
   });
   const payload = await result.json().catch(() => ({}));
   if (!result.ok) throw openAiError(result.status, payload);
+  const imageResult = await productImagePromise;
+  if (imageResult.imageError) console.warn("shopping product image failed", { code: imageResult.imageError });
   return {
     value: parseOpenAiContent(openAiOutputText(payload)),
-    productImage: openAiGeneratedProductImage(payload),
+    productImage: imageResult.productImage,
+    imageError: imageResult.imageError,
   };
 }
 
@@ -329,6 +315,7 @@ export default async function shoppingRecognizeHandler(request, response) {
     const openAiResult = await callOpenAi(apiKey, imageDataUrl);
     const productImages = openAiResult.productImage ? [openAiResult.productImage] : [];
     const result = cleanRecognition(openAiResult.value, productImages);
+    if (openAiResult.imageError) result.imageError = openAiResult.imageError;
     if (!result.details.name) return sendJson(response, 422, { error: "PRODUCT_NOT_RECOGNIZED" });
     return sendJson(response, 200, result);
   } catch (error) {

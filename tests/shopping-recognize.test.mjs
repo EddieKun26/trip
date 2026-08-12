@@ -8,17 +8,32 @@ import tripsHandler from "../api/trips.mjs";
 const store = new Map();
 const openAiRequests = [];
 const openAiAuthorizations = [];
+const openAiImageRequests = [];
+let openAiImageFailureStatus = 0;
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
 process.env.OPENAI_API_KEY = "test-openai-key";
 
 globalThis.fetch = async (url, options = {}) => {
+  if (String(url).includes("api.openai.com/v1/images/edits")) {
+    openAiImageRequests.push(options);
+    if (openAiImageFailureStatus) {
+      return new Response(JSON.stringify({ error: { type: "permission_error", code: "organization_verification_required" } }), {
+        status: openAiImageFailureStatus,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ data: [{ b64_json: "QUJDRA==" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (String(url).includes("api.openai.com/v1/responses")) {
     const body = JSON.parse(options.body);
     openAiRequests.push(body);
     openAiAuthorizations.push(options.headers.Authorization);
     return new Response(JSON.stringify({
-      output: [{ type: "image_generation_call", status: "completed", result: "QUJDRA==" }, {
+      output: [{
         type: "message",
         content: [{
           type: "output_text",
@@ -122,6 +137,7 @@ test("shopping recognition is authorized and returns translated structured produ
   store.clear();
   openAiRequests.length = 0;
   openAiAuthorizations.length = 0;
+  openAiImageRequests.length = 0;
   const owner = await login("阿璋", "1111", "203.0.113.71");
   const trip = await createTrip(owner.cookie);
 
@@ -147,16 +163,19 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.deepEqual(response.payload.annotation.sources, []);
 
   assert.equal(openAiRequests.length, 1);
+  assert.equal(openAiImageRequests.length, 1);
+  assert.equal(openAiImageRequests[0].headers.Authorization, "Bearer test-openai-key");
+  assert.equal(openAiImageRequests[0].body.get("model"), "gpt-image-2");
+  assert.equal(openAiImageRequests[0].body.get("size"), "1024x1024");
+  assert.equal(openAiImageRequests[0].body.get("output_format"), "webp");
+  assert.match(openAiImageRequests[0].body.get("prompt"), /sole visual reference/i);
   assert.equal(openAiAuthorizations[0], "Bearer test-openai-key");
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
   assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
   assert.equal(openAiRequests[0].text.format.strict, true);
   assert.equal(openAiRequests[0].store, false);
-  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }, {
-    type: "image_generation", action: "edit", model: "gpt-image-2", size: "816x816", quality: "medium",
-    background: "opaque", output_format: "webp", output_compression: 55,
-  }]);
+  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
   assert.equal(openAiRequests[0].tool_choice, "required");
   assert.deepEqual(openAiRequests[0].include, ["web_search_call.action.sources"]);
   assert.match(openAiRequests[0].input[0].content, /繁體中文、簡體中文、日文、韓文、英文、泰文/);
@@ -175,6 +194,21 @@ test("shopping recognition rejects invalid images before calling AI", async () =
   assert.equal(response.statusCode, 400);
   assert.equal(response.payload.error, "VALID_IMAGE_REQUIRED");
   assert.equal(openAiRequests.length, 0);
+});
+
+test("shopping recognition keeps product data and reports an explicit image API failure", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  openAiImageRequests.length = 0;
+  openAiImageFailureStatus = 403;
+  const owner = await login("圖片測試", "2424", "203.0.113.74");
+  const trip = await createTrip(owner.cookie);
+  const response = await recognize(owner.cookie, trip.id);
+  openAiImageFailureStatus = 0;
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.details.name.length > 0, true);
+  assert.deepEqual(response.payload.annotation.productImages, []);
+  assert.equal(response.payload.imageError, "OPENAI_IMAGE_403_ORGANIZATION_VERIFICATION_REQUIRED");
 });
 
 test("shopping recognition requires a configured OpenAI key before consuming the daily limit", async () => {

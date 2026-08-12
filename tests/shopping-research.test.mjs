@@ -8,16 +8,23 @@ import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
 const openAiRequests = [];
+const openAiImageRequests = [];
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
 process.env.OPENAI_API_KEY = "test-openai-key";
 
 globalThis.fetch = async (url, options = {}) => {
+  if (String(url).includes("api.openai.com/v1/images/edits")) {
+    openAiImageRequests.push(options);
+    return new Response(JSON.stringify({ data: [{ b64_json: "QUJDRA==" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (String(url).includes("api.openai.com/v1/responses")) {
     openAiRequests.push(JSON.parse(options.body));
     return new Response(JSON.stringify({
       output: [
-        { type: "image_generation_call", status: "completed", result: "QUJDRA==" },
         {
           type: "message",
           content: [{
@@ -85,6 +92,7 @@ async function createTrip(cookie) {
 test("legacy shopping research uses its private screenshot as the generated-photo reference", async () => {
   store.clear();
   openAiRequests.length = 0;
+  openAiImageRequests.length = 0;
   const owner = await login();
   const trip = await createTrip(owner.cookie);
   const save = responseMock();
@@ -122,12 +130,13 @@ test("legacy shopping research uses its private screenshot as the generated-phot
   assert.doesNotMatch(JSON.stringify(response.payload), /test-openai-key/);
 
   assert.equal(openAiRequests.length, 1);
+  assert.equal(openAiImageRequests.length, 1);
+  assert.equal(openAiImageRequests[0].body.get("model"), "gpt-image-2");
+  assert.equal(openAiImageRequests[0].body.get("size"), "1024x1024");
+  assert.match(openAiImageRequests[0].body.get("prompt"), /single main purchasable product/i);
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
   assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
-  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }, {
-    type: "image_generation", action: "edit", model: "gpt-image-2", size: "816x816", quality: "medium",
-    background: "opaque", output_format: "webp", output_compression: 55,
-  }]);
+  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
   assert.equal(openAiRequests[0].tool_choice, "required");
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
   assert.equal(openAiRequests[0].store, false);

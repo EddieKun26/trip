@@ -559,6 +559,9 @@ test("shopping import accepts multiple images and combines recognition research 
   assert.match(importer, /data-import-category/);
   assert.match(importer, /entry\.annotation = result\.annotation/);
   assert.match(importer, /result\.annotation\?\.productImages\?\.\[0\]/);
+  assert.match(importer, /entry\.productImageError = result\.imageError/);
+  assert.match(appSource, /OPENAI_IMAGE_403/);
+  assert.match(appSource, /API 組織驗證/);
   assert.match(importer, /shopping-import-product-photo/);
   assert.match(importer, /AI 純白商品圖/);
   assert.match(importer, /shopping-original-screenshot/);

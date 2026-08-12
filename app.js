@@ -3032,6 +3032,15 @@ function shoppingResearchErrorMessage(error) {
   return "AI 商品查詢暫時失敗，請稍後再試";
 }
 
+function shoppingProductImageErrorMessage(code) {
+  const value = String(code || "");
+  if (value.startsWith("OPENAI_IMAGE_403")) return "商品資料已完成，但 OpenAI 圖片功能尚未開通；請完成 API 組織驗證後重試。";
+  if (value.startsWith("OPENAI_IMAGE_429")) return "商品資料已完成，但圖片額度或生成頻率已達上限，請稍後重試。";
+  if (value.startsWith("OPENAI_IMAGE_400")) return "商品資料已完成，但這張原圖暫時無法用來重製商品圖。";
+  if (value.startsWith("OPENAI_IMAGE_5") || value === "OPENAI_IMAGE_EMPTY_RESULT") return "商品資料已完成，但圖片服務暫時沒有回傳結果，請稍後重試。";
+  return "商品資料已完成；這張圖暫時無法重製，可加入後再重試。";
+}
+
 async function researchShoppingItem(itemId, button) {
   if (!canManageShopping()) return guestOnlyMessage();
   const item = state.shopping.items.find((candidate) => candidate.id === itemId);
@@ -3057,7 +3066,7 @@ async function researchShoppingItem(itemId, button) {
     item.updatedAt = new Date().toISOString();
     await saveShopping();
     openShoppingDetailSheet(item.id);
-    showToast(item.preferredProductImageUrl ? "商品資料與純白商品圖已更新" : "商品資料已更新；商品圖可稍後再重試", { allowUndo: false });
+    showToast(item.preferredProductImageUrl ? "商品資料與純白商品圖已更新" : shoppingProductImageErrorMessage(payload.annotation?.imageError), { allowUndo: false });
   } catch (error) {
     if (button?.isConnected) {
       button.disabled = false;
@@ -3092,7 +3101,7 @@ function renderShoppingImportRows(form) {
       <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
       ${entry.productImage?.url ? `<figure class="shopping-import-product-photo"><img src="${escapeHtml(entry.productImage.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}正面商品圖" /><label><input type="checkbox" data-import-use-product-image ${entry.useProductImage === false ? "" : "checked"} /><span>使用這張 AI 純白商品圖</span></label></figure>` : ""}
       ${entry.recognitionError ? `<p class="shopping-ai-result-note error">${escapeHtml(entry.recognitionError)}</p>` : ""}
-      ${entry.recognized && !entry.productImage ? `<p class="shopping-ai-result-note">商品資料已完成；這張圖暫時無法重製，可加入後再重試。</p>` : ""}
+      ${entry.recognized && !entry.productImage ? `<p class="shopping-ai-result-note">${escapeHtml(shoppingProductImageErrorMessage(entry.productImageError))}</p>` : ""}
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
@@ -3187,6 +3196,7 @@ async function recognizeShoppingScreenshots(form) {
         entry.recognition = { language: result.source?.language || "多語言", confidence: Number(result.confidence) || 0 };
         entry.annotation = result.annotation || null;
         entry.productImage = await compressAiProductImage(result.annotation?.productImages?.[0] || null);
+        entry.productImageError = result.imageError || result.annotation?.imageError || "";
         if (entry.annotation) entry.annotation = { ...entry.annotation, productImages: entry.productImage ? [entry.productImage] : [] };
         entry.useProductImage = Boolean(entry.productImage);
         entry.recognitionError = "";
