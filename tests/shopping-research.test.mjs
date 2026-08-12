@@ -8,19 +8,11 @@ import tripsHandler from "../api/trips.mjs";
 
 const store = new Map();
 const openAiRequests = [];
-const openAiImageRequests = [];
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
 process.env.OPENAI_API_KEY = "test-openai-key";
 
 globalThis.fetch = async (url, options = {}) => {
-  if (String(url).includes("api.openai.com/v1/images/edits")) {
-    openAiImageRequests.push(options);
-    return new Response(JSON.stringify({ data: [{ b64_json: "QUJDRA==" }] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
   if (String(url).includes("api.openai.com/v1/responses")) {
     openAiRequests.push(JSON.parse(options.body));
     return new Response(JSON.stringify({
@@ -36,10 +28,21 @@ globalThis.fetch = async (url, options = {}) => {
               cautionsZh: ["若有疾病、用藥或不適，應先詢問醫師或藥師"],
               confidence: 0.91,
             }),
+            annotations: [{ type: "url_citation", title: "Kowa product", url: "https://example.com/kowa-product" }],
           }],
         },
       ],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  if (String(url) === "https://example.com/kowa-product") {
+    return new Response('<script type="application/ld+json">{"@type":"Product","image":["https://cdn.example.com/kowa-1.jpg","https://cdn.example.com/kowa-2.jpg","https://cdn.example.com/kowa-3.jpg"]}</script>', {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+  if (String(url).startsWith("https://cdn.example.com/kowa-")) {
+    return new Response(new Uint8Array([255, 216, 255, 217]), { status: 200, headers: { "Content-Type": "image/jpeg", "Content-Length": "4" } });
   }
 
   const [command, key, value, ...flags] = JSON.parse(options.body);
@@ -89,10 +92,9 @@ async function createTrip(cookie) {
   return response.payload.trip;
 }
 
-test("legacy shopping research uses its private screenshot as the generated-photo reference", async () => {
+test("legacy shopping research uses its private screenshot and returns web product-photo candidates", async () => {
   store.clear();
   openAiRequests.length = 0;
-  openAiImageRequests.length = 0;
   const owner = await login();
   const trip = await createTrip(owner.cookie);
   const save = responseMock();
@@ -120,27 +122,19 @@ test("legacy shopping research uses its private screenshot as the generated-phot
   assert.equal(response.payload.annotation.summary, "日本製的胃腸保健商品。");
   assert.equal(response.payload.annotation.features[0], "包裝與用途標示清楚");
   assert.deepEqual(response.payload.annotation.sources, []);
-  assert.deepEqual(response.payload.annotation.productImages, [{
-    url: "data:image/webp;base64,QUJDRA==",
-    pageUrl: "",
-    sourceTitle: "AI 依原始截圖重製",
-    kind: "ai-generated",
-  }]);
+  assert.equal(response.payload.annotation.productImages.length, 3);
+  assert.equal(response.payload.annotation.productImages.every((image) => image.kind === "web-product"), true);
   assert.doesNotMatch(JSON.stringify(response.payload), /https?:\/\//);
   assert.doesNotMatch(JSON.stringify(response.payload), /test-openai-key/);
 
   assert.equal(openAiRequests.length, 1);
-  assert.equal(openAiImageRequests.length, 1);
-  assert.equal(openAiImageRequests[0].body.get("model"), "gpt-image-2");
-  assert.equal(openAiImageRequests[0].body.get("size"), "1024x1024");
-  assert.match(openAiImageRequests[0].body.get("prompt"), /single main purchasable product/i);
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
   assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
   assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
   assert.equal(openAiRequests[0].tool_choice, "required");
   assert.equal(openAiRequests[0].text.format.type, "json_schema");
   assert.equal(openAiRequests[0].store, false);
-  assert.match(openAiRequests[0].input[0].content, /純白背景商品攝影圖/);
+  assert.doesNotMatch(JSON.stringify(openAiRequests[0]), /image_generation|gpt-image|純白背景商品攝影圖/i);
   assert.match(openAiRequests[0].input[0].content, /禁止出現網址/);
 });
 

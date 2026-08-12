@@ -526,11 +526,11 @@ test("shopping supports left-swipe deletion, batch deletion, and clearer stored 
   assert.match(stylesSource, /\.shopping-detail-photo\s*{[^}]*object-fit:\s*contain/s);
 });
 
-test("shopping detail uses one large AI-generated product photo and readable annotations", () => {
+test("shopping detail uses the selected web product photo and readable annotations", () => {
   const detail = sourceSection("function openShoppingDetailSheet", "function openShoppingItemSheet");
   assert.match(detail, /原始推薦截圖/);
-  assert.match(detail, /AI 依原始截圖重製的純白商品圖/);
-  assert.match(detail, /用原始截圖重製商品圖/);
+  assert.match(detail, /你從網路候選圖片中選擇的商品圖/);
+  assert.match(detail, /搜尋商品資料與圖片/);
   assert.match(detail, /shopping-ai-product-photo/);
   assert.doesNotMatch(detail, /data-set-shopping-product-image/);
   assert.doesNotMatch(detail, /查看來源/);
@@ -549,7 +549,7 @@ test("shopping detail uses one large AI-generated product photo and readable ann
   assert.match(stylesSource, /\.shopping-ai-annotation/);
 });
 
-test("shopping import accepts multiple images and combines recognition research and one generated photo", () => {
+test("shopping import offers three web product-photo candidates and can refresh the batch", () => {
   const importer = sourceSection("function syncPendingShoppingImportEdits", "function itineraryScreen");
   assert.match(importer, /type="file" accept="image\/\*" multiple/);
   assert.match(importer, /slice\(0, 8\)/);
@@ -558,15 +558,18 @@ test("shopping import accepts multiple images and combines recognition research 
   assert.match(importer, /data-import-benefits/);
   assert.match(importer, /data-import-category/);
   assert.match(importer, /entry\.annotation = result\.annotation/);
-  assert.match(importer, /result\.annotation\?\.productImages\?\.\[0\]/);
-  assert.match(importer, /entry\.productImageError = result\.imageError/);
-  assert.match(appSource, /OPENAI_IMAGE_403/);
-  assert.match(appSource, /API 組織驗證/);
-  assert.match(importer, /shopping-import-product-photo/);
-  assert.match(importer, /AI 純白商品圖/);
+  assert.match(importer, /result\.annotation\?\.productImages/);
+  assert.match(importer, /slice\(0, 3\)/);
+  assert.match(importer, /data-import-product-image/);
+  assert.match(importer, /data-refresh-shopping-images/);
+  assert.match(importer, /fetch\("\/api\/shopping-images"/);
+  assert.match(importer, /換一批圖片/);
+  assert.match(importer, /shopping-import-image-options/);
+  assert.doesNotMatch(appSource, /OPENAI_IMAGE_403|API 組織驗證|AI 純白商品圖/);
   assert.match(importer, /shopping-original-screenshot/);
   assert.match(importer, /for \(let currentIndex = 0; currentIndex < pendingShoppingImports\.length/);
   assert.match(stylesSource, /\.shopping-import-fields\s*{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(stylesSource, /\.shopping-import-image-options\s*{[^}]*repeat\(3, minmax\(0, 1fr\)\)/s);
 });
 
 test("shopping categories and recipient filters can be managed from the list and forms", () => {

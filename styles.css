@@ -5616,6 +5616,106 @@ body.transport-sheet-open .app {
   accent-color: var(--mineral);
 }
 
+.shopping-import-image-picker {
+  display: grid;
+  gap: 9px;
+  margin: 0 0 11px;
+  padding: 10px;
+  border: 1px solid rgba(64, 119, 122, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.shopping-import-image-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shopping-import-image-heading b {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.shopping-import-image-heading span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.shopping-import-image-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.shopping-import-image-option {
+  min-width: 0;
+  cursor: pointer;
+}
+
+.shopping-import-image-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shopping-import-image-option span {
+  min-height: 132px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 5px;
+  padding: 5px;
+  border: 2px solid var(--line);
+  border-radius: 13px;
+  background: white;
+}
+
+.shopping-import-image-option img {
+  width: 100%;
+  height: 96px;
+  display: block;
+  border-radius: 9px;
+  background: white;
+  object-fit: contain;
+}
+
+.shopping-import-image-option b {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 850;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shopping-import-image-option input:checked + span {
+  border-color: var(--mineral);
+  box-shadow: 0 0 0 2px rgba(64, 119, 122, 0.12);
+}
+
+.shopping-import-image-option input:checked + span b {
+  color: var(--mineral);
+}
+
+.shopping-import-image-picker > button {
+  min-height: 36px;
+  border: 1px solid rgba(64, 119, 122, 0.36);
+  border-radius: 12px;
+  background: var(--mist);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.shopping-import-image-picker > button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .shopping-import-summary {
   margin: 9px 2px 0;
   color: var(--ink);

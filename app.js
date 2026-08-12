@@ -2783,7 +2783,7 @@ function openShoppingDetailSheet(itemId) {
   const aiList = (title, values) => Array.isArray(values) && values.length
     ? `<div><b>${title}</b><ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul></div>`
     : "";
-  const aiProductPhoto = productImage ? `<figure class="shopping-ai-product-photo"><img src="${escapeHtml(productImage.url)}" alt="${escapeHtml(item.name)}商品正面圖" /><figcaption>AI 依原始截圖重製的純白商品圖</figcaption></figure>` : "";
+  const aiProductPhoto = productImage ? `<figure class="shopping-ai-product-photo"><img src="${escapeHtml(productImage.url)}" alt="${escapeHtml(item.name)}商品圖" /><figcaption>你從網路候選圖片中選擇的商品圖</figcaption></figure>` : "";
   const aiAnnotation = annotation
     ? `<section class="shopping-ai-annotation">
         <div class="shopping-ai-heading"><div><small>AI 商品註解</small><strong>商品資訊</strong></div></div>
@@ -2792,11 +2792,11 @@ function openShoppingDetailSheet(itemId) {
         ${aiList("使用方式", annotation.usage)}
         ${aiList("注意事項", annotation.cautions)}
         <p class="shopping-ai-disclaimer">資訊供採買辨識參考；藥品與保健品請以產品標示及醫師、藥師建議為準。</p>
-        ${sourcePhoto && !productImage ? `<button type="button" data-research-shopping-item="${escapeHtml(item.id)}">用原始截圖重製商品圖</button>` : ""}
+        ${sourcePhoto && !productImage ? `<button type="button" data-research-shopping-item="${escapeHtml(item.id)}">搜尋商品資料與圖片</button>` : ""}
       </section>`
     : `<section class="shopping-ai-annotation empty">
         <div><small>舊商品／手動新增</small><strong>尚未有 AI 商品資料</strong><p>新截圖會在第一次辨識時一起取得；只有舊資料需要補查。</p></div>
-        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">${sourcePhoto ? "補查資料並重製商品圖" : "補查商品資料"}</button>
+        <button type="button" data-research-shopping-item="${escapeHtml(item.id)}">${sourcePhoto ? "補查資料並搜尋商品圖" : "補查商品資料"}</button>
       </section>`;
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-detail-backdrop" data-dismiss-sheet>
@@ -3034,11 +3034,9 @@ function shoppingResearchErrorMessage(error) {
 
 function shoppingProductImageErrorMessage(code) {
   const value = String(code || "");
-  if (value.startsWith("OPENAI_IMAGE_403")) return "商品資料已完成，但 OpenAI 圖片功能尚未開通；請完成 API 組織驗證後重試。";
-  if (value.startsWith("OPENAI_IMAGE_429")) return "商品資料已完成，但圖片額度或生成頻率已達上限，請稍後重試。";
-  if (value.startsWith("OPENAI_IMAGE_400")) return "商品資料已完成，但這張原圖暫時無法用來重製商品圖。";
-  if (value.startsWith("OPENAI_IMAGE_5") || value === "OPENAI_IMAGE_EMPTY_RESULT") return "商品資料已完成，但圖片服務暫時沒有回傳結果，請稍後重試。";
-  return "商品資料已完成；這張圖暫時無法重製，可加入後再重試。";
+  if (value.includes("DAILY_IMAGE_SEARCH_LIMIT") || value.startsWith("OPENAI_429")) return "今天的商品圖搜尋次數已達上限，仍可先加入商品。";
+  if (value.startsWith("OPENAI_")) return "商品資料已完成，但商品圖搜尋暫時無法使用。";
+  return "暫時找不到合適的商品圖；可按「換一批圖片」重新搜尋。";
 }
 
 async function researchShoppingItem(itemId, button) {
@@ -3066,7 +3064,7 @@ async function researchShoppingItem(itemId, button) {
     item.updatedAt = new Date().toISOString();
     await saveShopping();
     openShoppingDetailSheet(item.id);
-    showToast(item.preferredProductImageUrl ? "商品資料與純白商品圖已更新" : shoppingProductImageErrorMessage(payload.annotation?.imageError), { allowUndo: false });
+    showToast(item.preferredProductImageUrl ? "商品資料與商品圖已更新" : "商品資料已更新", { allowUndo: false });
   } catch (error) {
     if (button?.isConnected) {
       button.disabled = false;
@@ -3088,8 +3086,20 @@ function syncPendingShoppingImportEdits(form) {
       categoryId: String(row.querySelector("[data-import-category]")?.value || "daily"),
       newCategory: String(row.querySelector("[data-import-custom-category]")?.value || "").normalize("NFKC").trim().slice(0, 24),
     };
-    entry.useProductImage = Boolean(row.querySelector("[data-import-use-product-image]")?.checked);
+    entry.selectedProductImageId = String(row.querySelector("[data-import-product-image]:checked")?.value || "");
   });
+}
+
+function shoppingImportImageOptions(entry, index, busy) {
+  const images = Array.isArray(entry.productImages) ? entry.productImages.slice(0, 3) : [];
+  const options = images.length
+    ? `<div class="shopping-import-image-options">${images.map((image, imageIndex) => `
+        <label class="shopping-import-image-option">
+          <input type="radio" name="shopping-product-image-${escapeHtml(entry.id)}" value="${escapeHtml(image.id || String(imageIndex))}" data-import-product-image ${entry.selectedProductImageId === (image.id || String(imageIndex)) ? "checked" : ""} />
+          <span><img src="${escapeHtml(image.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}候選商品圖 ${imageIndex + 1}" /><b>選擇第 ${imageIndex + 1} 張</b></span>
+        </label>`).join("")}</div>`
+    : `<p class="shopping-ai-result-note">${escapeHtml(shoppingProductImageErrorMessage(entry.productImageError))}</p>`;
+  return `<section class="shopping-import-image-picker"><div class="shopping-import-image-heading"><b>選擇商品圖</b><span>${images.length ? `${images.length} 張候選` : "尚無候選圖"}</span></div>${options}<button type="button" data-refresh-shopping-images="${escapeHtml(entry.id)}" ${busy || entry.imageSearchBusy ? "disabled" : ""}>${entry.imageSearchBusy ? "正在搜尋…" : "↻ 換一批圖片"}</button></section>`;
 }
 
 function renderShoppingImportRows(form) {
@@ -3099,9 +3109,8 @@ function renderShoppingImportRows(form) {
   host.innerHTML = pendingShoppingImports.map((entry, index) => `
     <article class="shopping-import-result" data-shopping-import-row="${escapeHtml(entry.id)}">
       <div class="shopping-import-result-head"><span>商品 ${index + 1}</span><button type="button" data-remove-shopping-import="${escapeHtml(entry.id)}" ${busy ? "disabled" : ""}>移除</button></div>
-      ${entry.productImage?.url ? `<figure class="shopping-import-product-photo"><img src="${escapeHtml(entry.productImage.url)}" alt="${escapeHtml(entry.details?.name || `商品 ${index + 1}`)}正面商品圖" /><label><input type="checkbox" data-import-use-product-image ${entry.useProductImage === false ? "" : "checked"} /><span>使用這張 AI 純白商品圖</span></label></figure>` : ""}
+      ${entry.recognized ? shoppingImportImageOptions(entry, index, busy) : ""}
       ${entry.recognitionError ? `<p class="shopping-ai-result-note error">${escapeHtml(entry.recognitionError)}</p>` : ""}
-      ${entry.recognized && !entry.productImage ? `<p class="shopping-ai-result-note">${escapeHtml(shoppingProductImageErrorMessage(entry.productImageError))}</p>` : ""}
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
@@ -3112,6 +3121,41 @@ function renderShoppingImportRows(form) {
       ${entry.annotation?.summary ? `<p class="shopping-import-summary">${escapeHtml(entry.annotation.summary)}</p>` : ""}
       <details class="shopping-original-screenshot"><summary>查看原始辨識圖片</summary><img src="${escapeHtml(entry.dataUrl)}" alt="第 ${index + 1} 張原始推薦截圖" /></details>
     </article>`).join("");
+}
+
+async function refreshShoppingImportImages(entryId, button) {
+  const form = button?.closest("#shopping-import-form");
+  const entry = pendingShoppingImports.find((candidate) => candidate.id === entryId);
+  if (!form || !entry || entry.imageSearchBusy) return;
+  syncPendingShoppingImportEdits(form);
+  entry.imageSearchBusy = true;
+  entry.productImageError = "";
+  renderShoppingImportRows(form);
+  try {
+    const response = await fetch("/api/shopping-images", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tripId: state.tripId,
+        brand: entry.details.brand,
+        name: entry.details.name,
+        excludeIds: entry.seenProductImageIds || [],
+        round: Number(entry.imageSearchRound) || 0,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "PRODUCT_IMAGE_SEARCH_FAILED");
+    entry.productImages = Array.isArray(payload.productImages) ? payload.productImages.slice(0, 3) : [];
+    entry.seenProductImageIds = [...new Set([...(entry.seenProductImageIds || []), ...entry.productImages.map((image) => image.id).filter(Boolean)])].slice(-30);
+    entry.selectedProductImageId = entry.productImages[0]?.id || "";
+    entry.imageSearchRound = (Number(entry.imageSearchRound) || 0) + 1;
+    if (!entry.productImages.length) entry.productImageError = "PRODUCT_IMAGES_EMPTY";
+  } catch (error) {
+    entry.productImageError = String(error?.message || "PRODUCT_IMAGE_SEARCH_FAILED");
+  } finally {
+    entry.imageSearchBusy = false;
+    renderShoppingImportRows(form);
+  }
 }
 
 async function recognizeShoppingScreenshotWithAi(entry) {
@@ -3155,7 +3199,7 @@ async function compressAiProductImage(image) {
       dataUrl = canvas.toDataURL("image/webp", 0.7);
     }
     return dataUrl.length <= 135000
-      ? { ...image, url: dataUrl, pageUrl: "", sourceTitle: "AI 依原始截圖重製", kind: "ai-generated" }
+      ? { ...image, url: dataUrl, pageUrl: "", sourceTitle: image.sourceTitle || "網路商品頁", kind: "web-product" }
       : null;
   } catch {
     return null;
@@ -3187,7 +3231,7 @@ async function recognizeShoppingScreenshots(form) {
     setShoppingRecognitionStatus(form, `AI 正在理解 ${pendingShoppingImports.length} 張圖片…`, { progress: 0.03 });
     for (let currentIndex = 0; currentIndex < pendingShoppingImports.length; currentIndex += 1) {
       const entry = pendingShoppingImports[currentIndex];
-      setShoppingRecognitionStatus(form, `AI 正在辨識並重製第 ${currentIndex + 1}／${pendingShoppingImports.length} 張商品圖…`, { progress: currentIndex / pendingShoppingImports.length });
+      setShoppingRecognitionStatus(form, `AI 正在辨識第 ${currentIndex + 1}／${pendingShoppingImports.length} 張商品並搜尋照片…`, { progress: currentIndex / pendingShoppingImports.length });
       try {
         const result = await recognizeShoppingScreenshotWithAi(entry);
         if (!form.isConnected || token !== shoppingRecognitionToken) return;
@@ -3195,10 +3239,11 @@ async function recognizeShoppingScreenshots(form) {
         entry.details = result.details;
         entry.recognition = { language: result.source?.language || "多語言", confidence: Number(result.confidence) || 0 };
         entry.annotation = result.annotation || null;
-        entry.productImage = await compressAiProductImage(result.annotation?.productImages?.[0] || null);
-        entry.productImageError = result.imageError || result.annotation?.imageError || "";
-        if (entry.annotation) entry.annotation = { ...entry.annotation, productImages: entry.productImage ? [entry.productImage] : [] };
-        entry.useProductImage = Boolean(entry.productImage);
+        entry.productImages = Array.isArray(result.annotation?.productImages) ? result.annotation.productImages.slice(0, 3) : [];
+        entry.seenProductImageIds = entry.productImages.map((image) => image.id).filter(Boolean);
+        entry.selectedProductImageId = entry.productImages[0]?.id || "";
+        entry.productImageError = entry.productImages.length ? "" : "PRODUCT_IMAGES_EMPTY";
+        if (entry.annotation) entry.annotation = { ...entry.annotation, productImages: [] };
         entry.recognitionError = "";
         entry.recognized = true;
         renderShoppingImportRows(form);
@@ -3244,7 +3289,11 @@ async function handleShoppingScreenshotFile(input) {
         id: `shopping-import-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
         file,
         dataUrl,
-      details: { brand: "", name: "", benefits: "", categoryId: "daily", newCategory: "" },
+        details: { brand: "", name: "", benefits: "", categoryId: "daily", newCategory: "" },
+        productImages: [],
+        seenProductImageIds: [],
+        selectedProductImageId: "",
+        imageSearchRound: 0,
       });
       renderShoppingImportRows(form);
     } catch {
@@ -4768,6 +4817,9 @@ document.addEventListener("click", async (event) => {
     return setShoppingRecognitionStatus(form, pendingShoppingImports.length ? `目前保留 ${pendingShoppingImports.length} 個待加入商品。` : "已移除全部圖片，請重新選擇。", { progress: pendingShoppingImports.length ? 1 : 0 });
   }
 
+  const refreshShoppingImages = event.target.closest("[data-refresh-shopping-images]");
+  if (refreshShoppingImages) return refreshShoppingImportImages(refreshShoppingImages.dataset.refreshShoppingImages, refreshShoppingImages);
+
   const openShoppingItem = event.target.closest("[data-open-shopping-item]");
   if (openShoppingItem) return openShoppingDetailSheet(openShoppingItem.dataset.openShoppingItem);
 
@@ -5608,11 +5660,13 @@ document.addEventListener("submit", async (event) => {
     const recipientTagIds = shoppingRecipientTagIds(form);
     const note = String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800);
     const now = new Date().toISOString();
-    const additions = imports.map((entry, index) => {
+    const additions = await Promise.all(imports.map(async (entry, index) => {
       const photoId = `shopping-photo-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`;
       state.shopping.photos[photoId] = { dataUrl: entry.dataUrl, createdAt: new Date(Date.now() + index).toISOString() };
       const categoryId = entry.details.categoryId === "__custom__" ? shoppingCustomCategory(entry.details.newCategory) : entry.details.categoryId || "daily";
-      const productImages = entry.useProductImage && entry.productImage ? [entry.productImage] : [];
+      const selectedCandidate = (entry.productImages || []).find((image) => image.id === entry.selectedProductImageId) || null;
+      const selectedProductImage = await compressAiProductImage(selectedCandidate);
+      const productImages = selectedProductImage ? [selectedProductImage] : [];
       const aiAnnotation = entry.annotation ? { ...entry.annotation, productImages } : null;
       return {
         id: `shopping-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
@@ -5629,7 +5683,7 @@ document.addEventListener("submit", async (event) => {
         createdAt: now,
         updatedAt: now,
       };
-    });
+    }));
     state.shopping.items.unshift(...additions);
     pruneShoppingPhotos();
     const categories = [...new Set(additions.map((item) => item.categoryId))];

@@ -2,6 +2,7 @@
 
 ## 2026-08-12
 
+- Removed the slow and unreliable GPT Image generation path from Shopping. Recognition now extracts up to three product-image candidates from matching public product pages, the import review lets the user choose one, and `換一批圖片` retrieves a different round while excluding seen candidate IDs. Only the selected image is compressed and stored; all 64 tests pass.
 - Fixed successful product recognition that silently returned no image: generic required tool choice had only forced web search, not image generation. Each upload now runs a dedicated GPT Image Edit request in parallel with Responses recognition, uses the screenshot as the sole reference, and returns safe image-specific permission, quota, input, or service diagnostics while preserving recognized text. All 64 tests pass.
 - Recorded standing authorization to publish completed, validated project changes directly through GitHub `main` to Vercel production and to return the live App link after each release.
 - Replaced third-party product-photo scraping and hotlinking with one screenshot-grounded GPT Image edit inside the existing recognition request. Each review now requests a centered front-facing product-only image on pure white, compresses it before private storage, drops legacy external image URLs, and offers legacy records a repair action using their original screenshot.

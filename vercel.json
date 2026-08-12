@@ -3,8 +3,9 @@
   "framework": null,
   "fluid": true,
   "functions": {
-    "api/shopping-recognize.mjs": { "maxDuration": 180 },
-    "api/shopping-research.mjs": { "maxDuration": 180 }
+    "api/shopping-recognize.mjs": { "maxDuration": 90 },
+    "api/shopping-research.mjs": { "maxDuration": 90 },
+    "api/shopping-images.mjs": { "maxDuration": 60 }
   },
   "headers": [
     {

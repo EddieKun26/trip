@@ -8,26 +8,12 @@ import tripsHandler from "../api/trips.mjs";
 const store = new Map();
 const openAiRequests = [];
 const openAiAuthorizations = [];
-const openAiImageRequests = [];
-let openAiImageFailureStatus = 0;
+let blockProductImages = false;
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
 process.env.OPENAI_API_KEY = "test-openai-key";
 
 globalThis.fetch = async (url, options = {}) => {
-  if (String(url).includes("api.openai.com/v1/images/edits")) {
-    openAiImageRequests.push(options);
-    if (openAiImageFailureStatus) {
-      return new Response(JSON.stringify({ error: { type: "permission_error", code: "organization_verification_required" } }), {
-        status: openAiImageFailureStatus,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return new Response(JSON.stringify({ data: [{ b64_json: "QUJDRA==" }] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
   if (String(url).includes("api.openai.com/v1/responses")) {
     const body = JSON.parse(options.body);
     openAiRequests.push(body);
@@ -58,9 +44,16 @@ globalThis.fetch = async (url, options = {}) => {
   }
 
   if (String(url) === "https://example.com/kowa") {
-    return new Response('<html><head><script type="application/ld+json">{"@type":"Product","image":"https://cdn.example.com/kowa-front.jpg"}</script></head></html>', {
+    return new Response('<html><head><script type="application/ld+json">{"@type":"Product","image":["https://cdn.example.com/kowa-front-1.jpg","https://cdn.example.com/kowa-front-2.jpg","https://cdn.example.com/kowa-front-3.jpg"]}</script></head></html>', {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+
+  if (String(url).startsWith("https://cdn.example.com/kowa-front-")) {
+    return new Response(blockProductImages ? "" : new Uint8Array([255, 216, 255, 217]), {
+      status: blockProductImages ? 404 : 200,
+      headers: { "Content-Type": "image/jpeg", "Content-Length": blockProductImages ? "0" : "4" },
     });
   }
 
@@ -137,7 +130,6 @@ test("shopping recognition is authorized and returns translated structured produ
   store.clear();
   openAiRequests.length = 0;
   openAiAuthorizations.length = 0;
-  openAiImageRequests.length = 0;
   const owner = await login("阿璋", "1111", "203.0.113.71");
   const trip = await createTrip(owner.cookie);
 
@@ -154,21 +146,12 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(response.payload.source.language, "日文");
   assert.equal(response.payload.confidence, 0.94);
   assert.equal(response.payload.annotation.summary, "日本興和的整腸商品。官方資料");
-  assert.deepEqual(response.payload.annotation.productImages, [{
-    url: "data:image/webp;base64,QUJDRA==",
-    pageUrl: "",
-    sourceTitle: "AI 依原始截圖重製",
-    kind: "ai-generated",
-  }]);
+  assert.equal(response.payload.annotation.productImages.length, 3);
+  assert.equal(response.payload.annotation.productImages.every((image) => image.url === "data:image/jpeg;base64,/9j/2Q=="), true);
+  assert.equal(response.payload.annotation.productImages.every((image) => image.kind === "web-product"), true);
   assert.deepEqual(response.payload.annotation.sources, []);
 
   assert.equal(openAiRequests.length, 1);
-  assert.equal(openAiImageRequests.length, 1);
-  assert.equal(openAiImageRequests[0].headers.Authorization, "Bearer test-openai-key");
-  assert.equal(openAiImageRequests[0].body.get("model"), "gpt-image-2");
-  assert.equal(openAiImageRequests[0].body.get("size"), "1024x1024");
-  assert.equal(openAiImageRequests[0].body.get("output_format"), "webp");
-  assert.match(openAiImageRequests[0].body.get("prompt"), /sole visual reference/i);
   assert.equal(openAiAuthorizations[0], "Bearer test-openai-key");
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");
   assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
@@ -179,7 +162,7 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(openAiRequests[0].tool_choice, "required");
   assert.deepEqual(openAiRequests[0].include, ["web_search_call.action.sources"]);
   assert.match(openAiRequests[0].input[0].content, /繁體中文、簡體中文、日文、韓文、英文、泰文/);
-  assert.match(openAiRequests[0].input[0].content, /純白背景/);
+  assert.doesNotMatch(JSON.stringify(openAiRequests[0]), /image_generation|gpt-image|純白背景/i);
   assert.match(openAiRequests[0].input[0].content, /禁止出現網址/);
 });
 
@@ -196,19 +179,18 @@ test("shopping recognition rejects invalid images before calling AI", async () =
   assert.equal(openAiRequests.length, 0);
 });
 
-test("shopping recognition keeps product data and reports an explicit image API failure", async () => {
+test("shopping recognition keeps product data when web product images are unavailable", async () => {
   store.clear();
   openAiRequests.length = 0;
-  openAiImageRequests.length = 0;
-  openAiImageFailureStatus = 403;
+  blockProductImages = true;
   const owner = await login("圖片測試", "2424", "203.0.113.74");
   const trip = await createTrip(owner.cookie);
   const response = await recognize(owner.cookie, trip.id);
-  openAiImageFailureStatus = 0;
+  blockProductImages = false;
   assert.equal(response.statusCode, 200);
   assert.equal(response.payload.details.name.length > 0, true);
   assert.deepEqual(response.payload.annotation.productImages, []);
-  assert.equal(response.payload.imageError, "OPENAI_IMAGE_403_ORGANIZATION_VERIFICATION_REQUIRED");
+  assert.equal(response.payload.imageError, undefined);
 });
 
 test("shopping recognition requires a configured OpenAI key before consuming the daily limit", async () => {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { callOpenAiProductImage, generatedProductImage } from "../shopping-image.mjs";
+import { findProductImages, openAiSources, searchProductImageCandidates } from "../product-image-search.mjs";
 
-export const maxDuration = 180;
+export const maxDuration = 90;
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
@@ -142,7 +142,7 @@ function cleanRecognition(value, productImages = []) {
       cautions: cleanList(value?.cautionsZh),
       confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
       sources: [],
-      productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 1),
+      productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 3),
       researchedAt: new Date().toISOString(),
     },
     confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
@@ -152,7 +152,7 @@ function cleanRecognition(value, productImages = []) {
 function recognitionPrompt() {
   return `你是多語言商品影像辨識專家。請直接理解整張商品推薦圖，而不是只抄 OCR 字串。圖片可能包含繁體中文、簡體中文、日文、韓文、英文、泰文或其他語言。
 
-  目標：找出圖片中唯一主要、可購買的商品，接著使用網路搜尋查證完全相符的官方商品頁或可信零售商品頁，一次輸出可供台灣旅客使用的結構化資料，並以使用者上傳的原圖作為視覺參考重製一張乾淨的清單商品圖。
+  目標：找出圖片中唯一主要、可購買的商品，接著使用網路搜尋查證完全相符的官方商品頁或可信零售商品頁，一次輸出可供台灣旅客使用的結構化資料。
 
 判讀規則：
 1. 品牌必須是製造商或商品品牌；不可把「日本製造」「安心選擇」「推薦」等標語當品牌。
@@ -163,7 +163,7 @@ function recognitionPrompt() {
 6. 一張圖只回傳一個主要商品。若圖片文字不清楚，仍應依包裝、商標與版面做最佳整體判斷，並降低 confidence；不可用不連貫的 OCR 碎字填欄位。
 7. summaryZh 用一至兩句說明商品；featuresZh 整理商品特色；usageZh 整理一般使用方式；cautionsZh 整理重要注意事項。這四欄必須由圖片與查證來源支持，使用自然繁體中文，避免重複。
 8. 請實際開啟完全相符的商品頁查證，不可只參考首頁、搜尋結果頁、泛用文章或同系列其他商品。但結構化文字中禁止出現網址、網域、Markdown 連結、引用標記或「資料來源」段落。
-9. 必須呼叫 image_generation，使用這張上傳圖片作為 reference/edit input，製作一張 1:1 商品攝影圖：純白背景、畫面只有單一主要商品、正面或最具辨識度的包裝角度、商品完整置中、四周留白。保留原圖可確認的品牌、包裝色、容器、型號與外觀，不得換成同系列其他商品，不得加入人物、手、模特兒、情境、裝飾、價格、宣傳字、功效圖示或額外物品。不要從網路複製圖片；網路只用來核對資料。
+9. 為了讓系統提供三張商品圖候選，請在回答中引用至少六個完全相符的品牌官方頁或可信零售商品頁；優先選擇有清晰正面商品照的頁面。不要呼叫或要求圖片生成。
 10. 所有欄位都必須有值；真的無法辨識品牌時 brandOriginal 與 brandZh 可填空字串。藥品與保健品不得提供個人化醫療建議。`;
 }
 
@@ -225,12 +225,7 @@ function openAiOutputText(payload) {
   return "";
 }
 
-const openAiGeneratedProductImage = generatedProductImage;
-
 async function callOpenAi(apiKey, imageDataUrl) {
-  const productImagePromise = callOpenAiProductImage(apiKey, imageDataUrl)
-    .then((productImage) => ({ productImage, imageError: "" }))
-    .catch((error) => ({ productImage: null, imageError: error instanceof Error ? error.message : "OPENAI_IMAGE_FAILED" }));
   const result = await fetch(OPENAI_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -243,7 +238,7 @@ async function callOpenAi(apiKey, imageDataUrl) {
           content: [
             {
               type: "input_text",
-              text: "先理解並查證這張推薦圖中的主要商品，再以這張原圖為唯一視覺依據呼叫 image_generation，重製純白背景、只有商品本體的正面清單圖。最後輸出結構化商品資料，所有文字不得包含網址或引用。",
+              text: "先理解並查證這張推薦圖中的主要商品，輸出結構化商品資料，並引用多個完全相符、具有清晰商品照的官方或零售商品頁。所有結構化文字不得包含網址或引用。",
             },
             { type: "input_image", image_url: imageDataUrl, detail: "original" },
           ],
@@ -267,17 +262,11 @@ async function callOpenAi(apiKey, imageDataUrl) {
       max_output_tokens: 2000,
       store: false,
     }),
-    signal: AbortSignal.timeout(150000),
+    signal: AbortSignal.timeout(50000),
   });
   const payload = await result.json().catch(() => ({}));
   if (!result.ok) throw openAiError(result.status, payload);
-  const imageResult = await productImagePromise;
-  if (imageResult.imageError) console.warn("shopping product image failed", { code: imageResult.imageError });
-  return {
-    value: parseOpenAiContent(openAiOutputText(payload)),
-    productImage: imageResult.productImage,
-    imageError: imageResult.imageError,
-  };
+  return { value: parseOpenAiContent(openAiOutputText(payload)), payload };
 }
 
 async function enforceDailyLimit(memberId) {
@@ -313,9 +302,16 @@ export default async function shoppingRecognizeHandler(request, response) {
     if (!apiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
     if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
     const openAiResult = await callOpenAi(apiKey, imageDataUrl);
-    const productImages = openAiResult.productImage ? [openAiResult.productImage] : [];
+    let productImages = await findProductImages(openAiSources(openAiResult.payload), { limit: 3 });
+    if (productImages.length < 3) {
+      const extraImages = await searchProductImageCandidates(apiKey, {
+        brand: translatedLabel(openAiResult.value?.brandZh, openAiResult.value?.brandOriginal),
+        name: translatedLabel(openAiResult.value?.productNameZh, openAiResult.value?.productNameOriginal),
+        excludeIds: productImages.map((image) => image.id),
+      }).catch(() => []);
+      productImages = [...productImages, ...extraImages].filter((image, index, list) => list.findIndex((candidate) => candidate.id === image.id) === index).slice(0, 3);
+    }
     const result = cleanRecognition(openAiResult.value, productImages);
-    if (openAiResult.imageError) result.imageError = openAiResult.imageError;
     if (!result.details.name) return sendJson(response, 422, { error: "PRODUCT_NOT_RECOGNIZED" });
     return sendJson(response, 200, result);
   } catch (error) {
@@ -326,4 +322,4 @@ export default async function shoppingRecognizeHandler(request, response) {
   }
 }
 
-export { cleanRecognition, openAiCredential, openAiGeneratedProductImage, responseSchema, stripSourceReferences };
+export { cleanRecognition, openAiCredential, responseSchema, stripSourceReferences };

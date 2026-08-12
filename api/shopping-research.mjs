@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { callOpenAiProductImage, generatedProductImage } from "../shopping-image.mjs";
+import { findProductImages, openAiSources, searchProductImageCandidates } from "../product-image-search.mjs";
 
-export const maxDuration = 180;
+export const maxDuration = 90;
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
@@ -114,7 +114,7 @@ function researchPrompt(hasReferenceImage) {
 4. summaryZh 用一至兩句話說明這是什麼商品，不要重複其餘欄位。
 5. 不要捏造售價、成分、用量、功效或來源沒有支持的資訊。
 6. 結構化文字中禁止出現網址、網域、Markdown 連結、引用標記或「資料來源」段落。
-${hasReferenceImage ? "7. 必須呼叫 image_generation，以提供的原始推薦截圖為唯一視覺參考，重製一張 1:1 純白背景商品攝影圖。只保留單一主要商品，正面或最具辨識度的包裝角度、完整置中並留白；保持可確認的品牌、包裝色、容器、型號與外觀。禁止人物、手、模特兒、情境、裝飾、價格、宣傳字、功效圖示與額外物品；不得從網路複製圖片。" : "7. 這筆資料沒有原始截圖，不可生成或猜測商品外觀，只輸出可查證的文字資料。"}`;
+7. 請引用至少六個完全相符、具有清晰商品照的品牌官方頁或可信零售商品頁，供系統提供三張商品圖候選。不要呼叫或要求圖片生成。${hasReferenceImage ? "原始截圖只用來確認商品身份。" : ""}`;
 }
 
 const responseSchema = {
@@ -161,8 +161,6 @@ function openAiOutputText(payload) {
   return "";
 }
 
-const openAiGeneratedProductImage = generatedProductImage;
-
 function openAiError(status, payload) {
   const type = cleanText(payload?.error?.type || payload?.error?.code, 50)
     .toLocaleUpperCase()
@@ -178,7 +176,7 @@ function cleanAnnotation(value, productImages = []) {
     cautions: cleanList(value?.cautionsZh),
     confidence: Math.max(0, Math.min(1, Number(value?.confidence) || 0)),
     sources: [],
-    productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 1),
+    productImages: (Array.isArray(productImages) ? productImages : []).slice(0, 3),
     researchedAt: new Date().toISOString(),
   };
 }
@@ -191,14 +189,9 @@ async function callOpenAi(apiKey, item, referenceImage = "") {
     category: categoryLabel(item.categoryId),
   };
   const hasReferenceImage = /^data:image\/(?:jpeg|png|webp);base64,/i.test(referenceImage);
-  const productImagePromise = hasReferenceImage
-    ? callOpenAiProductImage(apiKey, referenceImage)
-      .then((productImage) => ({ productImage, imageError: "" }))
-      .catch((error) => ({ productImage: null, imageError: error instanceof Error ? error.message : "OPENAI_IMAGE_FAILED" }))
-    : Promise.resolve({ productImage: null, imageError: "OPENAI_IMAGE_REFERENCE_REQUIRED" });
   const content = [{
     type: "input_text",
-    text: `${hasReferenceImage ? "查證商品，並以原圖重製純白背景、只有商品本體的清單商品圖。" : "查證並整理商品文字資料；沒有原圖時不要生成商品圖。"}\n${JSON.stringify(product)}`,
+    text: `查證並整理商品文字資料，並引用多個具有清晰商品照的完全相符商品頁。不要生成圖片。\n${JSON.stringify(product)}`,
   }];
   if (hasReferenceImage) content.push({ type: "input_image", image_url: referenceImage, detail: "original" });
   const tools = [{ type: "web_search" }];
@@ -227,15 +220,20 @@ async function callOpenAi(apiKey, item, referenceImage = "") {
       max_output_tokens: 2400,
       store: false,
     }),
-    signal: AbortSignal.timeout(hasReferenceImage ? 150000 : 50000),
+    signal: AbortSignal.timeout(50000),
   });
   const payload = await result.json().catch(() => ({}));
   if (!result.ok) throw openAiError(result.status, payload);
-  const imageResult = await productImagePromise;
-  if (imageResult.imageError && hasReferenceImage) console.warn("shopping product image failed", { code: imageResult.imageError });
-  const annotation = cleanAnnotation(parseOpenAiContent(openAiOutputText(payload)), imageResult.productImage ? [imageResult.productImage] : []);
-  if (imageResult.imageError) annotation.imageError = imageResult.imageError;
-  return annotation;
+  let productImages = await findProductImages(openAiSources(payload), { limit: 3 });
+  if (productImages.length < 3) {
+    const extraImages = await searchProductImageCandidates(apiKey, {
+      brand: product.brand,
+      name: product.productName,
+      excludeIds: productImages.map((image) => image.id),
+    }).catch(() => []);
+    productImages = [...productImages, ...extraImages].filter((image, index, list) => list.findIndex((candidate) => candidate.id === image.id) === index).slice(0, 3);
+  }
+  return cleanAnnotation(parseOpenAiContent(openAiOutputText(payload)), productImages);
 }
 
 async function enforceDailyLimit(memberId) {
@@ -278,4 +276,4 @@ export default async function shoppingResearchHandler(request, response) {
   }
 }
 
-export { cleanAnnotation, openAiCredential, openAiGeneratedProductImage, responseSchema, stripSourceReferences };
+export { cleanAnnotation, openAiCredential, responseSchema, stripSourceReferences };
