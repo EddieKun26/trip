@@ -3,7 +3,7 @@
 ## 2026-08-13
 
 - Moved the active workspace to `旅遊APP`, verified canonical/deployment file parity, GitHub and Vercel bindings, and globally installed custom skills, and added a root workflow file that prevents future edits from targeting the older `AI家教` copies.
-- Raised one-post social place recognition and import from five to twenty distinct locations, increased structured-output capacity, bounded Google candidate lookup concurrency to five, and preserved partial successful candidate groups when an individual lookup fails.
+- Raised one-post social place recognition and import from five to twenty distinct locations, increased structured-output capacity, bounded Google candidate lookup concurrency to five, and preserved partial successful candidate groups when an individual lookup fails. All 67 tests pass.
 
 ## 2026-08-12
 

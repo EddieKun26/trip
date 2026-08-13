@@ -32,6 +32,6 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test tests/*.test.mjs`: 66 tests passing as of 2026-08-12 after adding large Shopping candidate previews and adaptive parallel backup searches for missing product images.
+- `node --test tests/*.test.mjs`: 67 tests passing as of 2026-08-13 after raising social-place imports to twenty and adding a regression check for the shared recognition ceiling.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.
