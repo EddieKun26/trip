@@ -7,6 +7,8 @@ const OPENAI_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MAX_IMAGE_LENGTH = 500000;
 const DAILY_RECOGNITION_LIMIT = 30;
+const MAX_SOCIAL_PLACES = 20;
+const GOOGLE_LOOKUP_CONCURRENCY = 5;
 const SOCIAL_HOSTS = new Set([
   "instagram.com",
   "www.instagram.com",
@@ -212,7 +214,7 @@ const responseSchema = {
     needsMoreContext: { type: "boolean" },
     places: {
       type: "array",
-      maxItems: 5,
+      maxItems: MAX_SOCIAL_PLACES,
       items: {
         type: "object",
         properties: {
@@ -243,7 +245,7 @@ function recognitionPrompt() {
 
 規則：
 1. 只回傳可在 Google Maps 搜尋的實體景點、餐廳、住宿或商店。不要把城市、行政區、標籤、交通方式或一般商品當成地點。
-2. 一篇貼文可回傳多個明確地點，最多五個。重複別名只保留一次。
+2. 一篇貼文可回傳多個明確地點，最多二十個。請完整辨識貼文實際列出的店家或景點，重複別名只保留一次。
 3. nameOriginal 保留官方或當地原文，nameZh 提供自然的繁體中文名稱。沒有可靠翻譯時可保留原文。
 4. address 必須保留來源明確寫出的地址；沒有地址就回傳空字串，不得猜測門牌。
 5. 若創作者把正式名稱藏在個人檔案、置頂連結或未提供名稱，nameHidden 設為 true。此時即使 nameOriginal 與 nameZh 留空，只要來源有地址或足夠住宿特徵，仍要建立一筆可供候選搜尋的地點。
@@ -329,7 +331,7 @@ async function callOpenAi(apiKey, {
         schema: responseSchema,
       },
     },
-    max_output_tokens: 1800,
+    max_output_tokens: 6000,
     store: false,
     ...(useWebSearch ? { tools: [{ type: "web_search" }] } : {}),
   };
@@ -430,7 +432,7 @@ function cleanRecognition(value, options = {}) {
       seen.add(place.identity);
       return true;
     })
-    .slice(0, 5)
+    .slice(0, MAX_SOCIAL_PLACES)
     .map(({ identity, ...place }) => place);
   return {
     sourceSummary: cleanText(value?.sourceSummary, 800),
@@ -578,6 +580,21 @@ async function searchGoogleCandidates(apiKey, mention, trip, source) {
   });
 }
 
+async function mapWithConcurrency(items, limit, mapper) {
+  const source = Array.isArray(items) ? items : [];
+  const results = new Array(source.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < source.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(source[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), source.length) }, worker));
+  return results;
+}
+
 async function enforceDailyLimit(memberId) {
   const day = new Date().toISOString().slice(0, 10);
   const key = `${RECOGNITION_LIMIT_PREFIX}${memberId}:${day}`;
@@ -668,11 +685,24 @@ export default async function socialPlaceImportHandler(request, response) {
       summary: recognition.sourceSummary,
       language: recognition.sourceLanguage,
     };
-    const groups = await Promise.all(recognition.places.map(async (mention, index) => ({
-      id: `social-place-${index + 1}`,
-      extracted: mention,
-      candidates: await searchGoogleCandidates(googleMapsKey, mention, trip, source),
-    })));
+    const lookupErrors = [];
+    const groups = await mapWithConcurrency(
+      recognition.places,
+      GOOGLE_LOOKUP_CONCURRENCY,
+      async (mention, index) => {
+        try {
+          return {
+            id: `social-place-${index + 1}`,
+            extracted: mention,
+            candidates: await searchGoogleCandidates(googleMapsKey, mention, trip, source),
+          };
+        } catch (error) {
+          lookupErrors.push(error);
+          return { id: `social-place-${index + 1}`, extracted: mention, candidates: [] };
+        }
+      },
+    );
+    if (lookupErrors.length === recognition.places.length) throw lookupErrors[0];
     if (!groups.some((group) => group.candidates.length)) {
       return sendJson(response, 422, { error: "GOOGLE_PLACE_NOT_FOUND", source });
     }

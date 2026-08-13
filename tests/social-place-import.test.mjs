@@ -6,6 +6,7 @@ import socialPlaceImportHandler, {
   cleanRecognition,
   extractAddressHint,
   publicMetadataFromHtml,
+  responseSchema,
   safeSocialUrl,
   sourceHidesPlaceName,
 } from "../api/social-place-import.mjs";
@@ -208,6 +209,33 @@ test("an explicit address remains searchable when AI cannot identify the hidden 
   assert.equal(result.places[0].category, "lodging");
   assert.equal(result.places[0].address, "山梨縣南都留郡富士河口湖町淺川");
   assert.equal(result.places[0].nameHidden, true);
+});
+
+test("social recognition keeps up to twenty distinct places from one post", () => {
+  const places = Array.from({ length: 24 }, (_, index) => ({
+    nameOriginal: `Store ${index + 1}`,
+    nameZh: `店家 ${index + 1}`,
+    city: "東京",
+    area: "",
+    country: "日本",
+    category: "shopping",
+    address: "",
+    nameHidden: false,
+    searchClues: "",
+    searchQuery: `Store ${index + 1} Tokyo`,
+    evidence: "貼文列出的店家",
+    confidence: 0.9,
+  }));
+  const result = cleanRecognition({
+    sourceSummary: "東京店家清單",
+    sourceLanguage: "zh-TW",
+    needsMoreContext: false,
+    places,
+  });
+
+  assert.equal(responseSchema.properties.places.maxItems, 20);
+  assert.equal(result.places.length, 20);
+  assert.equal(result.places[19].nameOriginal, "Store 20");
 });
 
 test("social place import requires membership and returns Google candidates for confirmation", async () => {

@@ -12,6 +12,8 @@ An iPhone-first collaborative travel-planning web app. Travelers can create priv
 
 ## Workspace
 
+- Workspace root: `C:\Users\user\OneDrive\桌面\旅遊APP`
 - Canonical source: `travel-app/prototype`
 - Deployment mirror / Git repository: `trip-deploy`
 - Never treat `trip-deploy` as the primary editing surface; copy validated source changes there before publishing.
+- Older copies under `AI家教` are retained only as a recoverable duplicate and must not be edited or deployed.
