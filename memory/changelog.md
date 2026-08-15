@@ -2,7 +2,7 @@
 
 ## 2026-08-15
 
-- Extended Instagram/Threads place recognition to read safe public Open Graph images and video covers automatically in the same visual-recognition request as public post text. Added strict CDN allowlisting, media type/size checks, cover-image anti-hallucination guidance, and a specific screenshot fallback when full video, carousel, or reply content is not publicly exposed. All 68 tests pass.
+- Extended Instagram/Threads place recognition from a single Open Graph cover to the complete publicly exposed main-post carousel. The importer now reads bounded full-page HTML, excludes avatars, deduplicates and validates up to twenty Meta CDN images, fetches them with bounded concurrency and a total byte budget, and sends them together in one visual-recognition request. The reported Threads post was verified to expose 19 main-post images including the `銀座ブラジル（浅草支店）` attachment. All 69 tests pass.
 
 ## 2026-08-13
 

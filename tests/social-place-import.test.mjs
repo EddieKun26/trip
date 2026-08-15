@@ -34,7 +34,7 @@ globalThis.fetch = async (url, options = {}) => {
       headers: { "Content-Type": "image/jpeg", "Content-Length": "4" },
     });
   }
-  if (target.includes("instagram.com")) {
+  if (target.includes("instagram.com") || target.includes("threads.com")) {
     if (!socialHtmlAvailable) return new Response("登入後才能查看", { status: 403, headers: { "Content-Type": "text/html" } });
     return new Response(socialHtmlOverride || `<!doctype html><html><head>
       <meta property="og:title" content="東京甜點推薦" />
@@ -177,8 +177,27 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
     title: "A & B",
     description: "推薦餐廳",
     imageUrl: "https://scontent.cdninstagram.com/photo.jpg?x=1",
+    imageUrls: ["https://scontent.cdninstagram.com/photo.jpg?x=1"],
     videoUrl: "",
   });
+});
+
+test("social metadata parser collects only main-post carousel images and excludes avatars", () => {
+  const metadata = publicMetadataFromHtml(`<!doctype html><html><head>
+    <meta property="og:image" content="https://scontent.cdninstagram.com/v/t51.82787-15/cover.jpg?one=1" />
+  </head><body>
+    <img alt="Lin's profile picture" width="36" height="36" src="https://scontent.cdninstagram.com/v/t51.82787-19/avatar.jpg" />
+    <img alt="Video cover" src="https://scontent.cdninstagram.com/v/t51.82787-15/cover.jpg?two=2" />
+    <img alt="Carousel photo" src="https://scontent.cdninstagram.com/v/t51.82787-15/ginza-brazil.jpg" />
+    <img alt="Carousel photo" src="https://scontent.cdninstagram.com/v/t51.82787-15/restaurant-two.jpg" />
+    <img alt="Unrelated asset" src="https://scontent.cdninstagram.com/static/icon.png" />
+  </body></html>`);
+
+  assert.deepEqual(metadata.imageUrls, [
+    "https://scontent.cdninstagram.com/v/t51.82787-15/cover.jpg?one=1",
+    "https://scontent.cdninstagram.com/v/t51.82787-15/ginza-brazil.jpg",
+    "https://scontent.cdninstagram.com/v/t51.82787-15/restaurant-two.jpg",
+  ]);
 });
 
 test("social address helpers retain explicit lodging addresses and detect hidden profile names", () => {
@@ -291,7 +310,7 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(googleRequests[0].headers["X-Goog-Api-Key"], "test-google-key");
 });
 
-test("public social cover images are fetched and included in visual recognition automatically", async () => {
+test("public social carousel images beyond the old HTML cutoff are fetched into one visual-recognition request", async () => {
   store.clear();
   openAiRequests.length = 0;
   googleRequests.length = 0;
@@ -301,15 +320,25 @@ test("public social cover images are fetched and included in visual recognition 
     <meta property="og:title" content="東京餐廳推薦" />
     <meta property="og:description" content="店家資訊請看圖片" />
     <meta property="og:image" content="https://scontent.cdninstagram.com/thread-cover.jpg" />
-  </head></html>`;
+  </head><body>${"x".repeat(550000)}
+    <img alt="Eddie's profile picture" width="36" height="36" src="https://scontent.cdninstagram.com/v/t51.82787-19/avatar.jpg" />
+    <img alt="Carousel photo" src="https://scontent.cdninstagram.com/v/t51.82787-15/ginza-brazil.jpg" />
+    <img alt="Carousel photo" src="https://scontent.cdninstagram.com/v/t51.82787-15/restaurant-two.jpg" />
+  </body></html>`;
   const { cookie, trip } = await loginAndCreateTrip();
 
-  const response = await recognize({ cookie, tripId: trip.id });
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    sourceUrl: "https://www.threads.com/share/BARaD4Oi12/",
+  });
   assert.equal(response.statusCode, 200);
   assert.equal(openAiRequests.length, 1);
-  assert.equal(openAiRequests[0].input[1].content[1].type, "input_image");
-  assert.equal(openAiRequests[0].input[1].content[1].image_url, "data:image/jpeg;base64,/9j/2Q==");
-  assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
+  const imageInputs = openAiRequests[0].input[1].content.filter((entry) => entry.type === "input_image");
+  assert.equal(imageInputs.length, 3);
+  assert.equal(imageInputs.every((entry) => entry.image_url === "data:image/jpeg;base64,/9j/2Q=="), true);
+  assert.equal(imageInputs.every((entry) => entry.detail === "high"), true);
+  assert.match(openAiRequests[0].input[1].content[0].text, /所有附件影像/);
   socialHtmlOverride = "";
 });
 

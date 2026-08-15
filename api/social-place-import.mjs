@@ -7,6 +7,10 @@ const OPENAI_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MAX_IMAGE_LENGTH = 500000;
 const MAX_PUBLIC_IMAGE_BYTES = 2000000;
+const MAX_PUBLIC_HTML_BYTES = 4000000;
+const MAX_PUBLIC_MEDIA_IMAGES = 20;
+const MAX_PUBLIC_MEDIA_TOTAL_BYTES = 12000000;
+const PUBLIC_MEDIA_FETCH_CONCURRENCY = 6;
 const DAILY_RECOGNITION_LIMIT = 30;
 const MAX_SOCIAL_PLACES = 20;
 const GOOGLE_LOOKUP_CONCURRENCY = 5;
@@ -145,6 +149,33 @@ function tagAttributes(tag) {
   return attributes;
 }
 
+function mediaUrlIdentity(value) {
+  const url = safeSocialMediaUrl(value);
+  return url ? `${url.hostname.toLowerCase()}${url.pathname}` : "";
+}
+
+function srcsetCandidate(value) {
+  const candidates = String(value || "")
+    .split(",")
+    .map((entry) => entry.trim().split(/\s+/)[0])
+    .filter(Boolean);
+  return candidates.at(-1) || "";
+}
+
+function mainPostImageUrl(attributes = {}) {
+  const source = attributes.src || srcsetCandidate(attributes.srcset);
+  const url = safeSocialMediaUrl(source);
+  if (!url) return "";
+  const alt = cleanText(attributes.alt, 300).toLocaleLowerCase();
+  const width = Number.parseInt(attributes.width, 10);
+  const height = Number.parseInt(attributes.height, 10);
+  const isAvatar = /profile picture|profile photo|avatar|大頭貼|頭像/u.test(alt)
+    || /\/t51\.\d+-19\//u.test(url.pathname)
+    || (Number.isFinite(width) && Number.isFinite(height) && width <= 128 && height <= 128);
+  const isPostMedia = /\/t51\.\d+-15\//u.test(url.pathname);
+  return !isAvatar && isPostMedia ? url.toString() : "";
+}
+
 function publicMetadataFromHtml(html) {
   const metadata = {};
   for (const tag of String(html || "").match(/<meta\b[^>]*>/gi) || []) {
@@ -160,12 +191,26 @@ function publicMetadataFromHtml(html) {
       metadata.videoUrl = safeSocialMediaUrl(attributes.content)?.toString() || "";
     }
   }
+  const imageUrls = [];
+  const imageIdentities = new Set();
+  const appendImage = (value) => {
+    const safeUrl = safeSocialMediaUrl(value)?.toString() || "";
+    const identity = mediaUrlIdentity(safeUrl);
+    if (!safeUrl || !identity || imageIdentities.has(identity) || imageUrls.length >= MAX_PUBLIC_MEDIA_IMAGES) return;
+    imageIdentities.add(identity);
+    imageUrls.push(safeUrl);
+  };
+  appendImage(metadata.imageUrl);
+  for (const tag of String(html || "").match(/<img\b[^>]*>/gi) || []) {
+    appendImage(mainPostImageUrl(tagAttributes(tag)));
+  }
   const titleMatch = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = cleanText(decodeHtml(titleMatch?.[1] || ""), 500);
   return {
     title: metadata["og:title"] || title,
     description: metadata["og:description"] || metadata.description || "",
-    imageUrl: metadata.imageUrl || "",
+    imageUrl: imageUrls[0] || "",
+    imageUrls,
     videoUrl: metadata.videoUrl || "",
   };
 }
@@ -191,7 +236,7 @@ function sourceHidesPlaceName(...values) {
 }
 
 async function fetchPublicMetadata(initialUrl) {
-  if (!initialUrl) return { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: "" };
+  if (!initialUrl) return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: "" };
   let current = initialUrl;
   for (let redirectCount = 0; redirectCount < 4; redirectCount += 1) {
     const result = await fetch(current, {
@@ -206,26 +251,26 @@ async function fetchPublicMetadata(initialUrl) {
     if (result.status >= 300 && result.status < 400) {
       const location = result.headers.get("location");
       const nextUrl = safeSocialUrl(location ? new URL(location, current).toString() : "");
-      if (!nextUrl) return { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: current.toString() };
+      if (!nextUrl) return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
       current = nextUrl;
       continue;
     }
     if (!result.ok || !String(result.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
-      return { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: current.toString() };
+      return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
     }
     const declaredLength = Number(result.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > 2000000) {
-      return { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: current.toString() };
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_PUBLIC_HTML_BYTES) {
+      return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
     }
-    const html = (await result.text()).slice(0, 500000);
+    const html = (await result.text()).slice(0, MAX_PUBLIC_HTML_BYTES);
     const metadata = publicMetadataFromHtml(html);
     return {
       ...metadata,
-      available: Boolean(metadata.title || metadata.description || metadata.imageUrl || metadata.videoUrl),
+      available: Boolean(metadata.title || metadata.description || metadata.imageUrls.length || metadata.videoUrl),
       finalUrl: current.toString(),
     };
   }
-  return { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: current.toString() };
+  return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
 }
 
 async function fetchPublicImageDataUrl(initialUrl) {
@@ -253,6 +298,36 @@ async function fetchPublicImageDataUrl(initialUrl) {
     return `data:${contentType};base64,${bytes.toString("base64")}`;
   }
   return "";
+}
+
+async function fetchPublicImageDataUrls(imageUrls) {
+  const uniqueUrls = [];
+  const identities = new Set();
+  for (const value of Array.isArray(imageUrls) ? imageUrls : []) {
+    const safeUrl = safeSocialMediaUrl(value)?.toString() || "";
+    const identity = mediaUrlIdentity(safeUrl);
+    if (!safeUrl || !identity || identities.has(identity) || uniqueUrls.length >= MAX_PUBLIC_MEDIA_IMAGES) continue;
+    identities.add(identity);
+    uniqueUrls.push(safeUrl);
+  }
+  const fetched = await mapWithConcurrency(uniqueUrls, PUBLIC_MEDIA_FETCH_CONCURRENCY, async (url) => {
+    try {
+      return await fetchPublicImageDataUrl(url);
+    } catch {
+      return "";
+    }
+  });
+  const accepted = [];
+  let totalBytes = 0;
+  for (const dataUrl of fetched) {
+    if (!dataUrl) continue;
+    const encoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    const byteLength = Buffer.byteLength(encoded, "base64");
+    if (!byteLength || totalBytes + byteLength > MAX_PUBLIC_MEDIA_TOTAL_BYTES) continue;
+    totalBytes += byteLength;
+    accepted.push(dataUrl);
+  }
+  return accepted;
 }
 
 const responseSchema = {
@@ -340,7 +415,7 @@ async function callOpenAi(apiKey, {
   platform,
   metadata,
   sharedText,
-  imageDataUrl,
+  imageInputs,
   destination,
   addressHint,
   nameHiddenHint,
@@ -353,7 +428,8 @@ async function callOpenAi(apiKey, {
     requestedKind: requestedKind || "auto",
     publicTitle: metadata.title || "",
     publicDescription: metadata.description || "",
-    linkedMediaKind: metadata.videoUrl ? "video" : metadata.imageUrl ? "image" : "none",
+    linkedMediaKind: metadata.videoUrl ? "video" : metadata.imageUrls?.length ? "image_carousel" : "none",
+    linkedMediaCount: Array.isArray(imageInputs) ? imageInputs.length : 0,
     sharedText: sharedText || "",
     explicitAddressHint: addressHint || "",
     sourceSaysNameIsHidden: Boolean(nameHiddenHint),
@@ -361,10 +437,17 @@ async function callOpenAi(apiKey, {
   const content = [
     {
       type: "input_text",
-      text: `請從以下分享內容辨識旅遊地點。資料如下：\n${JSON.stringify(reference)}`,
+      text: `請從以下分享內容與所有附件影像辨識旅遊地點。輪播圖片可能各自包含不同店名；同一家店的重複畫面只能列一次。資料如下：\n${JSON.stringify(reference)}`,
     },
   ];
-  if (imageDataUrl) content.push({ type: "input_image", image_url: imageDataUrl, detail: "original" });
+  for (const image of Array.isArray(imageInputs) ? imageInputs : []) {
+    if (!image?.dataUrl) continue;
+    content.push({
+      type: "input_image",
+      image_url: image.dataUrl,
+      detail: image.detail === "high" ? "high" : "original",
+    });
+  }
   const useWebSearch = Boolean(addressHint && nameHiddenHint);
   const requestPayload = {
     model: OPENAI_MODEL,
@@ -689,27 +772,29 @@ export default async function socialPlaceImportHandler(request, response) {
     if (!openAiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
     if (!googleMapsKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
 
-    let metadata = { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: sourceUrl?.toString() || "" };
+    let metadata = { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: sourceUrl?.toString() || "" };
     if (sourceUrl) {
       try {
         metadata = await fetchPublicMetadata(sourceUrl);
       } catch {
-        metadata = { available: false, title: "", description: "", imageUrl: "", videoUrl: "", finalUrl: sourceUrl.toString() };
+        metadata = { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: sourceUrl.toString() };
       }
     }
-    let linkedImageDataUrl = "";
-    if (!imageDataUrl && metadata.imageUrl) {
+    let linkedImageDataUrls = [];
+    if (!imageDataUrl && metadata.imageUrls?.length) {
       try {
-        linkedImageDataUrl = await fetchPublicImageDataUrl(metadata.imageUrl);
+        linkedImageDataUrls = await fetchPublicImageDataUrls(metadata.imageUrls);
       } catch {
-        linkedImageDataUrl = "";
+        linkedImageDataUrls = [];
       }
     }
-    const recognitionImageDataUrl = imageDataUrl || linkedImageDataUrl;
-    if (!metadata.available && !sharedText && !recognitionImageDataUrl) {
+    const recognitionImages = imageDataUrl
+      ? [{ dataUrl: imageDataUrl, detail: "original" }]
+      : linkedImageDataUrls.map((dataUrl) => ({ dataUrl, detail: "high" }));
+    if (!metadata.available && !sharedText && !recognitionImages.length) {
       return sendJson(response, 422, { error: "SOURCE_CONTENT_REQUIRED", platform: socialPlatform(sourceUrl) });
     }
-    if (!metadata.title && !metadata.description && !sharedText && !recognitionImageDataUrl) {
+    if (!metadata.title && !metadata.description && !sharedText && !recognitionImages.length) {
       return sendJson(response, 422, { error: "SOCIAL_MEDIA_SCREENSHOT_REQUIRED", platform: socialPlatform(sourceUrl) });
     }
     if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
@@ -723,7 +808,7 @@ export default async function socialPlaceImportHandler(request, response) {
       platform,
       metadata,
       sharedText,
-      imageDataUrl: recognitionImageDataUrl,
+      imageInputs: recognitionImages,
       destination: trip.destination,
       addressHint,
       nameHiddenHint,
@@ -736,7 +821,7 @@ export default async function socialPlaceImportHandler(request, response) {
     });
     if (!recognition.places.length) {
       return sendJson(response, 422, {
-        error: !imageDataUrl && (metadata.imageUrl || metadata.videoUrl)
+        error: !imageDataUrl && (metadata.imageUrls?.length || metadata.videoUrl)
           ? "SOCIAL_MEDIA_SCREENSHOT_REQUIRED"
           : "PLACE_NOT_RECOGNIZED",
         needsMoreContext: recognition.needsMoreContext,
@@ -791,6 +876,7 @@ export {
   extractAddressHint,
   fetchPublicMetadata,
   fetchPublicImageDataUrl,
+  fetchPublicImageDataUrls,
   publicMetadataFromHtml,
   responseSchema,
   safeSocialUrl,
