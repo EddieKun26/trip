@@ -7,6 +7,7 @@ import socialPlaceImportHandler, {
   extractAddressHint,
   publicMetadataFromHtml,
   responseSchema,
+  safeSocialMediaUrl,
   safeSocialUrl,
   sourceHidesPlaceName,
 } from "../api/social-place-import.mjs";
@@ -27,6 +28,12 @@ process.env.GOOGLE_MAPS_API_KEY = "test-google-key";
 
 globalThis.fetch = async (url, options = {}) => {
   const target = String(url);
+  if (target.includes("cdninstagram.com")) {
+    return new Response(new Uint8Array([255, 216, 255, 217]), {
+      status: 200,
+      headers: { "Content-Type": "image/jpeg", "Content-Length": "4" },
+    });
+  }
   if (target.includes("instagram.com")) {
     if (!socialHtmlAvailable) return new Response("登入後才能查看", { status: 403, headers: { "Content-Type": "text/html" } });
     return new Response(socialHtmlOverride || `<!doctype html><html><head>
@@ -164,9 +171,13 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
   assert.equal(safeSocialUrl("https://www.instagram.com/reel/Db0DU2OykW0/?igsh=example")?.pathname, "/reel/Db0DU2OykW0/");
   assert.equal(safeSocialUrl("http://127.0.0.1/private"), null);
   assert.equal(safeSocialUrl("https://example.com/place"), null);
-  assert.deepEqual(publicMetadataFromHtml('<meta content="A &amp; B" property="og:title"><meta name="description" content="推薦餐廳">'), {
+  assert.equal(safeSocialMediaUrl("https://scontent.cdninstagram.com/photo.jpg")?.hostname, "scontent.cdninstagram.com");
+  assert.equal(safeSocialMediaUrl("https://example.com/photo.jpg"), null);
+  assert.deepEqual(publicMetadataFromHtml('<meta content="A &amp; B" property="og:title"><meta name="description" content="推薦餐廳"><meta property="og:image" content="https://scontent.cdninstagram.com/photo.jpg?x=1">'), {
     title: "A & B",
     description: "推薦餐廳",
+    imageUrl: "https://scontent.cdninstagram.com/photo.jpg?x=1",
+    videoUrl: "",
   });
 });
 
@@ -278,6 +289,28 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(googleRequests[0].body.maxResultCount, 3);
   assert.equal(googleRequests[0].body.regionCode, "JP");
   assert.equal(googleRequests[0].headers["X-Goog-Api-Key"], "test-google-key");
+});
+
+test("public social cover images are fetched and included in visual recognition automatically", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  socialHtmlAvailable = true;
+  recognitionPlaceOverride = null;
+  socialHtmlOverride = `<!doctype html><html><head>
+    <meta property="og:title" content="東京餐廳推薦" />
+    <meta property="og:description" content="店家資訊請看圖片" />
+    <meta property="og:image" content="https://scontent.cdninstagram.com/thread-cover.jpg" />
+  </head></html>`;
+  const { cookie, trip } = await loginAndCreateTrip();
+
+  const response = await recognize({ cookie, tripId: trip.id });
+  assert.equal(response.statusCode, 200);
+  assert.equal(openAiRequests.length, 1);
+  assert.equal(openAiRequests[0].input[1].content[1].type, "input_image");
+  assert.equal(openAiRequests[0].input[1].content[1].image_url, "data:image/jpeg;base64,/9j/2Q==");
+  assert.equal(openAiRequests[0].input[1].content[1].detail, "original");
+  socialHtmlOverride = "";
 });
 
 test("login-gated social posts request a screenshot before spending AI tokens", async () => {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-15
+
+- Extended Instagram/Threads place recognition to read safe public Open Graph images and video covers automatically in the same visual-recognition request as public post text. Added strict CDN allowlisting, media type/size checks, cover-image anti-hallucination guidance, and a specific screenshot fallback when full video, carousel, or reply content is not publicly exposed. All 68 tests pass.
+
 ## 2026-08-13
 
 - Moved the active workspace to `旅遊APP`, verified canonical/deployment file parity, GitHub and Vercel bindings, and globally installed custom skills, and added a root workflow file that prevents future edits from targeting the older `AI家教` copies.

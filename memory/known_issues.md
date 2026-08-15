@@ -3,7 +3,7 @@
 - The Google Maps key was previously shared in conversation. It should be rotated and restricted in Google Cloud before broader public use.
 - Google Maps browser-map availability depends on correct production referrer restrictions; Leaflet is the fallback when the key cannot load.
 - Google Maps shared-list import works only for publicly accessible lists. Private lists cannot be expanded server-side.
-- Instagram and Threads may block server-side public metadata or require login. In those cases the user must upload a screenshot; the first version does not support other social platforms or direct iOS share-sheet delivery.
+- Instagram and Threads may block server-side public metadata or require login. Public Open Graph images/video covers are now recognized automatically when exposed, but the pasted page often does not expose the full video, every carousel frame, or replies; in those cases the user must upload screenshots containing the names. Direct iOS share-sheet delivery still requires the future native/PWA share-target phase.
 - Social posts can return up to twenty place groups, but practical completeness still depends on the post exposing readable names, addresses, or screenshots and on Google Places finding each mention. Candidate searches are concurrency-limited, so unusually long lists may take longer than short posts.
 - Instagram profile/pinned external links are not reliably exposed in public metadata. A caption-level address can still produce Google lodging candidates, but a broad neighborhood-only address may match several plausible properties and always requires the user's explicit selection.
 - The local airport catalog is intentionally curated rather than exhaustive; unsupported cities need catalog additions.

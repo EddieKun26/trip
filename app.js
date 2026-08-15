@@ -4395,6 +4395,7 @@ async function enrichPlaceImportsFromApi(entries) {
 function socialImportErrorMessage(error) {
   const code = String(error?.message || "");
   if (code === "SOURCE_CONTENT_REQUIRED") return "這篇貼文無法公開讀取，請上傳貼文截圖後再辨識。";
+  if (code === "SOCIAL_MEDIA_SCREENSHOT_REQUIRED") return "貼文只公開了封面或部分內容，完整影片、輪播圖片與留言無法直接讀取；請上傳含店名的截圖後再辨識。";
   if (code === "PLACE_NOT_RECOGNIZED") return "AI 還無法確認貼文中的地點，請上傳更清楚的截圖後再試。";
   if (code === "GOOGLE_PLACE_NOT_FOUND") return "已理解貼文內容，但 Google Maps 找不到足夠吻合的地點。";
   if (code === "DAILY_RECOGNITION_LIMIT") return "今天的社群地點辨識次數已達上限，請稍後再試。";
