@@ -2,6 +2,7 @@
 
 ## 2026-08-15
 
+- Clarified social place-import counts: Google Maps alternatives are now visibly grouped under each recognized place, the sheet separately reports place and candidate counts, and a fully selected result says `加入全部 N 個地點`. This prevents a 12-place post with 16 candidate rows from looking like four places were omitted. All 70 tests pass.
 - Extended Instagram/Threads place recognition from a single Open Graph cover to the complete publicly exposed main-post carousel. The importer now reads bounded full-page HTML, excludes avatars, deduplicates and validates up to twenty Meta CDN images, fetches them with bounded concurrency and a total byte budget, and sends them together in one visual-recognition request. The reported Threads post was verified to expose 19 main-post images including the `銀座ブラジル（浅草支店）` attachment. All 69 tests pass.
 
 ## 2026-08-13

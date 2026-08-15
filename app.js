@@ -4453,11 +4453,46 @@ async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceI
 
 function updateImportConfirmState() {
   const addableCount = pendingPlaceImports.filter(importCanBeAdded).length;
+  const socialStats = socialImportStats(pendingPlaceImports);
+  const plainAddableCount = pendingPlaceImports.filter((place) => !place.isSocialCandidate && importCanBeAdded(place)).length;
+  const totalAvailableCount = socialStats.importableGroupCount + plainAddableCount;
   const confirmButton = document.querySelector("[data-confirm-import]");
   if (confirmButton) {
     confirmButton.disabled = addableCount === 0;
-    confirmButton.textContent = addableCount ? `加入 ${addableCount} 個地點` : "沒有可新增地點";
+    confirmButton.textContent = addableCount
+      ? addableCount === totalAvailableCount
+        ? `加入全部 ${addableCount} 個地點`
+        : `加入 ${addableCount} / ${totalAvailableCount} 個地點`
+      : "沒有可新增地點";
   }
+}
+
+function socialImportStats(entries) {
+  const groups = new Map();
+  let candidateCount = 0;
+  entries.forEach((place) => {
+    if (!place?.isSocialCandidate || !place.candidateGroupId) return;
+    candidateCount += 1;
+    if (!groups.has(place.candidateGroupId)) {
+      groups.set(place.candidateGroupId, {
+        candidateCount: 0,
+        importable: false,
+        selected: false,
+      });
+    }
+    const group = groups.get(place.candidateGroupId);
+    group.candidateCount += 1;
+    if (place.canImport && place.recognition !== "unresolved" && !importAlreadyExists(place)) group.importable = true;
+    if (importCanBeAdded(place)) group.selected = true;
+  });
+  const values = [...groups.values()];
+  return {
+    groupCount: groups.size,
+    candidateCount,
+    importableGroupCount: values.filter((group) => group.importable).length,
+    selectedGroupCount: values.filter((group) => group.selected).length,
+    groups,
+  };
 }
 
 function importCandidateIdentity(place) {
@@ -4531,6 +4566,9 @@ function importPreviewMarkup(entries) {
   if (!entries.length) {
     return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}<div class="import-empty"><strong>沒有找到可辨識的內容</strong><span>請貼上 Google Maps 或社群貼文連結，也可上傳截圖。</span></div>`;
   }
+  const socialStats = socialImportStats(entries);
+  const seenCandidateGroups = new Set();
+  let groupNumber = 0;
   const rows = entries
     .map((place) => {
       const isExisting = importAlreadyExists(place);
@@ -4554,7 +4592,20 @@ function importPreviewMarkup(entries) {
       const previewTarget = place.isSocialCandidate
         ? ` data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}"`
         : "";
+      let groupHeader = "";
+      if (place.isSocialCandidate && !seenCandidateGroups.has(place.candidateGroupId)) {
+        seenCandidateGroups.add(place.candidateGroupId);
+        groupNumber += 1;
+        const groupCandidateCount = socialStats.groups.get(place.candidateGroupId)?.candidateCount || 1;
+        groupHeader = `
+          <div class="import-candidate-group-label">
+            <span>辨識地點 ${groupNumber}</span>
+            <strong>${escapeHtml(place.candidateLabel || place.name)}</strong>
+            <small>${groupCandidateCount} 個 Google Maps 候選 · 擇一加入</small>
+          </div>`;
+      }
       return `
+        ${groupHeader}
         <article class="import-place-row ${place.isSocialCandidate ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}"${previewTarget}>
           ${radio}
           <span class="mini-thumb" style="--swatch:${place.swatch}">${escapeHtml(place.mark)}</span>
@@ -4564,7 +4615,13 @@ function importPreviewMarkup(entries) {
     })
     .join("");
   const addableCount = entries.filter(importCanBeAdded).length;
-  return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}${rows}<p class="import-summary">可新增 ${addableCount} 個地點；社群候選請先確認，重複項目會自動略過。</p>`;
+  const socialSummary = socialStats.groupCount
+    ? `<div class="import-group-summary"><strong>辨識到 ${socialStats.groupCount} 個地點</strong><span>共 ${socialStats.candidateCount} 筆 Google Maps 配對候選；同一地點的候選只能選 1 筆。</span></div>`
+    : "";
+  const summary = socialStats.groupCount
+    ? `已選好 ${socialStats.selectedGroupCount} 個地點可加入；${socialStats.candidateCount} 筆候選不代表 ${socialStats.candidateCount} 家店。`
+    : `可新增 ${addableCount} 個地點；重複項目會自動略過。`;
+  return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}${socialSummary}${rows}<p class="import-summary">${summary}</p>`;
 }
 
 function openAddPlaceSheet() {

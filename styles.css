@@ -3500,6 +3500,53 @@ body.transport-sheet-open .app {
   -webkit-overflow-scrolling: touch;
 }
 
+.import-group-summary {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+}
+
+.import-group-summary strong {
+  font-size: 12px;
+}
+
+.import-group-summary span {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.import-candidate-group-label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 7px;
+  row-gap: 1px;
+  padding: 5px 3px 0;
+}
+
+.import-candidate-group-label span {
+  color: var(--mineral);
+  font-size: 9px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.import-candidate-group-label strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-candidate-group-label small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .import-place-row {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) auto;

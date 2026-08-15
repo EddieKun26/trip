@@ -408,6 +408,17 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.doesNotMatch(stylesSource, /\.social-import-fallback\s*{/);
 });
 
+test("social place import distinguishes recognized places from Google candidate rows", () => {
+  assert.match(appSource, /function socialImportStats/);
+  assert.match(appSource, /辨識到 \$\{socialStats\.groupCount\} 個地點/);
+  assert.match(appSource, /共 \$\{socialStats\.candidateCount\} 筆 Google Maps 配對候選/);
+  assert.match(appSource, /候選只能選 1 筆/);
+  assert.match(appSource, /加入全部 \$\{addableCount\} 個地點/);
+  assert.match(appSource, /class="import-candidate-group-label"/);
+  assert.match(stylesSource, /\.import-group-summary\s*{/);
+  assert.match(stylesSource, /\.import-candidate-group-label\s*{/);
+});
+
 test("deployed frontend revalidates assets and refreshes long-lived tabs", () => {
   assert.match(indexSource, /styles\.css\?v=\d{8}\.\d+/);
   assert.match(indexSource, /app\.js\?v=\d{8}\.\d+/);
