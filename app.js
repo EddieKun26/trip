@@ -4407,9 +4407,18 @@ function socialImportErrorMessage(error) {
   return "社群貼文暫時無法辨識，請上傳截圖後重試。";
 }
 
-function socialGroupsToImports(payload, sourceIndex = 0) {
+function socialGroupsToImports(payload, sourceIndex = 0, uploadedImageDataUrl = "") {
   return (payload.groups || []).flatMap((group, groupIndex) => {
     const groupId = `social-${sourceIndex + 1}-${group.id || groupIndex + 1}`;
+    const allSourceImages = uploadedImageDataUrl
+      ? [uploadedImageDataUrl]
+      : Array.isArray(payload.source?.imageUrls)
+        ? payload.source.imageUrls
+        : [];
+    const requestedSourceImages = (Array.isArray(group.extracted?.sourceImageIndexes) ? group.extracted.sourceImageIndexes : [])
+      .map((index) => allSourceImages[Number(index) - 1])
+      .filter(Boolean);
+    const sourceOriginalImages = requestedSourceImages.length ? requestedSourceImages : allSourceImages;
     const candidates = (group.candidates || []).map((candidate, candidateIndex) => ({
       ...candidate,
       addedBy: currentMemberId(),
@@ -4421,6 +4430,9 @@ function socialGroupsToImports(payload, sourceIndex = 0) {
       candidateGroupId: groupId,
       candidateLabel: group.extracted?.name || candidate.name,
       candidateRank: Number(candidate.candidateRank) || candidateIndex + 1,
+      sourceOriginalText: payload.source?.originalText || "",
+      sourceOriginalImages,
+      sourceEvidence: candidate.sourceEvidence || group.extracted?.evidence || "",
       selected: false,
     }));
     const preferred = candidates.find((candidate) => candidate.canImport && !candidate.isExisting);
@@ -4448,7 +4460,7 @@ async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceI
     error.platform = payload.platform || "社群貼文";
     throw error;
   }
-  return socialGroupsToImports(payload, sourceIndex);
+  return socialGroupsToImports(payload, sourceIndex, imageDataUrl);
 }
 
 function updateImportConfirmState() {
@@ -4509,7 +4521,72 @@ function selectImportCandidate(groupId, identity) {
 }
 
 function closeImportCandidatePreview() {
+  closeImportSourceImagePreview();
+  closeImportSourcePreview();
   sheetRoot.querySelector("[data-import-candidate-preview-root]")?.remove();
+}
+
+function importSourcePlace(groupId) {
+  return pendingPlaceImports.find((candidate) => candidate.isSocialCandidate && candidate.candidateGroupId === groupId);
+}
+
+function closeImportSourcePreview() {
+  closeImportSourceImagePreview();
+  sheetRoot.querySelector("[data-import-source-preview-root]")?.remove();
+}
+
+function closeImportSourceImagePreview() {
+  sheetRoot.querySelector("[data-import-source-image-root]")?.remove();
+}
+
+function openImportSourceImagePreview(groupId, imageIndex) {
+  const place = importSourcePlace(groupId);
+  const images = Array.isArray(place?.sourceOriginalImages) ? place.sourceOriginalImages : [];
+  const index = Number(imageIndex);
+  const sourceImage = images[index];
+  if (!sourceImage) return;
+  closeImportSourceImagePreview();
+  sheetRoot.insertAdjacentHTML("beforeend", `
+    <div class="import-source-image-backdrop" data-import-source-image-root data-dismiss-import-source-image>
+      <section class="import-source-image-sheet" role="dialog" aria-modal="true" aria-label="原貼文圖片 ${index + 1}">
+        <button class="icon-button import-source-image-close" type="button" data-close-import-source-image aria-label="關閉原圖">×</button>
+        <img src="${escapeHtml(sourceImage)}" alt="${escapeHtml(place.candidateLabel || place.name)} 原貼文圖片 ${index + 1}" />
+        <span>原貼文圖片 ${index + 1} / ${images.length}</span>
+      </section>
+    </div>`);
+}
+
+function openImportSourcePreview(groupId) {
+  const place = importSourcePlace(groupId);
+  if (!place) return;
+  closeImportSourcePreview();
+  const images = Array.isArray(place.sourceOriginalImages) ? place.sourceOriginalImages : [];
+  const imageMarkup = images.length
+    ? `<div class="import-source-images" aria-label="原貼文相關圖片">${images.map((imageUrl, index) => `
+        <button type="button" class="import-source-image-button" data-preview-import-source-image="${index}" data-source-group="${escapeHtml(groupId)}" aria-label="放大原貼文圖片 ${index + 1}">
+          <img src="${escapeHtml(imageUrl)}" alt="原貼文圖片 ${index + 1}" loading="lazy" />
+          <span>原圖 ${index + 1}</span>
+        </button>`).join("")}</div>`
+    : "";
+  const originalText = place.sourceOriginalText
+    ? `<section class="import-source-copy"><small>原文敘述</small><p>${escapeHtml(place.sourceOriginalText)}</p></section>`
+    : "";
+  const evidence = place.sourceEvidence
+    ? `<section class="import-source-copy evidence"><small>AI 辨識線索</small><p>${escapeHtml(place.sourceEvidence)}</p></section>`
+    : "";
+  sheetRoot.insertAdjacentHTML("beforeend", `
+    <div class="import-source-backdrop" data-import-source-preview-root data-dismiss-import-source>
+      <section class="modal-sheet import-source-sheet" role="dialog" aria-modal="true" aria-labelledby="import-source-title">
+        <div class="section-row">
+          <div><p class="section-kicker">候選比對依據</p><h2 id="import-source-title">${escapeHtml(place.candidateLabel || place.name)}</h2></div>
+          <button class="icon-button" type="button" data-close-import-source aria-label="關閉原始資料">×</button>
+        </div>
+        ${evidence}
+        ${imageMarkup}
+        ${originalText}
+        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">開啟完整原貼文 ↗</button>` : ""}
+      </section>
+    </div>`);
 }
 
 function importCandidateGalleryMarkup(place) {
@@ -4549,6 +4626,7 @@ function openImportCandidatePreview(identity) {
           <div><small>Google 評分</small><strong>${escapeHtml(rating)}</strong></div>
         </section>
         <section class="import-candidate-address"><small>完整地址</small><strong>${escapeHtml(place.formattedAddress || "Google Maps 尚未提供地址")}</strong></section>
+        ${(place.sourceOriginalText || place.sourceOriginalImages?.length || place.sourceEvidence) ? `<button class="import-source-compare-button" type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">查看原文／原圖，比對這個候選</button>` : ""}
         ${place.description ? `<p class="place-description">${escapeHtml(place.description)}</p>` : ""}
         <section class="place-contact-grid" aria-label="營業與聯絡資訊">
           <div class="place-contact-item"><small>營業時間</small><strong>${formatOpeningHours(place.openingHours || "待 Google Maps 同步")}</strong></div>
@@ -4602,6 +4680,7 @@ function importPreviewMarkup(entries) {
             <span>辨識地點 ${groupNumber}</span>
             <strong>${escapeHtml(place.candidateLabel || place.name)}</strong>
             <small>${groupCandidateCount} 個 Google Maps 候選 · 擇一加入</small>
+            <button type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">原文／原圖</button>
           </div>`;
       }
       return `
@@ -4852,6 +4931,22 @@ document.addEventListener("click", async (event) => {
   const selectShoppingImage = event.target.closest("[data-select-shopping-image-preview]");
   if (selectShoppingImage) {
     return selectShoppingImagePreview(selectShoppingImage.dataset.shoppingEntryId, selectShoppingImage.dataset.selectShoppingImagePreview);
+  }
+
+  const previewImportSource = event.target.closest("[data-preview-import-source]");
+  if (previewImportSource) return openImportSourcePreview(previewImportSource.dataset.previewImportSource);
+
+  const previewImportSourceImage = event.target.closest("[data-preview-import-source-image]");
+  if (previewImportSourceImage) {
+    return openImportSourceImagePreview(previewImportSourceImage.dataset.sourceGroup, previewImportSourceImage.dataset.previewImportSourceImage);
+  }
+
+  if (event.target.closest("[data-close-import-source-image]") || event.target.matches("[data-dismiss-import-source-image]")) {
+    return closeImportSourceImagePreview();
+  }
+
+  if (event.target.closest("[data-close-import-source]") || event.target.matches("[data-dismiss-import-source]")) {
+    return closeImportSourcePreview();
   }
 
   const previewImportCandidate = event.target.closest("[data-preview-import-candidate]");
@@ -6166,7 +6261,7 @@ document.addEventListener("submit", async (event) => {
     const requestedKind = String(form.get("placeKind") || "auto");
     const additions = parsed
       .filter(importCanBeAdded)
-      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, matchConfidence, ...place }) => ({
+      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => ({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
       }));

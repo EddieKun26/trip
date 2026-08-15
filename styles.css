@@ -3520,7 +3520,7 @@ body.transport-sheet-open .app {
 
 .import-candidate-group-label {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
   column-gap: 7px;
   row-gap: 1px;
@@ -3545,6 +3545,22 @@ body.transport-sheet-open .app {
   grid-column: 2;
   color: var(--muted);
   font-size: 9px;
+}
+
+.import-candidate-group-label button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(64, 119, 122, 0.28);
+  border-radius: 10px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .import-place-row {
@@ -3738,6 +3754,152 @@ body.transport-sheet-open .app {
 
 .import-candidate-address {
   margin-top: 8px;
+}
+
+.import-source-compare-button {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 10px;
+  border: 1px solid rgba(64, 119, 122, 0.35);
+  border-radius: 12px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.import-source-backdrop {
+  position: fixed;
+  z-index: 145;
+  inset: 0;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: 18px;
+  background: rgba(37, 31, 26, 0.52);
+  backdrop-filter: blur(4px);
+}
+
+.import-source-sheet {
+  width: min(390px, 100%);
+  max-height: 86dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 18px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.import-source-copy {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.74);
+}
+
+.import-source-copy.evidence {
+  background: var(--mineral-soft);
+}
+
+.import-source-copy small {
+  color: var(--mineral);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.import-source-copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.import-source-images {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.import-source-image-button {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #ece7df;
+  cursor: zoom-in;
+}
+
+.import-source-image-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.import-source-image-button span {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(32, 29, 25, 0.76);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.import-source-sheet .source-reference-button {
+  margin: 12px 0 0;
+}
+
+.import-source-image-backdrop {
+  position: fixed;
+  z-index: 155;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(22, 20, 18, 0.88);
+  backdrop-filter: blur(5px);
+}
+
+.import-source-image-sheet {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  width: min(430px, 100%);
+  max-height: 90dvh;
+  color: #fff;
+  text-align: center;
+}
+
+.import-source-image-sheet img {
+  width: 100%;
+  max-height: 82dvh;
+  object-fit: contain;
+  border-radius: 16px;
+}
+
+.import-source-image-sheet > span {
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.import-source-image-close {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(24, 22, 20, 0.72);
+  color: #fff;
 }
 
 .import-candidate-actions {

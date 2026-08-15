@@ -65,6 +65,7 @@ globalThis.fetch = async (url, options = {}) => {
               searchClues: "抹茶布丁",
               searchQuery: "Cafe Mugi 新宿 東京",
               evidence: "貼文寫明新宿一定要去 Cafe Mugi。",
+              sourceImageIndexes: [1],
               confidence: 0.93,
             }],
           }),
@@ -212,13 +213,15 @@ test("social recognition cleanup removes duplicate aliases and keeps structured 
     sourceLanguage: "中文",
     needsMoreContext: false,
     places: [
-      { nameOriginal: "Cafe Mugi", nameZh: "Cafe Mugi", city: "東京", area: "新宿", country: "日本", category: "restaurant", searchQuery: "Cafe Mugi 新宿", evidence: "內文提及", confidence: 0.9 },
+      { nameOriginal: "Cafe Mugi", nameZh: "Cafe Mugi", city: "東京", area: "新宿", country: "日本", category: "restaurant", searchQuery: "Cafe Mugi 新宿", evidence: "內文提及", sourceImageIndexes: [1, 1, 22, 2], confidence: 0.9 },
       { nameOriginal: "Cafe Mugi", nameZh: "Cafe Mugi", city: "東京", area: "新宿", country: "日本", category: "restaurant", searchQuery: "Cafe Mugi 新宿", evidence: "重複", confidence: 0.8 },
     ],
   });
   assert.equal(result.places.length, 1);
   assert.equal(result.places[0].name, "Cafe Mugi");
   assert.equal(result.places[0].category, "restaurant");
+  assert.deepEqual(result.places[0].sourceImageIndexes, [1, 2]);
+  assert.equal(responseSchema.properties.places.items.properties.sourceImageIndexes.maxItems, 4);
 });
 
 test("an explicit address remains searchable when AI cannot identify the hidden lodging name", () => {
@@ -295,6 +298,9 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(response.payload.groups[0].candidates[0].kind, "restaurant");
   assert.equal(response.payload.groups[0].candidates[0].rating, 4.6);
   assert.equal(response.payload.groups[0].candidates[0].referenceUrl, "https://www.instagram.com/reel/ABC123/");
+  assert.equal(response.payload.groups[0].candidates[0].sourceEvidence, "貼文寫明新宿一定要去 Cafe Mugi。");
+  assert.deepEqual(response.payload.groups[0].candidates[0].sourceImageIndexes, [1]);
+  assert.match(response.payload.source.originalText, /新宿一定要去 Cafe Mugi/);
   assert.equal(response.payload.groups[0].candidates[0].sourceUrl.includes("google.com/maps"), true);
 
   assert.equal(openAiRequests.length, 1);
@@ -339,6 +345,9 @@ test("public social carousel images beyond the old HTML cutoff are fetched into 
   assert.equal(imageInputs.every((entry) => entry.image_url === "data:image/jpeg;base64,/9j/2Q=="), true);
   assert.equal(imageInputs.every((entry) => entry.detail === "high"), true);
   assert.match(openAiRequests[0].input[1].content[0].text, /所有附件影像/);
+  assert.match(openAiRequests[0].input[1].content[0].text, /編號為 1 到 3/);
+  assert.equal(response.payload.source.imageUrls.length, 3);
+  assert.match(response.payload.source.originalText, /店家資訊請看圖片/);
   socialHtmlOverride = "";
 });
 

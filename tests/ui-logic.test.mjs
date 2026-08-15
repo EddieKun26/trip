@@ -419,6 +419,22 @@ test("social place import distinguishes recognized places from Google candidate 
   assert.match(stylesSource, /\.import-candidate-group-label\s*{/);
 });
 
+test("social candidate groups can compare original text and relevant source images", () => {
+  assert.match(appSource, /sourceOriginalText: payload\.source\?\.originalText/);
+  assert.match(appSource, /sourceOriginalImages/);
+  assert.match(appSource, /function openImportSourcePreview/);
+  assert.match(appSource, /function openImportSourceImagePreview/);
+  assert.match(appSource, /data-preview-import-source=/);
+  assert.match(appSource, /data-preview-import-source-image=/);
+  assert.match(appSource, /查看原文／原圖，比對這個候選/);
+  assert.match(appSource, /原文敘述/);
+  assert.match(appSource, /AI 辨識線索/);
+  assert.match(appSource, /開啟完整原貼文/);
+  assert.match(appSource, /sourceOriginalText, sourceOriginalImages, sourceImageIndexes/);
+  assert.match(stylesSource, /\.import-source-backdrop\s*{[^}]*z-index:\s*145/s);
+  assert.match(stylesSource, /\.import-source-image-backdrop\s*{[^}]*z-index:\s*155/s);
+});
+
 test("deployed frontend revalidates assets and refreshes long-lived tabs", () => {
   assert.match(indexSource, /styles\.css\?v=\d{8}\.\d+/);
   assert.match(indexSource, /app\.js\?v=\d{8}\.\d+/);
