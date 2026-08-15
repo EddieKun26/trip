@@ -157,11 +157,11 @@ async function loginAndCreateTrip() {
   return { cookie, trip: create.payload.trip };
 }
 
-async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.instagram.com/reel/ABC123/", sharedText = "", imageDataUrl = "", requestedKind = "auto" } = {}) {
+async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.instagram.com/reel/ABC123/", sharedText = "", imageDataUrl = "", requestedKind = "auto", action = "", query = "", excludePlaceIds = [] } = {}) {
   const response = responseMock();
   await socialPlaceImportHandler({
     method: "POST",
-    body: { tripId, sourceUrl, sharedText, imageDataUrl, requestedKind },
+    body: { tripId, sourceUrl, sharedText, imageDataUrl, requestedKind, action, query, excludePlaceIds },
     headers: cookie ? { cookie } : {},
   }, response);
   return response;
@@ -314,6 +314,30 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(googleRequests[0].body.maxResultCount, 3);
   assert.equal(googleRequests[0].body.regionCode, "JP");
   assert.equal(googleRequests[0].headers["X-Goog-Api-Key"], "test-google-key");
+});
+
+test("one ambiguous place can be rematched without rerunning the social AI recognition", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  const { cookie, trip } = await loginAndCreateTrip();
+
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    action: "rematch",
+    query: "Mugi Cafe 澀谷",
+    requestedKind: "restaurant",
+    excludePlaceIds: ["place-cafe-mugi"],
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.candidates.length, 1);
+  assert.equal(response.payload.candidates[0].placeId, "place-mugi-second");
+  assert.equal(openAiRequests.length, 0);
+  assert.equal(googleRequests.length, 1);
+  assert.equal(googleRequests[0].body.maxResultCount, 10);
+  assert.match(googleRequests[0].body.textQuery, /Mugi Cafe 澀谷/);
 });
 
 test("public social carousel images beyond the old HTML cutoff are fetched into one visual-recognition request", async () => {

@@ -626,15 +626,18 @@ function swatchForKind(kind) {
   return kind === "restaurant" ? "#9a5f45" : kind === "lodging" ? "#4f7a5f" : "#587a73";
 }
 
-async function searchGoogleCandidates(apiKey, mention, trip, source) {
+async function searchGoogleCandidates(apiKey, mention, trip, source, options = {}) {
   const queryParts = [mention.searchQuery, mention.address, mention.city || (!mention.address ? trip.destination : "")]
     .map((value) => cleanText(value, 300))
     .filter((value, index, values) => value && values.indexOf(value) === index);
   const expandedSearch = Boolean(mention.nameHidden || mention.address);
+  const defaultResultCount = expandedSearch ? 5 : 3;
+  const maxResultCount = Math.max(1, Math.min(10, Number(options.maxResultCount) || defaultResultCount));
+  const returnLimit = Math.max(1, Math.min(5, Number(options.returnLimit) || defaultResultCount));
   const requestBody = {
     textQuery: queryParts.join(" "),
     languageCode: "zh-TW",
-    maxResultCount: expandedSearch ? 5 : 3,
+    maxResultCount,
   };
   const regionCode = regionCodeFor(`${mention.country} ${mention.city} ${mention.address} ${trip.destination}`);
   if (regionCode) requestBody.regionCode = regionCode;
@@ -689,7 +692,13 @@ async function searchGoogleCandidates(apiKey, mention, trip, source) {
   const rankedPlaces = lodgingMatches.length
     ? [...lodgingMatches, ...places.filter((place) => !lodgingMatches.includes(place))]
     : places;
-  return rankedPlaces.slice(0, requestBody.maxResultCount).map((place, index) => {
+  const excludedPlaceIds = new Set((Array.isArray(options.excludePlaceIds) ? options.excludePlaceIds : [])
+    .map((value) => cleanText(value, 200))
+    .filter(Boolean));
+  return rankedPlaces
+    .filter((place) => !excludedPlaceIds.has(cleanText(place.id, 200)))
+    .slice(0, returnLimit)
+    .map((place, index) => {
     const name = cleanText(place.displayName?.text || mention.name, 160);
     const area = pickArea(place.addressComponents) || mention.area || mention.city || "待確認區域";
     return {
@@ -726,7 +735,7 @@ async function searchGoogleCandidates(apiKey, mention, trip, source) {
       matchConfidence: mention.confidence,
       isCustom: true,
     };
-  });
+    });
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -773,9 +782,49 @@ export default async function socialPlaceImportHandler(request, response) {
     const trip = await readJson(`${TRIP_PREFIX}${tripId}`);
     if (!trip?.members?.[member.id]) return sendJson(response, 403, { error: "TRIP_ACCESS_REQUIRED" });
 
+    const requestedKind = normalizedRequestedKind(body.requestedKind);
+    const action = cleanText(body.action, 30);
+    const googleMapsKey = String(process.env.GOOGLE_MAPS_API_KEY || "").trim();
+    if (action === "rematch") {
+      if (!googleMapsKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
+      const query = cleanText(body.query, 300);
+      if (!query) return sendJson(response, 400, { error: "SEARCH_QUERY_REQUIRED" });
+      const sourceUrl = safeSocialUrl(body.sourceUrl);
+      const category = requestedKind === "auto" ? normalizedRequestedKind(body.category) : requestedKind;
+      const mention = {
+        name: query,
+        nameOriginal: query,
+        nameZh: "",
+        city: cleanText(body.city, 100),
+        area: cleanText(body.area, 100),
+        country: cleanText(body.country, 100),
+        category: category === "auto" ? "attraction" : category,
+        address: cleanText(body.address, 260),
+        nameHidden: false,
+        searchClues: cleanText(body.searchClues, 300),
+        searchQuery: query,
+        evidence: cleanText(body.evidence, 500),
+        sourceImageIndexes: [...new Set((Array.isArray(body.sourceImageIndexes) ? body.sourceImageIndexes : [])
+          .map((value) => Number.parseInt(value, 10))
+          .filter((value) => Number.isInteger(value) && value >= 1 && value <= MAX_PUBLIC_MEDIA_IMAGES))].slice(0, 4),
+        confidence: 1,
+      };
+      const source = {
+        url: sourceUrl?.toString() || "",
+        platform: sourceUrl ? socialPlatform(sourceUrl) : cleanText(body.sourcePlatform, 60) || "社群貼文",
+        summary: cleanText(body.sourceSummary, 800),
+      };
+      const candidates = await searchGoogleCandidates(googleMapsKey, mention, trip, source, {
+        maxResultCount: 10,
+        returnLimit: 5,
+        excludePlaceIds: Array.isArray(body.excludePlaceIds) ? body.excludePlaceIds.slice(0, 20) : [],
+      });
+      if (!candidates.length) return sendJson(response, 422, { error: "GOOGLE_PLACE_NOT_FOUND" });
+      return sendJson(response, 200, { extracted: mention, candidates });
+    }
+
     const sourceUrl = safeSocialUrl(body.sourceUrl);
     const sharedText = cleanText(body.sharedText, 6000);
-    const requestedKind = normalizedRequestedKind(body.requestedKind);
     const imageDataUrl = String(body.imageDataUrl || "");
     if (imageDataUrl && (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > MAX_IMAGE_LENGTH)) {
       return sendJson(response, 400, { error: "VALID_IMAGE_REQUIRED" });
@@ -783,7 +832,6 @@ export default async function socialPlaceImportHandler(request, response) {
     if (!sourceUrl && !sharedText && !imageDataUrl) return sendJson(response, 400, { error: "SOCIAL_SOURCE_REQUIRED" });
 
     const openAiKey = String(process.env.OPENAI_API_KEY || "").trim();
-    const googleMapsKey = String(process.env.GOOGLE_MAPS_API_KEY || "").trim();
     if (!openAiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
     if (!googleMapsKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
 

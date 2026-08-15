@@ -4093,6 +4093,7 @@ function importAlreadyExists(place) {
 function importCanBeAdded(place) {
   return Boolean(place?.canImport)
     && place?.recognition !== "unresolved"
+    && !place?.candidateGroupSkipped
     && (!place?.isSocialCandidate || place.selected === true)
     && !importAlreadyExists(place);
 }
@@ -4430,6 +4431,15 @@ function socialGroupsToImports(payload, sourceIndex = 0, uploadedImageDataUrl = 
       candidateGroupId: groupId,
       candidateLabel: group.extracted?.name || candidate.name,
       candidateRank: Number(candidate.candidateRank) || candidateIndex + 1,
+      candidateSearchQuery: group.extracted?.searchQuery || group.extracted?.nameOriginal || group.extracted?.nameZh || candidate.name,
+      candidateSearchClues: group.extracted?.searchClues || "",
+      candidateAddress: group.extracted?.address || "",
+      candidateCity: group.extracted?.city || "",
+      candidateArea: group.extracted?.area || "",
+      candidateCountry: group.extracted?.country || "",
+      candidateCategory: group.extracted?.category || candidate.kind || "attraction",
+      candidateExcludedPlaceIds: [],
+      candidateGroupSkipped: false,
       sourceOriginalText: payload.source?.originalText || "",
       sourceOriginalImages,
       sourceEvidence: candidate.sourceEvidence || group.extracted?.evidence || "",
@@ -4467,15 +4477,19 @@ function updateImportConfirmState() {
   const addableCount = pendingPlaceImports.filter(importCanBeAdded).length;
   const socialStats = socialImportStats(pendingPlaceImports);
   const plainAddableCount = pendingPlaceImports.filter((place) => !place.isSocialCandidate && importCanBeAdded(place)).length;
-  const totalAvailableCount = socialStats.importableGroupCount + plainAddableCount;
+  const totalAvailableCount = socialStats.activeImportableGroupCount + plainAddableCount;
   const confirmButton = document.querySelector("[data-confirm-import]");
   if (confirmButton) {
     confirmButton.disabled = addableCount === 0;
     confirmButton.textContent = addableCount
-      ? addableCount === totalAvailableCount
-        ? `加入全部 ${addableCount} 個地點`
-        : `加入 ${addableCount} / ${totalAvailableCount} 個地點`
-      : "沒有可新增地點";
+      ? socialStats.skippedGroupCount
+        ? `加入其餘 ${addableCount} 個地點`
+        : addableCount === totalAvailableCount
+          ? `加入全部 ${addableCount} 個地點`
+          : `加入 ${addableCount} / ${totalAvailableCount} 個地點`
+      : socialStats.skippedGroupCount
+        ? "沒有選擇地點"
+        : "沒有可新增地點";
   }
 }
 
@@ -4490,19 +4504,23 @@ function socialImportStats(entries) {
         candidateCount: 0,
         importable: false,
         selected: false,
+        skipped: false,
       });
     }
     const group = groups.get(place.candidateGroupId);
     group.candidateCount += 1;
     if (place.canImport && place.recognition !== "unresolved" && !importAlreadyExists(place)) group.importable = true;
     if (importCanBeAdded(place)) group.selected = true;
+    if (place.candidateGroupSkipped) group.skipped = true;
   });
   const values = [...groups.values()];
   return {
     groupCount: groups.size,
     candidateCount,
     importableGroupCount: values.filter((group) => group.importable).length,
+    activeImportableGroupCount: values.filter((group) => group.importable && !group.skipped).length,
     selectedGroupCount: values.filter((group) => group.selected).length,
+    skippedGroupCount: values.filter((group) => group.skipped).length,
     groups,
   };
 }
@@ -4513,11 +4531,151 @@ function importCandidateIdentity(place) {
 
 function selectImportCandidate(groupId, identity) {
   pendingPlaceImports.forEach((place) => {
-    if (place.candidateGroupId === groupId) place.selected = importCandidateIdentity(place) === identity;
+    if (place.candidateGroupId === groupId) {
+      place.candidateGroupSkipped = false;
+      place.selected = importCandidateIdentity(place) === identity;
+    }
   });
   const preview = document.querySelector("#import-preview");
   if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
   updateImportConfirmState();
+}
+
+function setImportCandidateGroupSkipped(groupId, skipped) {
+  const group = pendingPlaceImports.filter((place) => place.candidateGroupId === groupId);
+  if (!group.length) return;
+  group.forEach((place) => {
+    place.candidateGroupSkipped = skipped;
+    place.selected = false;
+  });
+  if (!skipped) {
+    const preferred = group.find((place) => place.canImport && !importAlreadyExists(place));
+    if (preferred) preferred.selected = true;
+  }
+  const preview = document.querySelector("#import-preview");
+  if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+  updateImportConfirmState();
+}
+
+function closeImportRematchSheet() {
+  sheetRoot.querySelector("[data-import-rematch-root]")?.remove();
+}
+
+function openImportRematchSheet(groupId) {
+  const place = importSourcePlace(groupId);
+  if (!place) return;
+  closeImportRematchSheet();
+  const query = place.candidateSearchQuery || place.candidateLabel || place.name;
+  sheetRoot.insertAdjacentHTML("beforeend", `
+    <div class="import-rematch-backdrop" data-import-rematch-root data-dismiss-import-rematch>
+      <section class="modal-sheet import-rematch-sheet" role="dialog" aria-modal="true" aria-labelledby="import-rematch-title">
+        <div class="section-row">
+          <div><p class="section-kicker">只重搜這一個地點</p><h2 id="import-rematch-title">重新尋找正確地點</h2></div>
+          <button class="icon-button" type="button" data-close-import-rematch aria-label="關閉重新搜尋">×</button>
+        </div>
+        <p class="import-rematch-copy">修改店名、分店或地址；其他已辨識地點不會重新處理，也不會再呼叫整篇 AI。</p>
+        <label class="field" for="import-rematch-query"><span>店名、分店或地址</span><input id="import-rematch-query" type="text" value="${escapeHtml(query)}" maxlength="300" autocomplete="off" /></label>
+        <p class="import-rematch-status" data-import-rematch-status>會排除剛才已顯示的錯誤候選，再找一批新的 Google Maps 結果。</p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" data-close-import-rematch>取消</button>
+          <button class="primary-button" type="button" data-run-import-rematch="${escapeHtml(groupId)}">重新搜尋</button>
+        </div>
+      </section>
+    </div>`);
+  window.setTimeout(() => sheetRoot.querySelector("#import-rematch-query")?.focus(), 0);
+}
+
+async function rematchImportCandidateGroup(groupId) {
+  const root = sheetRoot.querySelector("[data-import-rematch-root]");
+  const button = root?.querySelector("[data-run-import-rematch]");
+  const status = root?.querySelector("[data-import-rematch-status]");
+  const query = String(root?.querySelector("#import-rematch-query")?.value || "").normalize("NFKC").trim();
+  const group = pendingPlaceImports.filter((place) => place.candidateGroupId === groupId);
+  const source = group[0];
+  if (!root || !button || !status || !source) return;
+  if (!query) {
+    status.textContent = "請輸入店名、分店或地址。";
+    status.dataset.tone = "error";
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "搜尋中…";
+  status.textContent = "正在重新比對 Google Maps，只處理這一個地點…";
+  delete status.dataset.tone;
+  const excludedPlaceIds = [...new Set([
+    ...(Array.isArray(source.candidateExcludedPlaceIds) ? source.candidateExcludedPlaceIds : []),
+    ...group.map((place) => place.placeId).filter(Boolean),
+  ])].slice(0, 20);
+  try {
+    const response = await fetch("/api/social-place-import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "rematch",
+        tripId: state.tripId,
+        query,
+        requestedKind: ["attraction", "restaurant", "lodging"].includes(source.candidateCategory) ? source.candidateCategory : source.kind,
+        category: source.candidateCategory,
+        address: source.candidateAddress,
+        city: source.candidateCity,
+        area: source.candidateArea,
+        country: source.candidateCountry,
+        searchClues: source.candidateSearchClues,
+        evidence: source.sourceEvidence,
+        sourceImageIndexes: source.sourceImageIndexes,
+        sourceUrl: source.referenceUrl,
+        sourcePlatform: source.sourcePlatform,
+        sourceSummary: source.sourceSummary,
+        excludePlaceIds,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "GOOGLE_PLACE_NOT_FOUND");
+    const replacements = (payload.candidates || []).map((candidate, candidateIndex) => ({
+      ...candidate,
+      addedBy: currentMemberId(),
+      addedByName: state.profile?.nickname || "我",
+      recognition: "complete",
+      canImport: Boolean(candidate.name && candidate.sourceUrl),
+      isExisting: importAlreadyExists(candidate),
+      isSocialCandidate: true,
+      candidateGroupId: groupId,
+      candidateLabel: query,
+      candidateRank: Number(candidate.candidateRank) || candidateIndex + 1,
+      candidateSearchQuery: query,
+      candidateSearchClues: source.candidateSearchClues,
+      candidateAddress: source.candidateAddress,
+      candidateCity: source.candidateCity,
+      candidateArea: source.candidateArea,
+      candidateCountry: source.candidateCountry,
+      candidateCategory: source.candidateCategory,
+      candidateExcludedPlaceIds: excludedPlaceIds,
+      candidateGroupSkipped: false,
+      sourceOriginalText: source.sourceOriginalText,
+      sourceOriginalImages: source.sourceOriginalImages,
+      sourceEvidence: source.sourceEvidence,
+      sourceImageIndexes: source.sourceImageIndexes,
+      selected: false,
+    }));
+    if (!replacements.length) throw new Error("GOOGLE_PLACE_NOT_FOUND");
+    const preferred = replacements.find((candidate) => candidate.canImport && !candidate.isExisting);
+    if (preferred) preferred.selected = true;
+    const firstIndex = pendingPlaceImports.findIndex((place) => place.candidateGroupId === groupId);
+    pendingPlaceImports = pendingPlaceImports.filter((place) => place.candidateGroupId !== groupId);
+    pendingPlaceImports.splice(Math.max(0, firstIndex), 0, ...replacements);
+    closeImportRematchSheet();
+    const preview = document.querySelector("#import-preview");
+    if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+    updateImportConfirmState();
+    showToast(`已為「${query}」找到 ${replacements.length} 個新候選`);
+  } catch (error) {
+    status.textContent = String(error?.message || "").startsWith("GOOGLE_")
+      ? "這次仍找不到新的吻合結果。可修改店名或地址再搜尋，也可返回後略過不加入。"
+      : "重新搜尋暫時失敗，請稍後再試；你仍可略過這個地點。";
+    status.dataset.tone = "error";
+    button.disabled = false;
+    button.textContent = "再搜尋一次";
+  }
 }
 
 function closeImportCandidatePreview() {
@@ -4674,15 +4832,24 @@ function importPreviewMarkup(entries) {
       if (place.isSocialCandidate && !seenCandidateGroups.has(place.candidateGroupId)) {
         seenCandidateGroups.add(place.candidateGroupId);
         groupNumber += 1;
-        const groupCandidateCount = socialStats.groups.get(place.candidateGroupId)?.candidateCount || 1;
+        const groupState = socialStats.groups.get(place.candidateGroupId);
+        const groupCandidateCount = groupState?.candidateCount || 1;
         groupHeader = `
-          <div class="import-candidate-group-label">
+          <div class="import-candidate-group-label ${groupState?.skipped ? "skipped" : ""}">
             <span>辨識地點 ${groupNumber}</span>
             <strong>${escapeHtml(place.candidateLabel || place.name)}</strong>
-            <small>${groupCandidateCount} 個 Google Maps 候選 · 擇一加入</small>
-            <button type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">原文／原圖</button>
+            <small>${groupState?.skipped ? "已略過，不會加入旅程" : `${groupCandidateCount} 個 Google Maps 候選 · 可擇一或略過`}</small>
+            <div class="import-candidate-group-actions">
+              <button type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">原文／原圖</button>
+              <button type="button" data-rematch-import-group="${escapeHtml(place.candidateGroupId)}">重新搜尋</button>
+              <button type="button" data-skip-import-group="${escapeHtml(place.candidateGroupId)}" data-skip-value="${groupState?.skipped ? "false" : "true"}">${groupState?.skipped ? "取消略過" : "略過不加"}</button>
+            </div>
           </div>`;
+        if (groupState?.skipped) {
+          return `${groupHeader}<div class="import-candidate-skipped"><strong>這個地點已取消</strong><span>不必從錯誤候選中選擇；其他地點仍可正常加入。</span></div>`;
+        }
       }
+      if (place.candidateGroupSkipped) return "";
       return `
         ${groupHeader}
         <article class="import-place-row ${place.isSocialCandidate ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}"${previewTarget}>
@@ -4695,10 +4862,10 @@ function importPreviewMarkup(entries) {
     .join("");
   const addableCount = entries.filter(importCanBeAdded).length;
   const socialSummary = socialStats.groupCount
-    ? `<div class="import-group-summary"><strong>辨識到 ${socialStats.groupCount} 個地點</strong><span>共 ${socialStats.candidateCount} 筆 Google Maps 配對候選；同一地點的候選只能選 1 筆。</span></div>`
+    ? `<div class="import-group-summary"><strong>辨識到 ${socialStats.groupCount} 個地點</strong><span>共 ${socialStats.candidateCount} 筆 Google Maps 配對候選；每個地點都可重搜或略過，不必強制選擇。</span></div>`
     : "";
   const summary = socialStats.groupCount
-    ? `已選好 ${socialStats.selectedGroupCount} 個地點可加入；${socialStats.candidateCount} 筆候選不代表 ${socialStats.candidateCount} 家店。`
+    ? `已選 ${socialStats.selectedGroupCount} 個地點${socialStats.skippedGroupCount ? `，略過 ${socialStats.skippedGroupCount} 個` : ""}；候選錯誤時可只重新搜尋該地點。`
     : `可新增 ${addableCount} 個地點；重複項目會自動略過。`;
   return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}${socialSummary}${rows}<p class="import-summary">${summary}</p>`;
 }
@@ -4948,6 +5115,21 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-close-import-source]") || event.target.matches("[data-dismiss-import-source]")) {
     return closeImportSourcePreview();
   }
+
+  const rematchImportGroup = event.target.closest("[data-rematch-import-group]");
+  if (rematchImportGroup) return openImportRematchSheet(rematchImportGroup.dataset.rematchImportGroup);
+
+  const skipImportGroup = event.target.closest("[data-skip-import-group]");
+  if (skipImportGroup) {
+    return setImportCandidateGroupSkipped(skipImportGroup.dataset.skipImportGroup, skipImportGroup.dataset.skipValue === "true");
+  }
+
+  if (event.target.closest("[data-close-import-rematch]") || event.target.matches("[data-dismiss-import-rematch]")) {
+    return closeImportRematchSheet();
+  }
+
+  const runImportRematch = event.target.closest("[data-run-import-rematch]");
+  if (runImportRematch) return rematchImportCandidateGroup(runImportRematch.dataset.runImportRematch);
 
   const previewImportCandidate = event.target.closest("[data-preview-import-candidate]");
   const clickedCandidateRadio = event.target.closest("[data-social-place-candidate]");
@@ -6261,7 +6443,7 @@ document.addEventListener("submit", async (event) => {
     const requestedKind = String(form.get("placeKind") || "auto");
     const additions = parsed
       .filter(importCanBeAdded)
-      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => ({
+      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => ({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
       }));

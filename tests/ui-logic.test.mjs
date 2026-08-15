@@ -412,9 +412,9 @@ test("social place import distinguishes recognized places from Google candidate 
   assert.match(appSource, /function socialImportStats/);
   assert.match(appSource, /辨識到 \$\{socialStats\.groupCount\} 個地點/);
   assert.match(appSource, /共 \$\{socialStats\.candidateCount\} 筆 Google Maps 配對候選/);
-  assert.match(appSource, /候選只能選 1 筆/);
+  assert.match(appSource, /每個地點都可重搜或略過/);
   assert.match(appSource, /加入全部 \$\{addableCount\} 個地點/);
-  assert.match(appSource, /class="import-candidate-group-label"/);
+  assert.match(appSource, /class="import-candidate-group-label/);
   assert.match(stylesSource, /\.import-group-summary\s*{/);
   assert.match(stylesSource, /\.import-candidate-group-label\s*{/);
 });
@@ -433,6 +433,21 @@ test("social candidate groups can compare original text and relevant source imag
   assert.match(appSource, /sourceOriginalText, sourceOriginalImages, sourceImageIndexes/);
   assert.match(stylesSource, /\.import-source-backdrop\s*{[^}]*z-index:\s*145/s);
   assert.match(stylesSource, /\.import-source-image-backdrop\s*{[^}]*z-index:\s*155/s);
+});
+
+test("each social place group can be rematched or skipped without forcing a wrong candidate", () => {
+  assert.match(appSource, /action: "rematch"/);
+  assert.match(appSource, /function openImportRematchSheet/);
+  assert.match(appSource, /function rematchImportCandidateGroup/);
+  assert.match(appSource, /data-rematch-import-group=/);
+  assert.match(appSource, /data-skip-import-group=/);
+  assert.match(appSource, /略過不加/);
+  assert.match(appSource, /不必從錯誤候選中選擇/);
+  assert.match(appSource, /candidateGroupSkipped/);
+  assert.match(appSource, /加入其餘 \$\{addableCount\} 個地點/);
+  assert.match(stylesSource, /\.import-candidate-group-actions\s*{[^}]*grid-template-columns:\s*repeat\(3,/s);
+  assert.match(stylesSource, /\.import-rematch-backdrop\s*{[^}]*z-index:\s*145/s);
+  assert.match(stylesSource, /\.import-rematch-sheet input\s*{[^}]*font-size:\s*16px/s);
 });
 
 test("deployed frontend revalidates assets and refreshes long-lived tabs", () => {

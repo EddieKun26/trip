@@ -39,6 +39,7 @@
 - A social post containing a list of shops or sights should preserve up to twenty distinct place mentions rather than silently truncating the result at five.
 - Every social-place candidate must be openable before import so overseas lodging and similarly named places can be verified from Google photos, full address, rating, contact details, and the Google Maps page without losing the pending import form.
 - When one recognized place has several Google Maps matches, provide an in-place comparison of the original caption, AI evidence, and relevant original attachments; source thumbnails must open at a readable size.
+- Never force a user to choose between incorrect social-place candidates. Let each recognized place be independently re-searched with an editable name, branch, or address, and let it be skipped without affecting the other correct places.
 - Place details opened from either a list or map should let an editor delete an unwanted attraction, restaurant, or lodging with a second confirmation.
 - Ship the web version first; build a test iOS app only after the web product matures.
 - For this travel-app project, deploy completed and validated changes directly to the public GitHub/Vercel production site without asking again each time; always return the latest public App link after deployment.
