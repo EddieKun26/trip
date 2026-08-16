@@ -21,7 +21,9 @@ const SOCIAL_HOSTS = new Set([
   "www.threads.net",
   "threads.com",
   "www.threads.com",
+  "abnb.me",
 ]);
+const LODGING_HOST_SUFFIXES = ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw"];
 const SOCIAL_MEDIA_HOST_SUFFIXES = [".cdninstagram.com", ".fbcdn.net"];
 
 function sendJson(response, status, payload) {
@@ -103,12 +105,19 @@ function translatedLabel(chinese, original) {
 function safeSocialUrl(value) {
   try {
     const url = new URL(String(value || ""));
-    if (url.protocol !== "https:" || !SOCIAL_HOSTS.has(url.hostname.toLowerCase())) return null;
+    const host = url.hostname.toLowerCase();
+    const isLodgingHost = LODGING_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+    if (url.protocol !== "https:" || (!SOCIAL_HOSTS.has(host) && !isLodgingHost)) return null;
     url.hash = "";
     return url;
   } catch {
     return null;
   }
+}
+
+function isLodgingShareUrl(value) {
+  const host = String(value?.hostname || value || "").toLowerCase();
+  return host === "abnb.me" || LODGING_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
 }
 
 function safeSocialMediaUrl(value) {
@@ -127,6 +136,9 @@ function socialPlatform(url) {
   const host = String(url?.hostname || "").toLowerCase();
   if (host.includes("instagram")) return "Instagram";
   if (host.includes("threads")) return "Threads";
+  if (host.includes("agoda")) return "Agoda";
+  if (host.includes("booking")) return "Booking.com";
+  if (host.includes("airbnb") || host === "abnb.me") return "Airbnb";
   return "社群貼文";
 }
 
@@ -375,7 +387,7 @@ const responseSchema = {
 };
 
 function recognitionPrompt() {
-  return `你是旅遊地點辨識助手。請理解使用者分享的 Instagram、Threads 或其他社群貼文內容，找出貼文實際推薦、介紹或造訪的可搜尋地點。
+  return `你是旅遊地點辨識助手。請理解使用者分享的 Instagram、Threads、Agoda、Booking.com、Airbnb 或其他旅遊連結內容，找出連結實際指向或介紹的可搜尋地點。
 
 規則：
 1. 只回傳可在 Google Maps 搜尋的實體景點、餐廳、住宿或商店。不要把城市、行政區、標籤、交通方式或一般商品當成地點。
@@ -458,7 +470,7 @@ async function callOpenAi(apiKey, {
       detail: image.detail === "high" ? "high" : "original",
     });
   }
-  const useWebSearch = Boolean(addressHint && nameHiddenHint);
+  const useWebSearch = Boolean((addressHint && nameHiddenHint) || (sourceUrl && ["Agoda", "Booking.com", "Airbnb"].includes(platform)));
   const requestPayload = {
     model: OPENAI_MODEL,
     input: [
@@ -824,6 +836,7 @@ export default async function socialPlaceImportHandler(request, response) {
     }
 
     const sourceUrl = safeSocialUrl(body.sourceUrl);
+    const recognitionKind = requestedKind === "auto" && isLodgingShareUrl(sourceUrl) ? "lodging" : requestedKind;
     const sharedText = cleanText(body.sharedText, 6000);
     const imageDataUrl = String(body.imageDataUrl || "");
     if (imageDataUrl && (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > MAX_IMAGE_LENGTH)) {
@@ -855,10 +868,10 @@ export default async function socialPlaceImportHandler(request, response) {
     const recognitionImages = imageDataUrl
       ? [{ dataUrl: imageDataUrl, detail: "original" }]
       : linkedImageDataUrls.map((dataUrl) => ({ dataUrl, detail: "high" }));
-    if (!metadata.available && !sharedText && !recognitionImages.length) {
+    if (!metadata.available && !sharedText && !recognitionImages.length && !isLodgingShareUrl(sourceUrl)) {
       return sendJson(response, 422, { error: "SOURCE_CONTENT_REQUIRED", platform: socialPlatform(sourceUrl) });
     }
-    if (!metadata.title && !metadata.description && !sharedText && !recognitionImages.length) {
+    if (!metadata.title && !metadata.description && !sharedText && !recognitionImages.length && !isLodgingShareUrl(sourceUrl)) {
       return sendJson(response, 422, { error: "SOCIAL_MEDIA_SCREENSHOT_REQUIRED", platform: socialPlatform(sourceUrl) });
     }
     if (!(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
@@ -876,11 +889,11 @@ export default async function socialPlaceImportHandler(request, response) {
       destination: trip.destination,
       addressHint,
       nameHiddenHint,
-      requestedKind,
+      requestedKind: recognitionKind,
     }), {
       addressHint,
       nameHiddenHint,
-      requestedKind,
+      requestedKind: recognitionKind,
       sourceText,
     });
     if (!recognition.places.length) {
@@ -947,5 +960,6 @@ export {
   responseSchema,
   safeSocialUrl,
   safeSocialMediaUrl,
+  isLodgingShareUrl,
   sourceHidesPlaceName,
 };

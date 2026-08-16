@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-17
+
+- Added confirmed lodging imports from Agoda, Booking.com, Airbnb, and `abnb.me` links. The importer safely allowlists those hosts, automatically requests lodging recognition, uses web lookup when booking-page metadata is incomplete, presents Google Maps candidates for explicit confirmation, and retains the original booking link in place details. The universal link-field copy and source-reference labels now cover booking platforms as well as social posts. All 74 tests pass.
+
 ## 2026-08-15
 
 - Removed forced selection from ambiguous social-place imports. Every recognized group now supports an editable independent Google Maps re-search that excludes candidates already shown across rounds, plus an explicit skip/cancel state that leaves all other pending places intact. The targeted re-search does not spend another whole-post AI call. All 73 tests pass.

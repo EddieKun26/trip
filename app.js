@@ -3592,7 +3592,7 @@ function openPlaceSheet(name) {
           <button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">到 Google Maps 看照片 ↗</button>
         </div>
         <p class="place-description">${escapeHtml(place.description)}</p>
-        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">查看原始 ${escapeHtml(place.sourcePlatform || "社群")} 貼文 ↗</button>` : ""}
+        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">查看原始 ${escapeHtml(place.sourcePlatform || "來源")} 連結 ↗</button>` : ""}
         <div class="highlight-list">${highlights}</div>
         <section class="place-contact-grid" aria-label="營業資訊">
           <div class="place-contact-item">
@@ -4062,7 +4062,17 @@ function isGoogleMapsUrl(value) {
 function isSocialPlaceUrl(value) {
   try {
     const host = new URL(value).hostname.toLowerCase();
-    return ["instagram.com", "www.instagram.com", "threads.net", "www.threads.net", "threads.com", "www.threads.com"].includes(host);
+    return ["instagram.com", "www.instagram.com", "threads.net", "www.threads.net", "threads.com", "www.threads.com", "abnb.me"].includes(host)
+      || ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  } catch {
+    return false;
+  }
+}
+
+function isLodgingShareUrl(value) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "abnb.me" || ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
   } catch {
     return false;
   }
@@ -4742,7 +4752,7 @@ function openImportSourcePreview(groupId) {
         ${evidence}
         ${imageMarkup}
         ${originalText}
-        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">開啟完整原貼文 ↗</button>` : ""}
+        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">開啟完整原始連結 ↗</button>` : ""}
       </section>
     </div>`);
 }
@@ -4800,7 +4810,7 @@ function openImportCandidatePreview(identity) {
 
 function importPreviewMarkup(entries) {
   if (!entries.length) {
-    return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}<div class="import-empty"><strong>沒有找到可辨識的內容</strong><span>請貼上 Google Maps 或社群貼文連結，也可上傳截圖。</span></div>`;
+    return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}<div class="import-empty"><strong>沒有找到可辨識的內容</strong><span>請貼上 Google Maps、住宿平台或社群貼文連結，也可上傳截圖。</span></div>`;
   }
   const socialStats = socialImportStats(entries);
   const seenCandidateGroups = new Set();
@@ -4884,7 +4894,7 @@ function openAddPlaceSheet() {
         <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select></div>
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
-          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Instagram、Reels 或 Threads 連結"></textarea>
+          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結"></textarea>
         </div>
         <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
         <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
@@ -5567,7 +5577,7 @@ document.addEventListener("click", async (event) => {
     if (!textarea || !preview) return;
     analyzePlaces.disabled = true;
     analyzePlaces.textContent = "正在理解連結與地點…";
-    preview.innerHTML = `<div class="import-empty loading"><strong>正在辨識</strong><span>社群貼文會先理解內容，再比對 Google Maps 候選。</span></div>`;
+    preview.innerHTML = `<div class="import-empty loading"><strong>正在辨識</strong><span>正在理解連結內容，再比對 Google Maps 候選。</span></div>`;
     pendingPlaceImports = [];
     pendingPlaceImportNotice = "";
     const notices = [];
@@ -5586,12 +5596,13 @@ document.addEventListener("click", async (event) => {
           : [];
       for (let sourceIndex = 0; sourceIndex < socialSources.length; sourceIndex += 1) {
         try {
+          const sourceRequestedKind = requestedKind === "auto" && isLodgingShareUrl(socialSources[sourceIndex]) ? "lodging" : requestedKind;
           const socialImports = await recognizeSocialPlace(
             socialSources[sourceIndex],
             "",
             sourceIndex === 0 ? pendingPlaceImportScreenshot : "",
             sourceIndex,
-            requestedKind,
+            sourceRequestedKind,
           );
           pendingPlaceImports.push(...socialImports);
         } catch (error) {
@@ -5599,7 +5610,7 @@ document.addEventListener("click", async (event) => {
         }
       }
       if (!mapImports.length && !socialSources.length && textarea.value.trim()) {
-        notices.push("沒有找到支援的連結，請貼上 Google Maps、Instagram 或 Threads 分享網址。");
+        notices.push("沒有找到支援的連結，請貼上 Google Maps、Agoda、Booking.com、Airbnb、Instagram 或 Threads 分享網址。");
       }
     } catch {
       notices.push("地點資料暫時無法辨識，請稍後再試。");

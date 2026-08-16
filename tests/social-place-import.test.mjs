@@ -7,6 +7,7 @@ import socialPlaceImportHandler, {
   extractAddressHint,
   publicMetadataFromHtml,
   responseSchema,
+  isLodgingShareUrl,
   safeSocialMediaUrl,
   safeSocialUrl,
   sourceHidesPlaceName,
@@ -28,6 +29,12 @@ process.env.GOOGLE_MAPS_API_KEY = "test-google-key";
 
 globalThis.fetch = async (url, options = {}) => {
   const target = String(url);
+  if (target.includes("booking.com")) {
+    return new Response(`<!doctype html><html><head>
+      <meta property="og:title" content="Mitsui Garden Hotel Jingugaien Tokyo Premier" />
+      <meta property="og:description" content="Hotel at 11-3 Kasumigaokamachi, Shinjuku City, Tokyo" />
+    </head></html>`, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
   if (target.includes("cdninstagram.com")) {
     return new Response(new Uint8Array([255, 216, 255, 217]), {
       status: 200,
@@ -172,6 +179,10 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
   assert.equal(safeSocialUrl("https://www.instagram.com/reel/Db0DU2OykW0/?igsh=example")?.pathname, "/reel/Db0DU2OykW0/");
   assert.equal(safeSocialUrl("http://127.0.0.1/private"), null);
   assert.equal(safeSocialUrl("https://example.com/place"), null);
+  assert.equal(safeSocialUrl("https://www.agoda.com/example-hotel/hotel/tokyo-jp.html")?.hostname, "www.agoda.com");
+  assert.equal(safeSocialUrl("https://www.booking.com/hotel/jp/example.html")?.hostname, "www.booking.com");
+  assert.equal(safeSocialUrl("https://www.airbnb.com/rooms/123")?.hostname, "www.airbnb.com");
+  assert.equal(isLodgingShareUrl(safeSocialUrl("https://abnb.me/example")), true);
   assert.equal(safeSocialMediaUrl("https://scontent.cdninstagram.com/photo.jpg")?.hostname, "scontent.cdninstagram.com");
   assert.equal(safeSocialMediaUrl("https://example.com/photo.jpg"), null);
   assert.deepEqual(publicMetadataFromHtml('<meta content="A &amp; B" property="og:title"><meta name="description" content="推薦餐廳"><meta property="og:image" content="https://scontent.cdninstagram.com/photo.jpg?x=1">'), {
@@ -314,6 +325,40 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(googleRequests[0].body.maxResultCount, 3);
   assert.equal(googleRequests[0].body.regionCode, "JP");
   assert.equal(googleRequests[0].headers["X-Goog-Api-Key"], "test-google-key");
+});
+
+test("Agoda Booking.com and Airbnb links are accepted as lodging sources and keep the original link", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  recognitionPlaceOverride = {
+    nameOriginal: "Mitsui Garden Hotel Jingugaien Tokyo Premier",
+    nameZh: "三井花園飯店神宮外苑之杜普米爾",
+    city: "東京",
+    area: "新宿",
+    country: "日本",
+    category: "lodging",
+    address: "11-3 Kasumigaokamachi, Shinjuku City, Tokyo",
+    nameHidden: false,
+    searchClues: "hotel",
+    searchQuery: "Mitsui Garden Hotel Jingugaien Tokyo Premier",
+    evidence: "Booking.com 頁面標題與地址",
+    sourceImageIndexes: [],
+    confidence: 0.97,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const bookingUrl = "https://www.booking.com/hotel/jp/mitsui-garden-jingugaien-tokyo-premier.html";
+
+  const response = await recognize({ cookie, tripId: trip.id, sourceUrl: bookingUrl });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.source.platform, "Booking.com");
+  assert.equal(response.payload.groups[0].extracted.category, "lodging");
+  assert.equal(response.payload.groups[0].candidates[0].kind, "lodging");
+  assert.equal(response.payload.groups[0].candidates[0].referenceUrl, bookingUrl);
+  assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
+  assert.match(openAiRequests[0].input[1].content[0].text, /"requestedKind":"lodging"/);
+  recognitionPlaceOverride = null;
 });
 
 test("one ambiguous place can be rematched without rerunning the social AI recognition", async () => {
