@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-19
+
+- Fixed two place-detail link bugs. Original-source actions now require an allowlisted Instagram, Threads, Agoda, Booking.com, or Airbnb URL and derive their label from the actual host, so direct Google Maps imports cannot display a false Threads reference. Google Maps actions now navigate in the current browser context instead of opening `_blank`, preventing iPhone app handoff from leaving an empty Safari window. Invalid map URLs show an inline toast. All 75 tests pass.
+
 ## 2026-08-17
 
 - Added confirmed lodging imports from Agoda, Booking.com, Airbnb, and `abnb.me` links. The importer safely allowlists those hosts, automatically requests lodging recognition, uses web lookup when booking-page metadata is incomplete, presents Google Maps candidates for explicit confirmation, and retains the original booking link in place details. The universal link-field copy and source-reference labels now cover booking platforms as well as social posts. All 74 tests pass.

@@ -309,6 +309,29 @@ test("Google Maps search links keep their place query when checking duplicates",
   );
 });
 
+test("place references hide misclassified Google Maps URLs and derive labels from trusted source hosts", () => {
+  const section = sourceSection("function isGoogleMapsUrl", "function socialPlaceUrls");
+  const { googleMapsNavigationUrl, placeReferenceMeta } = new Function(
+    `${section}; return { googleMapsNavigationUrl, placeReferenceMeta };`,
+  )();
+  const mapsUrl = "https://www.google.com/maps/search/?api=1&query=東京鐵塔";
+
+  assert.equal(placeReferenceMeta({ referenceUrl: mapsUrl, sourcePlatform: "Threads" }), null);
+  assert.deepEqual(placeReferenceMeta({ referenceUrl: "https://www.threads.com/@traveler/post/ABC", sourcePlatform: "錯誤標籤" }), {
+    url: "https://www.threads.com/@traveler/post/ABC",
+    platform: "Threads",
+  });
+  assert.deepEqual(placeReferenceMeta({ referenceUrl: "https://www.booking.com/hotel/jp/example.html" }), {
+    url: "https://www.booking.com/hotel/jp/example.html",
+    platform: "Booking.com",
+  });
+  assert.equal(googleMapsNavigationUrl(mapsUrl), new URL(mapsUrl).toString());
+  assert.equal(googleMapsNavigationUrl("https://example.com/not-maps"), "");
+  assert.match(appSource, /if \(mapLink\) return openGoogleMaps\(mapLink\.dataset\.openMaps\)/);
+  assert.match(appSource, /window\.location\.assign\(url\)/);
+  assert.doesNotMatch(appSource, /window\.open\(mapLink\.dataset\.openMaps/);
+});
+
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
   const section = sourceSection("function googleMapsImportCandidates", "function parseGoogleMapsList");
   const googleMapsImportCandidates = new Function(`${section}; return googleMapsImportCandidates;`)();
@@ -429,7 +452,7 @@ test("social candidate groups can compare original text and relevant source imag
   assert.match(appSource, /查看原文／原圖，比對這個候選/);
   assert.match(appSource, /原文敘述/);
   assert.match(appSource, /AI 辨識線索/);
-  assert.match(appSource, /開啟完整原始連結/);
+  assert.match(appSource, /開啟完整.*連結/);
   assert.match(appSource, /sourceOriginalText, sourceOriginalImages, sourceImageIndexes/);
   assert.match(stylesSource, /\.import-source-backdrop\s*{[^}]*z-index:\s*145/s);
   assert.match(stylesSource, /\.import-source-image-backdrop\s*{[^}]*z-index:\s*155/s);

@@ -3537,6 +3537,7 @@ function render({ preserveScroll = false } = {}) {
 function openPlaceSheet(name) {
   const place = state.places.find((item) => item.name === name);
   if (!place) return;
+  const reference = placeReferenceMeta(place);
   const deleteLabel = place.kind === "lodging"
     ? "刪除這間住宿"
     : place.kind === "restaurant"
@@ -3592,7 +3593,7 @@ function openPlaceSheet(name) {
           <button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">到 Google Maps 看照片 ↗</button>
         </div>
         <p class="place-description">${escapeHtml(place.description)}</p>
-        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">查看原始 ${escapeHtml(place.sourcePlatform || "來源")} 連結 ↗</button>` : ""}
+        ${reference ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(reference.url)}">查看原始 ${escapeHtml(reference.platform)} 連結 ↗</button>` : ""}
         <div class="highlight-list">${highlights}</div>
         <section class="place-contact-grid" aria-label="營業資訊">
           <div class="place-contact-item">
@@ -4059,6 +4060,15 @@ function isGoogleMapsUrl(value) {
   }
 }
 
+function googleMapsNavigationUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return isGoogleMapsUrl(url.toString()) && ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
 function isSocialPlaceUrl(value) {
   try {
     const host = new URL(value).hostname.toLowerCase();
@@ -4076,6 +4086,35 @@ function isLodgingShareUrl(value) {
   } catch {
     return false;
   }
+}
+
+function placeReferenceMeta(place) {
+  const value = String(place?.referenceUrl || "").trim();
+  if (!value || isGoogleMapsUrl(value) || !isSocialPlaceUrl(value)) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const platform = host.includes("instagram")
+      ? "Instagram"
+      : host.includes("threads")
+        ? "Threads"
+        : host.includes("agoda")
+          ? "Agoda"
+          : host.includes("booking")
+            ? "Booking.com"
+            : host.includes("airbnb") || host === "abnb.me"
+              ? "Airbnb"
+              : "";
+    return platform ? { url: url.toString(), platform } : null;
+  } catch {
+    return null;
+  }
+}
+
+function openGoogleMaps(value) {
+  const url = googleMapsNavigationUrl(value);
+  if (!url) return showToast("Google Maps 連結格式不正確");
+  window.location.assign(url);
 }
 
 function socialPlaceUrls(value) {
@@ -4727,6 +4766,7 @@ function openImportSourceImagePreview(groupId, imageIndex) {
 function openImportSourcePreview(groupId) {
   const place = importSourcePlace(groupId);
   if (!place) return;
+  const reference = placeReferenceMeta(place);
   closeImportSourcePreview();
   const images = Array.isArray(place.sourceOriginalImages) ? place.sourceOriginalImages : [];
   const imageMarkup = images.length
@@ -4752,7 +4792,7 @@ function openImportSourcePreview(groupId) {
         ${evidence}
         ${imageMarkup}
         ${originalText}
-        ${place.referenceUrl ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(place.referenceUrl)}">開啟完整原始連結 ↗</button>` : ""}
+        ${reference ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(reference.url)}">開啟完整 ${escapeHtml(reference.platform)} 連結 ↗</button>` : ""}
       </section>
     </div>`);
 }
@@ -5645,7 +5685,7 @@ document.addEventListener("click", async (event) => {
   }
 
   const mapLink = event.target.closest("[data-open-maps]");
-  if (mapLink) return window.open(mapLink.dataset.openMaps, "_blank", "noopener");
+  if (mapLink) return openGoogleMaps(mapLink.dataset.openMaps);
 
   const referenceLink = event.target.closest("[data-open-reference]");
   if (referenceLink) return window.open(referenceLink.dataset.openReference, "_blank", "noopener");

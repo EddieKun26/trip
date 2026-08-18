@@ -16,6 +16,7 @@
 - Every social candidate group now exposes a source-comparison sheet before import. The same recognition request returns the original caption, an AI evidence summary, and up to four attachment indexes that directly support that place; related original images can be enlarged, and the full original post remains available as a fallback. These transient source images are removed before the selected place is saved.
 - Frontend HTML and static assets explicitly revalidate on Vercel. Versioned asset URLs remove stale browser cache entries, and long-lived tabs check the current app asset when returning to the foreground and reload after a deployment change.
 - Place details include photos, Google Maps link, votes, itinerary assignment, business hours, phone, editable notes, and an editor-only confirmed delete action that works whether the detail was opened from the list or map.
+- Place-detail source buttons are derived from a safely recognized Instagram, Threads, Agoda, Booking.com, or Airbnb reference host rather than trusting a stored platform label; Google Maps URLs can never appear as social references. Google Maps actions navigate in the current browser context so iPhone app handoff does not leave an empty Safari tab.
 - Planning map and day map are independent. The planning map has an optional device-only live-location layer with a centered control icon and accuracy radius; day maps support per-day colors, ordering badges anchored to route endpoints, route lines, airports, transport icons, and red dashed flight segments without a redundant transport legend.
 - Daily itinerary supports time-wheel confirmation, chronological sorting, touch drag reordering, swipe deletion, add-place selection, and transport segments between adjacent items.
 - Transport segments adapt fields to walking, subway, train, bus, taxi, driving, ferry, and other modes. Walking pre-fills a coordinate-based time estimate; fixed-schedule, fare, traveler, and booking fields stay collapsed until “指定票券” is enabled.
@@ -35,6 +36,6 @@
 ## Latest validation
 
 - `node --check app.js` passes.
-- `node --test`: 74 tests passing as of 2026-08-17 after adding confirmed Agoda, Booking.com, and Airbnb lodging-link imports.
+- `node --test`: 75 tests passing as of 2026-08-19 after correcting place-reference provenance and Google Maps navigation behavior.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.
