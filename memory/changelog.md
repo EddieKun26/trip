@@ -4,6 +4,7 @@
 
 - Fixed the reported Liberty Stay import end to end. Explicit apartment name, complete address, Google Maps link, and Booking link pasted together now merge into one lodging candidate; `Liberty Stay` is retained from the descriptor-heavy Booking title and a reliable short Chinese name may be shown alongside it. Address lookups reject missing and `0,0` coordinates and use a bounded OpenStreetMap fallback when Google returns no usable location. Google Maps URLs prefer the actual `!3d…!4d…` place pin over the camera center, standalone context lines no longer become meaningless candidates, and the candidate-preview close control can no longer shrink into an oval. All 83 tests pass.
 - Fixed a follow-up case where Booking blocked its public title and a long AI-returned room description such as `70 平方…` reached the candidate list. The importer now extracts `Liberty Stay` from the complete AI title before any display-length truncation, removes descriptor-heavy translated copy, and searches with the short property name plus exact address. All 85 tests pass.
+- Added a durable handoff documentation set covering architecture, protected flows, permissions, environment variables, AI automation boundaries, existing/proposed test coverage, known gaps, and a Fable-specific project summary. No secret values are included.
 
 ## 2026-08-20
 

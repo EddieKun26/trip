@@ -37,5 +37,6 @@
 
 - `node --check app.js` passes.
 - `node --test`: 85 tests passing as of 2026-08-21 after merging explicit lodging evidence, rejecting `0,0`, retaining short Booking property names even when public title metadata is blocked, and fixing candidate-preview controls.
+- A reviewable handoff set now lives in `documentation/` (architecture, protected flows, permissions, variables, AI automation, and test coverage), with a Fable-oriented summary at `memory/FABLE_HANDOFF.md`.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.
