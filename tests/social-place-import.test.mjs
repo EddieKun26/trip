@@ -19,6 +19,7 @@ const openAiRequests = [];
 const googleRequests = [];
 let socialHtmlAvailable = true;
 let googleRejectLocationBias = false;
+let googleAddressFallbackOnly = false;
 let recognitionPlaceOverride = null;
 let socialHtmlOverride = "";
 
@@ -88,6 +89,22 @@ globalThis.fetch = async (url, options = {}) => {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (googleAddressFallbackOnly) {
+      const isAddressLookup = requestBody.textQuery === "東京都新宿区大久保1丁目16-20";
+      return new Response(JSON.stringify({
+        places: isAddressLookup ? [{
+          id: "address-okubo-1-16-20",
+          displayName: { text: "東京都新宿区大久保1丁目16-20" },
+          formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-20",
+          addressComponents: [{ longText: "大久保", types: ["sublocality_level_2"] }],
+          primaryType: "street_address",
+          types: ["street_address"],
+          primaryTypeDisplayName: { text: "地址" },
+          location: { latitude: 35.702741, longitude: 139.703741 },
+          googleMapsUri: "https://www.google.com/maps/search/?api=1&query=35.702741%2C139.703741",
+        }] : [],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response(JSON.stringify({
       places: [
@@ -350,6 +367,8 @@ test("Agoda Booking.com and Airbnb links are accepted as lodging sources and kee
   const bookingUrl = "https://www.booking.com/hotel/jp/mitsui-garden-jingugaien-tokyo-premier.html";
 
   const response = await recognize({ cookie, tripId: trip.id, sourceUrl: bookingUrl });
+  googleAddressFallbackOnly = false;
+  recognitionPlaceOverride = null;
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.payload.source.platform, "Booking.com");
@@ -359,6 +378,50 @@ test("Agoda Booking.com and Airbnb links are accepted as lodging sources and kee
   assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
   assert.match(openAiRequests[0].input[1].content[0].text, /"requestedKind":"lodging"/);
   recognitionPlaceOverride = null;
+});
+
+test("a Booking apartment without a Google business page can be saved as a confirmed address coordinate", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  googleAddressFallbackOnly = true;
+  recognitionPlaceOverride = {
+    nameOriginal: "50平方-大久保-新宿1站地-Ikeman ST-歌舞伎町-2浴室2衛生間",
+    nameZh: "50平方大久保公寓",
+    city: "東京",
+    area: "大久保",
+    country: "日本",
+    category: "lodging",
+    address: "東京都新宿区大久保1丁目16-20",
+    nameHidden: false,
+    searchClues: "公寓型住宿、新大久保站附近",
+    searchQuery: "50平方 大久保 新宿 Ikeman ST",
+    evidence: "Booking.com 住宿頁提供名稱與地址",
+    sourceImageIndexes: [],
+    confidence: 0.9,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const bookingUrl = "https://www.booking.com/hotel/jp/50-ping-fang-da-jiu-bao-xin-su-1-zhan-di-ikeman-st-ge-wu-ji-ting-2-yu-shi-2-wei.zh-tw.html";
+
+  const response = await recognize({ cookie, tripId: trip.id, sourceUrl: bookingUrl });
+  googleAddressFallbackOnly = false;
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(googleRequests.length, 2);
+  assert.equal(googleRequests[1].body.textQuery, "東京都新宿区大久保1丁目16-20");
+  const candidate = response.payload.groups[0].candidates[0];
+  assert.equal(candidate.coordinateFallback, true);
+  assert.equal(candidate.kind, "lodging");
+  assert.equal(candidate.category, "住宿座標");
+  assert.equal(candidate.name, "50平方大久保公寓(50平方-大久保-新宿1站地-Ikeman ST-歌舞伎町-2浴室2衛生間)");
+  assert.equal(candidate.formattedAddress, "〒169-0072 東京都新宿区大久保1丁目16-20");
+  assert.equal(candidate.latitude, 35.702741);
+  assert.equal(candidate.longitude, 139.703741);
+  assert.match(candidate.sourceUrl, /query=35\.702741%2C139\.703741/);
+  assert.equal(candidate.referenceUrl, bookingUrl);
+  assert.equal(candidate.photosLoaded, true);
+  assert.match(candidate.description, /沒有獨立商家頁/);
 });
 
 test("one ambiguous place can be rematched without rerunning the social AI recognition", async () => {

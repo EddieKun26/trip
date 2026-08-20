@@ -3728,6 +3728,24 @@ body.transport-sheet-open .app {
   line-height: 1.45;
 }
 
+.coordinate-fallback-notice {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(79, 122, 95, 0.26);
+  border-radius: 12px;
+  background: rgba(79, 122, 95, 0.1);
+  color: #31543d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.coordinate-fallback-notice strong,
+.coordinate-fallback-notice span {
+  display: block;
+}
+
 .import-summary {
   margin: 3px 2px 0;
 }

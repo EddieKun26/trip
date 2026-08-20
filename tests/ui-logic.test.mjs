@@ -428,6 +428,8 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.match(stylesSource, /\.import-candidate-backdrop\s*{[^}]*z-index:\s*130/s);
   assert.match(stylesSource, /\.import-candidate-sheet\s*{[^}]*max-height:\s*88dvh[^}]*overflow-y:\s*auto/s);
   assert.match(stylesSource, /\.social-screenshot-picker-standalone\s*{/);
+  assert.match(appSource, /place\.coordinateFallback \? `<p class="coordinate-fallback-notice"/);
+  assert.match(stylesSource, /\.coordinate-fallback-notice\s*{/);
   assert.doesNotMatch(stylesSource, /\.social-import-fallback\s*{/);
 });
 

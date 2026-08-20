@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-20
+
+- Added a safe navigation fallback for Booking.com, Agoda, and Airbnb apartments that have no independent Google Maps business page. The importer preserves a web-verified full address, runs an exact address-only Places lookup, and presents the result as a clearly labeled `住宿座標` candidate with coordinates and the original booking reference. It never substitutes a nearby similar property automatically, and saving still requires explicit address review and confirmation. All 76 tests pass.
+
 ## 2026-08-19
 
 - Fixed two place-detail link bugs. Original-source actions now require an allowlisted Instagram, Threads, Agoda, Booking.com, or Airbnb URL and derive their label from the actual host, so direct Google Maps imports cannot display a false Threads reference. Google Maps actions now navigate in the current browser context instead of opening `_blank`, preventing iPhone app handoff from leaving an empty Safari window. Invalid map URLs show an inline toast. All 75 tests pass.

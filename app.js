@@ -4827,6 +4827,7 @@ function openImportCandidatePreview(identity) {
           <button class="icon-button" type="button" data-close-import-candidate aria-label="關閉候選預覽">×</button>
         </div>
         ${fullName}
+        ${place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${importCandidateGalleryMarkup(place)}</div>
         <div class="gallery-caption"><span>${place.photos?.length ? "Google Maps 地點照片" : "可到 Google Maps 查看更多照片"}</span><button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">查看完整地圖 ↗</button></div>
         <section class="import-candidate-facts" aria-label="候選地點資料">
