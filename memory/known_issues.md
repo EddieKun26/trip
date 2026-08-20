@@ -1,5 +1,6 @@
 # Known issues
 
+- Booking.com now answers server-side page fetches with an HTTP 202 anti-bot challenge page (observed 2026-08-21), so no public title, Open Graph, or structured address reaches the importer from a bare Booking link. Recognition then depends on the AI web search guided by the URL slug and dest_id; results are best-effort. The reliable path is pasting the host-provided lodging name and address (e.g. `公寓名稱：… / 公寓地址：…`) together with the Booking link, which now deterministically produces a correctly named precise coordinate candidate without needing the page.
 - The Google Maps key was previously shared in conversation. It should be rotated and restricted in Google Cloud before broader public use.
 - Google Maps browser-map availability depends on correct production referrer restrictions; Leaflet is the fallback when the key cannot load.
 - Google Maps shared-list import works only for publicly accessible lists. Private lists cannot be expanded server-side.

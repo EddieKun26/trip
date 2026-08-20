@@ -5,6 +5,8 @@ import memberHandler from "../api/member.mjs";
 import socialPlaceImportHandler, {
   cleanRecognition,
   extractAddressHint,
+  extractLodgingNameHint,
+  lodgingUrlSlug,
   publicMetadataFromHtml,
   responseSchema,
   isLodgingShareUrl,
@@ -20,6 +22,7 @@ const googleRequests = [];
 let socialHtmlAvailable = true;
 let googleRejectLocationBias = false;
 let googleAddressFallbackOnly = false;
+let googleRomanizedAddresses = false;
 let googleInvalidAddressCoordinates = false;
 let recognitionPlaceOverride = null;
 let socialHtmlOverride = "";
@@ -62,7 +65,7 @@ globalThis.fetch = async (url, options = {}) => {
             sourceSummary: "貼文推薦新宿的 Cafe Mugi 抹茶甜點。",
             sourceLanguage: "繁體中文",
             needsMoreContext: false,
-            places: [recognitionPlaceOverride || {
+            places: Array.isArray(recognitionPlaceOverride) ? recognitionPlaceOverride : [recognitionPlaceOverride || {
               nameOriginal: "Cafe Mugi",
               nameZh: "Cafe Mugi",
               city: "東京",
@@ -95,12 +98,15 @@ globalThis.fetch = async (url, options = {}) => {
       const isAddressLookup = [
         "〒169-0072 東京都新宿区大久保1丁目16-19",
         "東京都, 東京, 〒169-0072 1-16-19, 日本",
+        "东京 新宿区 大久保 1 丁目 16-19 -169-0072",
       ].includes(requestBody.textQuery);
       return new Response(JSON.stringify({
         places: isAddressLookup ? [{
           id: "address-okubo-1-16-19",
-          displayName: { text: "東京都新宿区大久保1丁目16-19" },
-          formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-19",
+          displayName: { text: googleRomanizedAddresses ? "1-chōme-16-19 Ōkubo" : "東京都新宿区大久保1丁目16-19" },
+          formattedAddress: googleRomanizedAddresses
+            ? "1-chōme-16-19 Ōkubo, Shinjuku City, Tokyo 169-0072"
+            : "〒169-0072 東京都新宿区大久保1丁目16-19",
           addressComponents: [{ longText: "大久保", types: ["sublocality_level_2"] }],
           primaryType: "street_address",
           types: ["street_address"],
@@ -110,7 +116,9 @@ globalThis.fetch = async (url, options = {}) => {
         }] : [{
           id: "wrong-nearby-lodging",
           displayName: { text: "附近名稱相似住宿" },
-          formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-20",
+          formattedAddress: googleRomanizedAddresses
+            ? "1-chōme-16-20 Ōkubo, Shinjuku City, Tokyo 169-0072"
+            : "〒169-0072 東京都新宿区大久保1丁目16-20",
           addressComponents: [{ longText: "大久保", types: ["sublocality_level_2"] }],
           primaryType: "lodging",
           types: ["lodging"],
@@ -530,6 +538,66 @@ test("a Booking apartment uses its exact postal address and rejects a nearby lod
   assert.equal(candidate.referenceUrl, bookingUrl);
   assert.equal(candidate.photosLoaded, true);
   assert.match(candidate.description, /沒有獨立商家頁/);
+});
+
+test("a multi-line host message keeps its labelled address, lodging name, and URL slug clues", () => {
+  const hostMessage = [
+    "1、公寓名称：自由之家",
+    "",
+    "2、公寓地址：东京 新宿区 大久保 1 丁目 16-19 -169-0072",
+    "",
+    "3、地图链接：https://maps.app.goo.gl/LUyTfE7V4mvKoDuu8",
+    "",
+    "4、公寓电话：81-90-3180-9800",
+  ].join("\n");
+  assert.equal(extractAddressHint(hostMessage), "东京 新宿区 大久保 1 丁目 16-19 -169-0072");
+  assert.equal(extractLodgingNameHint(hostMessage), "自由之家");
+  assert.equal(extractLodgingNameHint("飯店名稱：東橫INN新宿"), "東橫INN新宿");
+  assert.equal(extractLodgingNameHint("這是一般貼文，沒有名稱標籤"), "");
+  assert.equal(
+    lodgingUrlSlug("https://www.booking.com/hotel/jp/50-ping-fang-da-jiu-bao-xin-su-1-zhan-di-ikeman-st-ge-wu-ji-ting-2-yu-shi-2-wei.zh-tw.html?aid=1"),
+    "50 ping fang da jiu bao xin su 1 zhan di ikeman st ge wu ji ting 2 yu shi 2 wei",
+  );
+  assert.equal(lodgingUrlSlug("https://www.instagram.com/reel/ABC123/"), "");
+});
+
+test("a blocked Booking page with pasted host details still yields a correctly named coordinate candidate", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  googleAddressFallbackOnly = true;
+  googleRomanizedAddresses = true;
+  socialHtmlOverride = "<!doctype html><html><head><title></title></head><body>challenge</body></html>";
+  recognitionPlaceOverride = [];
+  const { cookie, trip } = await loginAndCreateTrip();
+  const bookingUrl = "https://www.booking.com/hotel/jp/50-ping-fang-da-jiu-bao-xin-su-1-zhan-di-ikeman-st-ge-wu-ji-ting-2-yu-shi-2-wei.zh-tw.html";
+  const hostMessage = [
+    "1、公寓名称：自由之家",
+    "2、公寓地址：东京 新宿区 大久保 1 丁目 16-19 -169-0072",
+    "4、公寓电话：81-90-3180-9800",
+  ].join("\n");
+
+  const response = await recognize({ cookie, tripId: trip.id, sourceUrl: bookingUrl, sharedText: hostMessage });
+  googleAddressFallbackOnly = false;
+  googleRomanizedAddresses = false;
+  socialHtmlOverride = "";
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 200);
+  const aiReference = openAiRequests[0].input[1].content[0].text;
+  assert.match(aiReference, /"publicPageUnavailable":true/);
+  assert.match(aiReference, /"publicLodgingName":"自由之家"/);
+  assert.match(aiReference, /"lodgingUrlSlug":"50 ping fang da jiu bao xin su 1 zhan di ikeman st ge wu ji ting 2 yu shi 2 wei"/);
+  assert.equal(response.payload.groups.length, 1);
+  const candidates = response.payload.groups[0].candidates;
+  assert.equal(candidates.length, 1, "romanized nearby lodgings with other house numbers must be rejected");
+  const candidate = candidates[0];
+  assert.equal(candidate.name, "自由之家");
+  assert.equal(candidate.kind, "lodging");
+  assert.equal(candidate.coordinateFallback, true);
+  assert.equal(candidate.latitude, 35.702741);
+  assert.equal(candidate.longitude, 139.703741);
+  assert.equal(candidate.referenceUrl, bookingUrl);
 });
 
 test("a Booking page structured address creates a coordinate candidate when OpenAI omits the address", async () => {
