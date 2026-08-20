@@ -3746,6 +3746,27 @@ body.transport-sheet-open .app {
   display: block;
 }
 
+.import-location-preview {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.import-location-preview iframe {
+  display: block;
+  width: 100%;
+  height: 190px;
+  border: 0;
+  border-radius: 14px;
+  background: #e9e5dd;
+}
+
+.import-location-preview span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .import-summary {
   margin: 3px 2px 0;
 }

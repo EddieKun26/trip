@@ -309,6 +309,22 @@ test("Google Maps search links keep their place query when checking duplicates",
   );
 });
 
+test("coordinate-only Google Maps links do not expose encoded coordinates as place names", () => {
+  const section = sourceSection("function validMapCoordinates", "function inferPlaceArea");
+  const { coordinatesFromGoogleMapsUrl, extractNameFromGoogleMapsUrl } = new Function(
+    `${section}; return { coordinatesFromGoogleMapsUrl, extractNameFromGoogleMapsUrl };`,
+  )();
+  const mapsUrl = "https://www.google.com/maps/place/35%C2%B042'02.9%22N+139%C2%B042'09.7%22E/?entry=ttu";
+  const coordinates = coordinatesFromGoogleMapsUrl(mapsUrl);
+
+  assert.ok(Math.abs(coordinates.latitude - 35.7008056) < 0.000001);
+  assert.ok(Math.abs(coordinates.longitude - 139.7026944) < 0.000001);
+  assert.equal(extractNameFromGoogleMapsUrl(mapsUrl), "");
+  assert.match(appSource, /class="import-location-preview"/);
+  assert.match(appSource, /這是地址座標，不是住宿名稱/);
+  assert.match(stylesSource, /\.import-location-preview iframe\s*{[^}]*height:\s*190px/s);
+});
+
 test("place references hide misclassified Google Maps URLs and derive labels from trusted source hosts", () => {
   const section = sourceSection("function isGoogleMapsUrl", "function socialPlaceUrls");
   const { googleMapsNavigationUrl, placeReferenceMeta } = new Function(

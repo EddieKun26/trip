@@ -4147,13 +4147,63 @@ function importCanBeAdded(place) {
     && !importAlreadyExists(place);
 }
 
+function validMapCoordinates(latitude, longitude) {
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && Math.abs(latitude) <= 90
+    && Math.abs(longitude) <= 180;
+}
+
+function coordinatesFromText(value) {
+  const text = String(value || "").normalize("NFKC");
+  const decimal = text.match(/(-?\d{1,2}(?:\.\d+)?)\s*[,，]\s*(-?\d{1,3}(?:\.\d+)?)/u);
+  if (decimal) {
+    const latitude = Number(decimal[1]);
+    const longitude = Number(decimal[2]);
+    if (validMapCoordinates(latitude, longitude)) return { latitude, longitude };
+  }
+  const dms = [...text.matchAll(/(\d{1,3})\s*°\s*(\d{1,2})\s*['′]\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([NSEW])/giu)];
+  if (dms.length >= 2) {
+    const toDecimal = (match) => {
+      const direction = match[4].toUpperCase();
+      const decimalValue = Number(match[1]) + Number(match[2]) / 60 + Number(match[3]) / 3600;
+      return ["S", "W"].includes(direction) ? -decimalValue : decimalValue;
+    };
+    const latitudeMatch = dms.find((match) => ["N", "S"].includes(match[4].toUpperCase()));
+    const longitudeMatch = dms.find((match) => ["E", "W"].includes(match[4].toUpperCase()));
+    const latitude = latitudeMatch ? toDecimal(latitudeMatch) : NaN;
+    const longitude = longitudeMatch ? toDecimal(longitudeMatch) : NaN;
+    if (validMapCoordinates(latitude, longitude)) return { latitude, longitude };
+  }
+  return null;
+}
+
+function coordinatesFromGoogleMapsUrl(value) {
+  try {
+    const url = new URL(value);
+    const query = url.searchParams.get("query") || url.searchParams.get("q") || "";
+    const pathCoordinates = url.pathname.match(/@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/u);
+    return coordinatesFromText(query)
+      || coordinatesFromText(decodeURIComponent(url.pathname.replaceAll("+", " ")))
+      || (pathCoordinates ? coordinatesFromText(`${pathCoordinates[1]},${pathCoordinates[2]}`) : null);
+  } catch {
+    return null;
+  }
+}
+
 function extractNameFromGoogleMapsUrl(value) {
   try {
     const url = new URL(value);
     const queryName = url.searchParams.get("query") || url.searchParams.get("q");
-    if (queryName) return decodeURIComponent(queryName.replaceAll("+", " ")).trim();
+    if (queryName) {
+      const decoded = decodeURIComponent(queryName.replaceAll("+", " ")).trim();
+      return coordinatesFromText(decoded) ? "" : decoded;
+    }
     const placeMatch = url.pathname.match(/\/maps\/place\/([^/]+)/i);
-    if (placeMatch) return decodeURIComponent(placeMatch[1].replaceAll("+", " ")).trim();
+    if (placeMatch) {
+      const decoded = decodeURIComponent(placeMatch[1].replaceAll("+", " ")).trim();
+      return coordinatesFromText(decoded) ? "" : decoded;
+    }
   } catch {
     return "";
   }
@@ -4237,7 +4287,9 @@ function parseGoogleMapsList(value) {
   const seen = new Set();
   googleMapsImportCandidates(value).forEach(({ label: lineName, url }) => {
     const known = url ? knownGooglePlace(url) : null;
+    const coordinates = url ? coordinatesFromGoogleMapsUrl(url) : null;
     const parsedName = known?.name || lineName || extractNameFromGoogleMapsUrl(url);
+    const displayName = parsedName || (coordinates ? "正在確認座標地址" : "正在辨識 Google Maps 地點");
     const identity = normalizeGoogleMapsUrl(url) || parsedName.toLowerCase();
     if (!identity || seen.has(identity)) return;
     seen.add(identity);
@@ -4245,8 +4297,8 @@ function parseGoogleMapsList(value) {
     const canImport = Boolean(parsedName || normalizeGoogleMapsUrl(url));
     entries.push({
       ...(known || {}),
-      name: parsedName || "正在辨識 Google Maps 地點",
-      fullName: known?.fullName || parsedName || "正在辨識 Google Maps 地點",
+      name: displayName,
+      fullName: known?.fullName || displayName,
       category: known?.category || inferPlaceCategory(parsedName || ""),
       kind: known?.kind || inferPlaceKind(known?.category || inferPlaceCategory(parsedName || "")),
       area: known?.area || inferPlaceArea(parsedName || ""),
@@ -4254,9 +4306,9 @@ function parseGoogleMapsList(value) {
         url ||
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parsedName)}`,
       swatch: known?.swatch || "#587a73",
-      mark: known?.mark || (parsedName || "?").slice(0, 1),
-      latitude: known?.latitude ?? null,
-      longitude: known?.longitude ?? null,
+      mark: known?.mark || (coordinates ? "⌖" : (parsedName || "?").slice(0, 1)),
+      latitude: known?.latitude ?? coordinates?.latitude ?? null,
+      longitude: known?.longitude ?? coordinates?.longitude ?? null,
       openingHours: known?.openingHours || "待 Google Maps 同步",
       phone: known?.phone || "待 Google Maps 同步",
       description:
@@ -4268,6 +4320,7 @@ function parseGoogleMapsList(value) {
       addedByName: state.profile?.nickname || "我",
       isCustom: true,
       recognition: known ? "complete" : parsedName ? "partial" : "unresolved",
+      coordinateLocation: Boolean(coordinates),
       isExisting,
       canImport,
     });
@@ -4433,6 +4486,7 @@ async function enrichPlaceImportsFromApi(entries) {
         description: `${resolved.name}位於${resolved.area || place.area || "待確認區域"}，由 Google Places 自動補齊地點資料。`,
         highlights: [resolved.category || "Google Maps 匯入", resolved.area || place.area || "待確認區域"],
         recognition: "complete",
+        coordinateLocation: resolved.coordinateLocation === true || place.coordinateLocation === true,
         isExisting,
         canImport: true,
       };
@@ -4813,12 +4867,17 @@ function importCandidateGalleryMarkup(place) {
 
 function openImportCandidatePreview(identity) {
   const place = pendingPlaceImports.find((candidate) => importCandidateIdentity(candidate) === identity);
-  if (!place?.isSocialCandidate) return;
+  if (!place) return;
   closeImportCandidatePreview();
   const rating = Number(place.rating) > 0
     ? `★ ${Number(place.rating).toFixed(1)}${Number(place.ratingCount) > 0 ? `（${Number(place.ratingCount).toLocaleString("zh-TW")} 則評價）` : ""}`
     : "尚無評分資料";
   const fullName = place.fullName && place.fullName !== place.name ? `<p class="place-byline">${escapeHtml(place.fullName)}</p>` : "";
+  const latitude = Number(place.latitude);
+  const longitude = Number(place.longitude);
+  const mapPreview = validMapCoordinates(latitude, longitude)
+    ? `<section class="import-location-preview" aria-label="${escapeHtml(place.name)}地圖位置"><iframe title="${escapeHtml(place.name)}地圖位置" src="https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}&z=17&output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe><span>請用地圖與下方完整地址確認位置</span></section>`
+    : "";
   sheetRoot.insertAdjacentHTML("beforeend", `
     <div class="import-candidate-backdrop" data-import-candidate-preview-root data-dismiss-import-candidate>
       <section class="modal-sheet import-candidate-sheet" role="dialog" aria-modal="true" aria-labelledby="import-candidate-title">
@@ -4828,6 +4887,8 @@ function openImportCandidatePreview(identity) {
         </div>
         ${fullName}
         ${place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
+        ${place.coordinateLocation && !place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是地址座標，不是住宿名稱</strong><span>請核對地圖與完整地址；若要保留住宿名稱，請改貼 Booking、Agoda 或 Airbnb 原始連結。</span></p>` : ""}
+        ${mapPreview}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${importCandidateGalleryMarkup(place)}</div>
         <div class="gallery-caption"><span>${place.photos?.length ? "Google Maps 地點照片" : "可到 Google Maps 查看更多照片"}</span><button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">查看完整地圖 ↗</button></div>
         <section class="import-candidate-facts" aria-label="候選地點資料">
@@ -4843,7 +4904,7 @@ function openImportCandidatePreview(identity) {
         </section>
         <div class="modal-actions import-candidate-actions">
           <button class="secondary-button" type="button" data-close-import-candidate>返回候選</button>
-          <button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}">${place.selected ? "✓ 已選擇這個地點" : "選擇這個地點"}</button>
+          ${place.isSocialCandidate ? `<button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}">${place.selected ? "✓ 已選擇這個地點" : "選擇這個地點"}</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
         </div>
       </section>
     </div>`);
@@ -4873,10 +4934,11 @@ function importPreviewMarkup(entries) {
       const radio = place.isSocialCandidate
         ? `<input class="import-candidate-radio" type="radio" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(importCandidateIdentity(place))}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${isExisting ? "disabled" : ""} aria-label="選擇 ${escapeHtml(place.name)}" />`
         : "";
-      const copy = place.isSocialCandidate
+      const previewable = place.isSocialCandidate || validMapCoordinates(Number(place.latitude), Number(place.longitude)) || Boolean(place.formattedAddress);
+      const copy = previewable
         ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</button>`
         : `<div class="import-place-copy"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</div>`;
-      const previewTarget = place.isSocialCandidate
+      const previewTarget = previewable
         ? ` data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}"`
         : "";
       let groupHeader = "";
@@ -4907,7 +4969,7 @@ function importPreviewMarkup(entries) {
           ${radio}
           <span class="mini-thumb" style="--swatch:${place.swatch}">${escapeHtml(place.mark)}</span>
           ${copy}
-          ${place.isSocialCandidate ? `<span class="import-open-hint" aria-hidden="true">查看 ›</span>` : `<b>${status[1]}</b>`}
+          ${previewable ? `<span class="import-open-hint" aria-hidden="true">查看 ›</span>` : `<b>${status[1]}</b>`}
         </article>`;
     })
     .join("");

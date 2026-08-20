@@ -24,17 +24,116 @@ function safeMapsUrl(value) {
   }
 }
 
+function validCoordinates(latitude, longitude) {
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && Math.abs(latitude) <= 90
+    && Math.abs(longitude) <= 180;
+}
+
+function coordinatesFromText(value) {
+  const text = String(value || "").normalize("NFKC");
+  const decimal = text.match(/(-?\d{1,2}(?:\.\d+)?)\s*[,，]\s*(-?\d{1,3}(?:\.\d+)?)/u);
+  if (decimal) {
+    const latitude = Number(decimal[1]);
+    const longitude = Number(decimal[2]);
+    if (validCoordinates(latitude, longitude)) return { latitude, longitude };
+  }
+  const dms = [...text.matchAll(/(\d{1,3})\s*°\s*(\d{1,2})\s*['′]\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([NSEW])/giu)];
+  if (dms.length >= 2) {
+    const toDecimal = (match) => {
+      const direction = match[4].toUpperCase();
+      const decimalValue = Number(match[1]) + Number(match[2]) / 60 + Number(match[3]) / 3600;
+      return ["S", "W"].includes(direction) ? -decimalValue : decimalValue;
+    };
+    const latitudeMatch = dms.find((match) => ["N", "S"].includes(match[4].toUpperCase()));
+    const longitudeMatch = dms.find((match) => ["E", "W"].includes(match[4].toUpperCase()));
+    const latitude = latitudeMatch ? toDecimal(latitudeMatch) : NaN;
+    const longitude = longitudeMatch ? toDecimal(longitudeMatch) : NaN;
+    if (validCoordinates(latitude, longitude)) return { latitude, longitude };
+  }
+  return null;
+}
+
+function coordinatesFromMapsUrl(value) {
+  try {
+    const url = new URL(value);
+    const query = url.searchParams.get("query") || url.searchParams.get("q") || "";
+    const pathCoordinates = url.pathname.match(/@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/u);
+    return coordinatesFromText(query)
+      || coordinatesFromText(decodeURIComponent(url.pathname.replaceAll("+", " ")))
+      || (pathCoordinates ? coordinatesFromText(`${pathCoordinates[1]},${pathCoordinates[2]}`) : null);
+  } catch {
+    return null;
+  }
+}
+
 function nameFromMapsUrl(value) {
   try {
     const url = new URL(value);
     const queryName = url.searchParams.get("query") || url.searchParams.get("q");
-    if (queryName) return decodeURIComponent(queryName.replaceAll("+", " ")).trim();
+    if (queryName) {
+      const decoded = decodeURIComponent(queryName.replaceAll("+", " ")).trim();
+      return coordinatesFromText(decoded) ? "" : decoded;
+    }
     const placeMatch = url.pathname.match(/\/maps\/place\/([^/]+)/i);
-    if (placeMatch) return decodeURIComponent(placeMatch[1].replaceAll("+", " ")).trim();
+    if (placeMatch) {
+      const decoded = decodeURIComponent(placeMatch[1].replaceAll("+", " ")).trim();
+      return coordinatesFromText(decoded) ? "" : decoded;
+    }
   } catch {
     return "";
   }
   return "";
+}
+
+function geocodeArea(addressComponents = []) {
+  const priorities = ["neighborhood", "sublocality_level_2", "sublocality_level_1", "administrative_area_level_3", "locality"];
+  for (const type of priorities) {
+    const component = addressComponents.find((item) => item.types?.includes(type));
+    if (component?.long_name) return component.long_name;
+  }
+  return "";
+}
+
+function conciseAddress(value, latitude, longitude) {
+  const address = String(value || "")
+    .replace(/^日本[、,\s]*/u, "")
+    .replace(/^〒?\s*\d{3}-\d{4}\s*/u, "")
+    .trim();
+  return address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+}
+
+async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("latlng", `${latitude},${longitude}`);
+  url.searchParams.set("language", "zh-TW");
+  url.searchParams.set("key", apiKey);
+  const response = await fetch(url);
+  if (!response.ok) return { requestUrl, error: `Google 地址查詢回應 ${response.status}` };
+  const payload = await response.json();
+  const result = payload.results?.[0];
+  if (!result) return { requestUrl, error: "這組座標暫時查不到完整地址" };
+  const areaOriginal = geocodeArea(result.address_components);
+  const area = chineseAreaName(areaOriginal, areaOriginal);
+  const formattedAddress = result.formatted_address || "";
+  const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
+  return {
+    requestUrl,
+    placeId: result.place_id || `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+    name: `地址位置｜${addressLabel}`.slice(0, 160),
+    area: area || "待確認區域",
+    areaOriginal: areaOriginal || area || "待確認區域",
+    category: "地址座標",
+    formattedAddress,
+    latitude,
+    longitude,
+    googleMapsUrl: requestUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`,
+    openingHours: "此為地址座標",
+    phone: "此為地址座標",
+    photos: [],
+    coordinateLocation: true,
+  };
 }
 
 async function expandShortMapsUrl(url) {
@@ -193,12 +292,23 @@ export default async function placesHandler(request, response) {
       const originalUrl = safeMapsUrl(item.sourceUrl);
       const hintName = String(item.hintName || "").trim().slice(0, 160);
       const globalSearch = item.globalSearch === true;
-      const latitude = Number(item.latitude);
-      const longitude = Number(item.longitude);
+      const latitude = item.latitude === null || item.latitude === undefined || item.latitude === "" ? NaN : Number(item.latitude);
+      const longitude = item.longitude === null || item.longitude === undefined || item.longitude === "" ? NaN : Number(item.longitude);
       if (!originalUrl && !hintName) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
       try {
         const expandedUrl = await expandShortMapsUrl(originalUrl);
+        const urlCoordinates = coordinatesFromMapsUrl(expandedUrl);
+        const resolvedLatitude = Number.isFinite(latitude) ? latitude : urlCoordinates?.latitude;
+        const resolvedLongitude = Number.isFinite(longitude) ? longitude : urlCoordinates?.longitude;
         const textQuery = hintName || nameFromMapsUrl(expandedUrl);
+        if (!textQuery && validCoordinates(resolvedLatitude, resolvedLongitude)) {
+          return await reverseGeocode({
+            apiKey,
+            latitude: resolvedLatitude,
+            longitude: resolvedLongitude,
+            requestUrl: originalUrl?.toString() || item.sourceUrl,
+          });
+        }
         if (!textQuery) {
           return { requestUrl: originalUrl?.toString() || "", error: "短連結中無法取得景點名稱" };
         }
@@ -207,8 +317,8 @@ export default async function placesHandler(request, response) {
           textQuery: globalSearch ? textQuery : `${textQuery} 東京`,
           requestUrl: originalUrl?.toString() || item.sourceUrl,
           globalSearch,
-          latitude: Number.isFinite(latitude) ? latitude : null,
-          longitude: Number.isFinite(longitude) ? longitude : null,
+          latitude: validCoordinates(resolvedLatitude, resolvedLongitude) ? resolvedLatitude : null,
+          longitude: validCoordinates(resolvedLatitude, resolvedLongitude) ? resolvedLongitude : null,
         });
       } catch (error) {
         return {
