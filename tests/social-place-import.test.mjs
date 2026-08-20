@@ -310,6 +310,38 @@ test("an exact source postal address overrides a similar lodging address returne
   assert.equal(result.places[0].address, "〒169-0072 東京都新宿区大久保1-16-19");
 });
 
+test("a descriptor-heavy Booking name from AI is reduced to its official property suffix", () => {
+  const longDescription = "70 平方 - 大久保 - 新宿 1 站地 - Ikeman St - 歌舞伎町 - 2 浴室 2 衛生間 - ".repeat(3);
+  const result = cleanRecognition({
+    sourceSummary: "Booking.com 住宿頁",
+    sourceLanguage: "繁體中文",
+    needsMoreContext: false,
+    places: [{
+      nameOriginal: `${longDescription}Liberty Stay`,
+      nameZh: "70 平方 - 大久保 - 新宿 1 站地 - Ikeman St - 歌舞伎町公寓",
+      city: "東京",
+      area: "大久保",
+      country: "日本",
+      category: "lodging",
+      address: "〒169-0072 東京都新宿区大久保1-16-19",
+      nameHidden: false,
+      searchClues: "公寓型住宿",
+      searchQuery: "70 平方 大久保 新宿 1 站地 Ikeman St 歌舞伎町公寓",
+      evidence: "Booking.com 住宿頁",
+      sourceImageIndexes: [],
+      confidence: 0.9,
+    }],
+  }, {
+    requestedKind: "lodging",
+  });
+
+  assert.equal(result.places[0].nameOriginal, "Liberty Stay");
+  assert.equal(result.places[0].nameZh, "");
+  assert.equal(result.places[0].name, "Liberty Stay");
+  assert.match(result.places[0].searchQuery, /^Liberty Stay /);
+  assert.doesNotMatch(result.places[0].searchQuery, /70\s*平方/);
+});
+
 test("social recognition cleanup removes duplicate aliases and keeps structured place meaning", () => {
   const result = cleanRecognition({
     sourceSummary: "推薦新宿咖啡廳",
@@ -540,6 +572,45 @@ test("a Booking page structured address creates a coordinate candidate when Open
   assert.equal(response.payload.groups[0].candidates[0].formattedAddress, "〒169-0072 東京都新宿区大久保1丁目16-19");
   assert.match(openAiRequests[0].input[1].content[0].text, /publicAddress/);
   assert.match(openAiRequests[0].input[1].content[0].text, /publicLodgingName/);
+});
+
+test("a Booking coordinate candidate keeps Liberty Stay when public title metadata is unavailable", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  googleAddressFallbackOnly = true;
+  socialHtmlOverride = `<!doctype html><html><head>
+    <script type="application/json">{"location":{"formattedAddress":"東京都, 東京, 〒169-0072 1-16-19, 日本"}}</script>
+  </head></html>`;
+  recognitionPlaceOverride = {
+    nameOriginal: `${"70 平方 - 大久保 - 新宿 1 站地 - Ikeman St - 歌舞伎町 - 2 浴室 2 衛生間 - ".repeat(3)}Liberty Stay`,
+    nameZh: "70 平方 - 大久保 - 新宿 1 站地 - Ikeman St - 歌舞伎町公寓",
+    city: "東京",
+    area: "大久保",
+    country: "日本",
+    category: "lodging",
+    address: "",
+    nameHidden: false,
+    searchClues: "公寓型住宿",
+    searchQuery: "70 平方 大久保 新宿公寓",
+    evidence: "Booking.com 住宿頁",
+    sourceImageIndexes: [],
+    confidence: 0.9,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    sourceUrl: "https://www.booking.com/hotel/jp/50-ping-fang-da-jiu-bao.html",
+  });
+  googleAddressFallbackOnly = false;
+  socialHtmlOverride = "";
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.groups[0].extracted.name, "Liberty Stay");
+  assert.equal(response.payload.groups[0].candidates[0].name, "Liberty Stay");
+  assert.match(googleRequests[0].body.textQuery, /^Liberty Stay /);
 });
 
 test("a null Google address location never becomes 0,0 and falls back to a real address coordinate", async () => {

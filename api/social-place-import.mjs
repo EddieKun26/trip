@@ -644,10 +644,15 @@ function cleanRecognition(value, options = {}) {
         : ["attraction", "restaurant", "lodging", "shopping"].includes(place?.category)
           ? place.category
           : fallbackCategory;
-      const aiNameOriginal = cleanText(place?.nameOriginal, 160);
-      const aiNameZh = cleanText(place?.nameZh, 160);
-      const useLodgingNameHint = category === "lodging" && Boolean(lodgingNameHint);
-      const nameOriginal = useLodgingNameHint ? lodgingNameHint : aiNameOriginal;
+      const rawAiNameOriginal = cleanText(place?.nameOriginal, 500);
+      const rawAiNameZh = cleanText(place?.nameZh, 500);
+      const aiNameOriginal = cleanText(rawAiNameOriginal, 160);
+      const aiNameZh = cleanText(rawAiNameZh, 160);
+      const inferredLodgingName = category === "lodging"
+        ? lodgingNameHint || lodgingNameFromTitle(rawAiNameOriginal) || lodgingNameFromTitle(rawAiNameZh)
+        : "";
+      const useLodgingNameHint = Boolean(inferredLodgingName);
+      const nameOriginal = useLodgingNameHint ? inferredLodgingName : aiNameOriginal;
       const aiZhLooksLikeRoomDescription = /(?:\d+\s*(?:平方|m²|sqm)|浴室|衛生間|卫生间|站地|歌舞伎町|ikeman)/iu.test(aiNameZh);
       const nameZh = useLodgingNameHint && aiZhLooksLikeRoomDescription ? "" : aiNameZh;
       const address = cleanText(addressHint || place?.address, 260);
@@ -655,7 +660,9 @@ function cleanRecognition(value, options = {}) {
       const name = translatedLabel(nameZh, nameOriginal) || addressCandidateLabel(category);
       const searchClues = cleanText(place?.searchClues, 300);
       const searchQuery = cleanText(
-        place?.searchQuery || [nameOriginal || nameZh, address, categorySearchLabel(category), searchClues].filter(Boolean).join(" "),
+        useLodgingNameHint
+          ? [nameOriginal, address, place?.city, categorySearchLabel(category)].filter(Boolean).join(" ")
+          : place?.searchQuery || [nameOriginal || nameZh, address, categorySearchLabel(category), searchClues].filter(Boolean).join(" "),
         300,
       );
       const identity = comparableText(searchQuery || address || name);
