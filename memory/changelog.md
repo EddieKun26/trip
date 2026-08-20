@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-21
+
+- Fixed the reported Liberty Stay import end to end. Explicit apartment name, complete address, Google Maps link, and Booking link pasted together now merge into one lodging candidate; `Liberty Stay` is retained from the descriptor-heavy Booking title and a reliable short Chinese name may be shown alongside it. Address lookups reject missing and `0,0` coordinates and use a bounded OpenStreetMap fallback when Google returns no usable location. Google Maps URLs prefer the actual `!3d…!4d…` place pin over the camera center, standalone context lines no longer become meaningless candidates, and the candidate-preview close control can no longer shrink into an oval. All 83 tests pass.
+
 ## 2026-08-20
 
 - Added a safe navigation fallback for Booking.com, Agoda, and Airbnb apartments that have no independent Google Maps business page. The importer preserves a web-verified full address, runs an exact address-only Places lookup, and presents the result as a clearly labeled `住宿座標` candidate with coordinates and the original booking reference. It never substitutes a nearby similar property automatically, and saving still requires explicit address review and confirmation. All 76 tests pass.

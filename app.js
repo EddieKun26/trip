@@ -4123,6 +4123,67 @@ function socialPlaceUrls(value) {
     .filter(isSocialPlaceUrl))].slice(0, 3);
 }
 
+function explicitLodgingDetailsFromText(value) {
+  const textValue = String(value || "").normalize("NFKC");
+  const name = textValue.match(/(?:公寓|住宿|飯店|酒店|民宿)(?:名稱|名称)\s*[:：]\s*([^\r\n]{1,120})/iu)?.[1]?.trim() || "";
+  const address = textValue.match(/(?:公寓|住宿|飯店|酒店|民宿)?地址\s*[:：]\s*([^\r\n]{4,260})/iu)?.[1]?.trim() || "";
+  const bookingUrl = socialPlaceUrls(textValue).find(isLodgingShareUrl) || "";
+  return { name, address, bookingUrl };
+}
+
+function lodgingAddressIdentity(value) {
+  const textValue = String(value || "").normalize("NFKC");
+  const postal = textValue.match(/(?:〒\s*)?(\d{3})\s*[-‐‑‒–—−ー－]\s*(\d{4})/u);
+  const house = textValue.match(/(\d{1,4})\s*(?:丁目|chome)\s*[-‐‑‒–—−ー－]?\s*(\d{1,4})\s*[-‐‑‒–—−ー－]\s*(\d{1,4})/iu)
+    || textValue.replace(/(?:〒\s*)?\d{3}\s*[-‐‑‒–—−ー－]\s*\d{4}/gu, " ").match(/(\d{1,4})\s*[-‐‑‒–—−ー－]\s*(\d{1,4})\s*[-‐‑‒–—−ー－]\s*(\d{1,4})/u);
+  return postal && house ? `${postal[1]}${postal[2]}:${house[1]}-${house[2]}-${house[3]}` : "";
+}
+
+function mergeLodgingMapEvidence(entries, sourceText) {
+  const details = explicitLodgingDetailsFromText(sourceText);
+  if (!details.bookingUrl) return entries;
+  const mapEntries = entries.filter((place) => !place.isSocialCandidate
+    && isGoogleMapsUrl(place.sourceUrl)
+    && validMapCoordinates(Number(place.latitude), Number(place.longitude)));
+  if (!mapEntries.length) return entries;
+  const explicitAddressKey = lodgingAddressIdentity(details.address);
+  const socialLodgings = entries.filter((place) => place.isSocialCandidate && place.kind === "lodging");
+  const preferredSocial = socialLodgings.find((place) => place.selected) || socialLodgings[0] || null;
+  const matchingMap = mapEntries.find((place) => {
+    const mapKey = lodgingAddressIdentity(place.formattedAddress || place.name);
+    const socialKey = lodgingAddressIdentity(preferredSocial?.formattedAddress);
+    return Boolean(mapKey && (mapKey === explicitAddressKey || mapKey === socialKey));
+  }) || (mapEntries.length === 1 ? mapEntries[0] : null);
+  if (!matchingMap) return entries;
+
+  const name = details.name || preferredSocial?.name || matchingMap.name;
+  const merged = {
+    ...(preferredSocial || matchingMap),
+    name,
+    fullName: name,
+    category: "住宿地址座標",
+    kind: "lodging",
+    formattedAddress: details.address || matchingMap.formattedAddress || preferredSocial?.formattedAddress || "",
+    sourceUrl: matchingMap.sourceUrl,
+    referenceUrl: details.bookingUrl,
+    sourcePlatform: "Booking.com",
+    latitude: Number(matchingMap.latitude),
+    longitude: Number(matchingMap.longitude),
+    coordinateFallback: true,
+    coordinateLocation: true,
+    recognition: "complete",
+    canImport: true,
+    selected: preferredSocial ? true : undefined,
+    isExisting: importAlreadyExists({ name, sourceUrl: matchingMap.sourceUrl }),
+    description: "已將 Booking 住宿資料與你提供的 Google Maps 地址合併；請核對門牌後再加入。",
+  };
+  const groupId = preferredSocial?.candidateGroupId;
+  return [
+    ...entries.filter((place) => place !== matchingMap && (!groupId || place.candidateGroupId !== groupId)),
+    merged,
+  ];
+}
+
 function samePlaceIdentity(first, second) {
   const firstPlaceId = String(first?.placeId || "").trim();
   const secondPlaceId = String(second?.placeId || "").trim();
@@ -4151,7 +4212,8 @@ function validMapCoordinates(latitude, longitude) {
   return Number.isFinite(latitude)
     && Number.isFinite(longitude)
     && Math.abs(latitude) <= 90
-    && Math.abs(longitude) <= 180;
+    && Math.abs(longitude) <= 180
+    && (Math.abs(latitude) > 0.000001 || Math.abs(longitude) > 0.000001);
 }
 
 function coordinatesFromText(value) {
@@ -4182,10 +4244,12 @@ function coordinatesFromGoogleMapsUrl(value) {
   try {
     const url = new URL(value);
     const query = url.searchParams.get("query") || url.searchParams.get("q") || "";
+    const dataCoordinates = `${url.pathname}${url.search}`.match(/!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/u);
     const pathCoordinates = url.pathname.match(/@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/u);
     return coordinatesFromText(query)
-      || coordinatesFromText(decodeURIComponent(url.pathname.replaceAll("+", " ")))
-      || (pathCoordinates ? coordinatesFromText(`${pathCoordinates[1]},${pathCoordinates[2]}`) : null);
+      || (dataCoordinates ? coordinatesFromText(`${dataCoordinates[1]},${dataCoordinates[2]}`) : null)
+      || (pathCoordinates ? coordinatesFromText(`${pathCoordinates[1]},${pathCoordinates[2]}`) : null)
+      || coordinatesFromText(decodeURIComponent(url.pathname.replaceAll("+", " ")));
   } catch {
     return null;
   }
@@ -4243,15 +4307,15 @@ function googleMapsImportCandidates(value) {
     .filter(Boolean);
   const candidates = [];
   let pendingLabel = "";
+  const hasSupportedUrl = lines.some((line) => (line.match(/https?:\/\/[^\s<>"']+/g) || []).some((rawUrl) => isGoogleMapsUrl(rawUrl) || isSocialPlaceUrl(rawUrl)));
 
   lines.forEach((line, index) => {
     const urls = line.match(/https?:\/\/[^\s<>"']+/g) || [];
     if (!urls.length) {
       const nextLine = lines[index + 1] || "";
-      if (/https?:\/\/[^\s<>"']+/.test(nextLine)) {
-        if (pendingLabel) candidates.push({ label: pendingLabel, url: "" });
+      if ((nextLine.match(/https?:\/\/[^\s<>"']+/g) || []).some(isGoogleMapsUrl)) {
         pendingLabel = line;
-      } else {
+      } else if (!hasSupportedUrl) {
         candidates.push({ label: line, url: "" });
       }
       return;
@@ -4502,7 +4566,7 @@ function socialImportErrorMessage(error) {
   if (code === "SOURCE_CONTENT_REQUIRED") return "這篇貼文無法公開讀取，請上傳貼文截圖後再辨識。";
   if (code === "SOCIAL_MEDIA_SCREENSHOT_REQUIRED") return "貼文只公開了封面或部分內容，完整影片、輪播圖片與留言無法直接讀取；請上傳含店名的截圖後再辨識。";
   if (code === "PLACE_NOT_RECOGNIZED") return "AI 還無法確認貼文中的地點，請上傳更清楚的截圖後再試。";
-  if (code === "GOOGLE_PLACE_NOT_FOUND") return "已理解貼文內容，但 Google Maps 找不到足夠吻合的地點。";
+  if (code === "GOOGLE_PLACE_NOT_FOUND") return "已讀到地點資訊，但目前無法建立可靠的地圖位置；請補上完整地址或 Google Maps 連結。";
   if (code === "DAILY_RECOGNITION_LIMIT") return "今天的社群地點辨識次數已達上限，請稍後再試。";
   if (code === "AI_RECOGNITION_NOT_CONFIGURED") return "AI 辨識服務尚未啟用。";
   if (code === "PLACES_API_NOT_CONFIGURED") return "Google Places 服務尚未啟用。";
@@ -5704,7 +5768,7 @@ document.addEventListener("click", async (event) => {
           const sourceRequestedKind = requestedKind === "auto" && isLodgingShareUrl(socialSources[sourceIndex]) ? "lodging" : requestedKind;
           const socialImports = await recognizeSocialPlace(
             socialSources[sourceIndex],
-            "",
+            textarea.value,
             sourceIndex === 0 ? pendingPlaceImportScreenshot : "",
             sourceIndex,
             sourceRequestedKind,
@@ -5712,6 +5776,15 @@ document.addEventListener("click", async (event) => {
           pendingPlaceImports.push(...socialImports);
         } catch (error) {
           notices.push(socialImportErrorMessage(error));
+        }
+      }
+      pendingPlaceImports = mergeLodgingMapEvidence(pendingPlaceImports, textarea.value);
+      if (pendingPlaceImports.some((place) => place.kind === "lodging"
+        && place.referenceUrl
+        && validMapCoordinates(Number(place.latitude), Number(place.longitude)))) {
+        const notFoundNotice = socialImportErrorMessage(new Error("GOOGLE_PLACE_NOT_FOUND"));
+        for (let index = notices.length - 1; index >= 0; index -= 1) {
+          if (notices[index] === notFoundNotice) notices.splice(index, 1);
         }
       }
       if (!mapImports.length && !socialSources.length && textarea.value.trim()) {

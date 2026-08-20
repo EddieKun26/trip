@@ -320,6 +320,9 @@ test("coordinate-only Google Maps links do not expose encoded coordinates as pla
   assert.ok(Math.abs(coordinates.latitude - 35.7008056) < 0.000001);
   assert.ok(Math.abs(coordinates.longitude - 139.7026944) < 0.000001);
   assert.equal(extractNameFromGoogleMapsUrl(mapsUrl), "");
+  const addressUrl = "https://www.google.com/maps/place/1-chome-16-19+Okubo/@35.7007763,139.7033787,7a/data=!4m15!8m2!3d35.7008698!4d139.7030542";
+  assert.deepEqual(coordinatesFromGoogleMapsUrl(addressUrl), { latitude: 35.7008698, longitude: 139.7030542 });
+  assert.equal(coordinatesFromGoogleMapsUrl("https://www.google.com/maps/search/?api=1&query=0,0"), null);
   assert.match(appSource, /class="import-location-preview"/);
   assert.match(appSource, /這是地址座標，不是住宿名稱/);
   assert.match(appSource, /地址資料 © OpenStreetMap contributors/);
@@ -351,12 +354,62 @@ test("place references hide misclassified Google Maps URLs and derive labels fro
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
   const section = sourceSection("function googleMapsImportCandidates", "function parseGoogleMapsList");
-  const googleMapsImportCandidates = new Function(`${section}; return googleMapsImportCandidates;`)();
+  const googleMapsImportCandidates = new Function("isGoogleMapsUrl", "isSocialPlaceUrl", `${section}; return googleMapsImportCandidates;`)(
+    (value) => /(?:google\.com\/maps|maps\.app\.goo\.gl)/.test(value),
+    (value) => /booking\.com/.test(value),
+  );
   const candidates = googleMapsImportCandidates("高雄合菜 · Eddie\nhttps://maps.app.goo.gl/RbuDr1WSBJHoquGi8?g_st=i");
   assert.deepEqual(candidates, [{
     label: "高雄合菜 · Eddie",
     url: "https://maps.app.goo.gl/RbuDr1WSBJHoquGi8?g_st=i",
   }]);
+  const lodgingContext = googleMapsImportCandidates("1、公寓名称：自由之家\n2、公寓地址：东京 新宿区 大久保 1 丁目 16-19 -169-0072\n3、地图链接：https://maps.app.goo.gl/LUyTfE7V4mvKoDuu8\nhttps://www.booking.com/hotel/jp/liberty-stay.html");
+  assert.equal(lodgingContext.length, 1);
+  assert.equal(lodgingContext[0].url, "https://maps.app.goo.gl/LUyTfE7V4mvKoDuu8");
+});
+
+test("explicit lodging name address map and Booking evidence merge into one candidate", () => {
+  const section = sourceSection("function explicitLodgingDetailsFromText", "function samePlaceIdentity");
+  const mergeLodgingMapEvidence = new Function(
+    "socialPlaceUrls",
+    "isLodgingShareUrl",
+    "isGoogleMapsUrl",
+    "validMapCoordinates",
+    "importAlreadyExists",
+    `${section}; return mergeLodgingMapEvidence;`,
+  )(
+    (value) => String(value).match(/https:\/\/www\.booking\.com\/[^\s]+/g) || [],
+    (value) => /booking\.com/.test(value),
+    (value) => /google\.com|maps\.app\.goo\.gl/.test(value),
+    (latitude, longitude) => Number.isFinite(latitude) && Number.isFinite(longitude) && (latitude !== 0 || longitude !== 0),
+    () => false,
+  );
+  const sourceText = "1、公寓名称：自由之家\n2、公寓地址：东京 新宿区 大久保 1 丁目 16-19 -169-0072\n3、地图链接：https://maps.app.goo.gl/LUyTfE7V4mvKoDuu8\nhttps://www.booking.com/hotel/jp/liberty-stay.html";
+  const merged = mergeLodgingMapEvidence([{
+    name: "1-chome-16-19 Okubo",
+    formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-19",
+    sourceUrl: "https://www.google.com/maps/place/address",
+    latitude: 35.7008698,
+    longitude: 139.7030542,
+    canImport: true,
+  }, {
+    name: "自由之家(Liberty Stay)",
+    formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-19",
+    sourceUrl: "https://www.google.com/maps/search/?api=1&query=address",
+    referenceUrl: "https://www.booking.com/hotel/jp/liberty-stay.html",
+    latitude: 35.7008,
+    longitude: 139.703,
+    kind: "lodging",
+    isSocialCandidate: true,
+    candidateGroupId: "social-1",
+    selected: true,
+  }], sourceText);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].name, "自由之家");
+  assert.equal(merged[0].latitude, 35.7008698);
+  assert.equal(merged[0].referenceUrl, "https://www.booking.com/hotel/jp/liberty-stay.html");
+  assert.equal(merged[0].coordinateFallback, true);
 });
 
 test("shared-list imports expand before Places enrichment and support global chunks", () => {
@@ -447,6 +500,9 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.match(stylesSource, /\.social-screenshot-picker-standalone\s*{/);
   assert.match(appSource, /place\.coordinateFallback \? `<p class="coordinate-fallback-notice"/);
   assert.match(stylesSource, /\.coordinate-fallback-notice\s*{/);
+  assert.match(appSource, /function mergeLodgingMapEvidence/);
+  assert.match(appSource, /textarea\.value,\s*sourceIndex === 0 \? pendingPlaceImportScreenshot/s);
+  assert.match(stylesSource, /\.icon-button\s*{[^}]*flex:\s*0 0 40px;[^}]*aspect-ratio:\s*1;/s);
   assert.doesNotMatch(stylesSource, /\.social-import-fallback\s*{/);
 });
 

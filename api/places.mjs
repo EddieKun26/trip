@@ -28,7 +28,8 @@ function validCoordinates(latitude, longitude) {
   return Number.isFinite(latitude)
     && Number.isFinite(longitude)
     && Math.abs(latitude) <= 90
-    && Math.abs(longitude) <= 180;
+    && Math.abs(longitude) <= 180
+    && (Math.abs(latitude) > 0.000001 || Math.abs(longitude) > 0.000001);
 }
 
 function coordinatesFromText(value) {
@@ -59,10 +60,12 @@ function coordinatesFromMapsUrl(value) {
   try {
     const url = new URL(value);
     const query = url.searchParams.get("query") || url.searchParams.get("q") || "";
+    const dataCoordinates = `${url.pathname}${url.search}`.match(/!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/u);
     const pathCoordinates = url.pathname.match(/@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/u);
     return coordinatesFromText(query)
-      || coordinatesFromText(decodeURIComponent(url.pathname.replaceAll("+", " ")))
-      || (pathCoordinates ? coordinatesFromText(`${pathCoordinates[1]},${pathCoordinates[2]}`) : null);
+      || (dataCoordinates ? coordinatesFromText(`${dataCoordinates[1]},${dataCoordinates[2]}`) : null)
+      || (pathCoordinates ? coordinatesFromText(`${pathCoordinates[1]},${pathCoordinates[2]}`) : null)
+      || coordinatesFromText(decodeURIComponent(url.pathname.replaceAll("+", " ")));
   } catch {
     return null;
   }

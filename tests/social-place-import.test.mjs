@@ -20,6 +20,7 @@ const googleRequests = [];
 let socialHtmlAvailable = true;
 let googleRejectLocationBias = false;
 let googleAddressFallbackOnly = false;
+let googleInvalidAddressCoordinates = false;
 let recognitionPlaceOverride = null;
 let socialHtmlOverride = "";
 
@@ -104,7 +105,7 @@ globalThis.fetch = async (url, options = {}) => {
           primaryType: "street_address",
           types: ["street_address"],
           primaryTypeDisplayName: { text: "地址" },
-          location: { latitude: 35.702741, longitude: 139.703741 },
+          location: googleInvalidAddressCoordinates ? { latitude: null, longitude: null } : { latitude: 35.702741, longitude: 139.703741 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=35.702741%2C139.703741",
         }] : [{
           id: "wrong-nearby-lodging",
@@ -156,6 +157,16 @@ globalThis.fetch = async (url, options = {}) => {
         },
       ],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  if (target.includes("nominatim.openstreetmap.org/search")) {
+    return new Response(JSON.stringify([{
+      place_id: 16900721619,
+      lat: "35.7008698",
+      lon: "139.7030542",
+      display_name: "1丁目16-19, 大久保, 新宿区, 東京都, 169-0072, 日本",
+      address: { neighbourhood: "大久保", postcode: "169-0072", house_number: "1丁目16-19" },
+    }]), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
   const [command, key, value, ...flags] = JSON.parse(options.body);
@@ -234,12 +245,13 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
 
 test("Booking structured metadata exposes its full postal address to lodging recognition", () => {
   const metadata = publicMetadataFromHtml(`<!doctype html><html><head>
-    <meta property="og:title" content="50 平方大久保公寓 - Liberty Stay" />
+    <meta property="og:title" content="50 平方 - 2 浴室 2 卫生间 - 新宿 1 站地 - 大久保 - Ikeman St - 歌舞伎町 - Liberty Stay" />
     <meta property="og:description" content="東京公寓住宿" />
     <script type="application/json">{"location":{"latitude":35.703991,"longitude":139.7051782,"formattedAddress":"東京都, 東京, 〒169-0072 1-16-19, 日本"}}</script>
   </head></html>`);
 
   assert.equal(metadata.address, "東京都, 東京, 〒169-0072 1-16-19, 日本");
+  assert.equal(metadata.lodgingName, "Liberty Stay");
 });
 
 test("social metadata parser collects only main-post carousel images and excludes avatars", () => {
@@ -494,13 +506,13 @@ test("a Booking page structured address creates a coordinate candidate when Open
   googleRequests.length = 0;
   googleAddressFallbackOnly = true;
   socialHtmlOverride = `<!doctype html><html><head>
-    <meta property="og:title" content="50 平方大久保公寓 - Liberty Stay" />
+    <meta property="og:title" content="50 平方 - 2 浴室 2 卫生间 - 新宿 1 站地 - 大久保 - Ikeman St - 歌舞伎町 - Liberty Stay" />
     <meta property="og:description" content="東京大久保的公寓住宿" />
     <script type="application/json">{"location":{"latitude":35.703991,"longitude":139.7051782,"formattedAddress":"東京都, 東京, 〒169-0072 1-16-19, 日本"}}</script>
   </head></html>`;
   recognitionPlaceOverride = {
-    nameOriginal: "50平方大久保公寓 - Liberty Stay",
-    nameZh: "50平方大久保公寓",
+    nameOriginal: "50 平方 - 2 浴室 2 卫生间 - 新宿 1 站地 - 大久保 - Ikeman St - 歌舞伎町 - Liberty Stay",
+    nameZh: "自由之家",
     city: "東京",
     area: "大久保",
     country: "日本",
@@ -524,8 +536,54 @@ test("a Booking page structured address creates a coordinate candidate when Open
   assert.equal(response.statusCode, 200);
   assert.equal(googleRequests[1].body.textQuery, "東京都, 東京, 〒169-0072 1-16-19, 日本");
   assert.equal(response.payload.groups[0].candidates[0].coordinateFallback, true);
+  assert.equal(response.payload.groups[0].candidates[0].name, "自由之家(Liberty Stay)");
   assert.equal(response.payload.groups[0].candidates[0].formattedAddress, "〒169-0072 東京都新宿区大久保1丁目16-19");
   assert.match(openAiRequests[0].input[1].content[0].text, /publicAddress/);
+  assert.match(openAiRequests[0].input[1].content[0].text, /publicLodgingName/);
+});
+
+test("a null Google address location never becomes 0,0 and falls back to a real address coordinate", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  googleAddressFallbackOnly = true;
+  googleInvalidAddressCoordinates = true;
+  socialHtmlOverride = `<!doctype html><html><head>
+    <meta property="og:title" content="50 平方 - 2 浴室 2 卫生间 - 大久保 - Liberty Stay" />
+    <script type="application/json">{"location":{"formattedAddress":"東京都新宿区大久保 〒169-0072 1-16-19"}}</script>
+  </head></html>`;
+  recognitionPlaceOverride = {
+    nameOriginal: "50 平方 - 2 浴室 2 卫生间 - 大久保 - Liberty Stay",
+    nameZh: "自由之家",
+    city: "東京",
+    area: "大久保",
+    country: "日本",
+    category: "lodging",
+    address: "",
+    nameHidden: false,
+    searchClues: "公寓型住宿",
+    searchQuery: "Liberty Stay 大久保",
+    evidence: "Booking.com 住宿頁",
+    sourceImageIndexes: [],
+    confidence: 0.9,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    sourceUrl: "https://www.booking.com/hotel/jp/liberty-stay.html",
+  });
+  googleAddressFallbackOnly = false;
+  googleInvalidAddressCoordinates = false;
+  socialHtmlOverride = "";
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 200);
+  const candidate = response.payload.groups[0].candidates[0];
+  assert.equal(candidate.latitude, 35.7008698);
+  assert.equal(candidate.longitude, 139.7030542);
+  assert.notEqual(candidate.sourceUrl, "https://www.google.com/maps/search/?api=1&query=0.000000%2C0.000000");
+  assert.equal(candidate.addressProvider, "OpenStreetMap");
 });
 
 test("one ambiguous place can be rematched without rerunning the social AI recognition", async () => {

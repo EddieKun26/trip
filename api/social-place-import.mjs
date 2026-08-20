@@ -202,6 +202,18 @@ function structuredLodgingAddressFromHtml(html) {
   return cleanText(jsonTextValue(match?.[1] || ""), 300);
 }
 
+function lodgingNameFromTitle(value) {
+  const title = cleanText(value, 500)
+    .replace(/\s*[|｜–—]\s*Booking\.com.*$/i, "")
+    .replace(/\s*\((?:公寓|住宿|飯店|酒店|旅館)[^)]*\).*$/iu, "");
+  const parts = title.split(/\s+[-－–—]\s+/u).map((part) => cleanText(part, 120)).filter(Boolean);
+  if (parts.length < 3) return "";
+  const description = parts.slice(0, -1).join(" ");
+  const candidate = parts.at(-1) || "";
+  const looksLikeRoomDescription = /(?:\d+\s*(?:平方|m²|sqm)|浴室|衛生間|卫生间|站地|歌舞伎町|ikeman)/iu.test(description);
+  return looksLikeRoomDescription && /[\p{L}]/u.test(candidate) && candidate.length <= 80 ? candidate : "";
+}
+
 function publicMetadataFromHtml(html) {
   const metadata = {};
   for (const tag of String(html || "").match(/<meta\b[^>]*>/gi) || []) {
@@ -232,14 +244,17 @@ function publicMetadataFromHtml(html) {
   }
   const titleMatch = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = cleanText(decodeHtml(titleMatch?.[1] || ""), 500);
+  const publicTitle = metadata["og:title"] || title;
   const structuredAddress = structuredLodgingAddressFromHtml(html);
+  const lodgingName = lodgingNameFromTitle(publicTitle);
   return {
-    title: metadata["og:title"] || title,
+    title: publicTitle,
     description: metadata["og:description"] || metadata.description || "",
     imageUrl: imageUrls[0] || "",
     imageUrls,
     videoUrl: metadata.videoUrl || "",
     ...(structuredAddress ? { address: structuredAddress } : {}),
+    ...(lodgingName ? { lodgingName } : {}),
   };
 }
 
@@ -286,6 +301,17 @@ function houseNumberOf(value) {
 
 function hasPreciseAddress(value) {
   return Boolean(postalCodeOf(value) && houseNumberOf(value));
+}
+
+function validPlaceCoordinates(latitudeValue, longitudeValue) {
+  if ([latitudeValue, longitudeValue].some((value) => value === null || value === undefined || value === "")) return false;
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && Math.abs(latitude) <= 90
+    && Math.abs(longitude) <= 180
+    && (Math.abs(latitude) > 0.000001 || Math.abs(longitude) > 0.000001);
 }
 
 function matchesPreciseAddress(expected, actual) {
@@ -511,6 +537,7 @@ async function callOpenAi(apiKey, {
     publicTitle: metadata.title || "",
     publicDescription: metadata.description || "",
     publicAddress: metadata.address || "",
+    publicLodgingName: metadata.lodgingName || "",
     linkedMediaKind: metadata.videoUrl ? "video" : metadata.imageUrls?.length ? "image_carousel" : "none",
     linkedMediaCount: Array.isArray(imageInputs) ? imageInputs.length : 0,
     sharedText: sharedText || "",
@@ -585,6 +612,7 @@ function cleanRecognition(value, options = {}) {
   const requestedKind = normalizedRequestedKind(options.requestedKind);
   const addressHint = cleanText(options.addressHint, 260);
   const nameHiddenHint = Boolean(options.nameHiddenHint);
+  const lodgingNameHint = cleanText(options.lodgingNameHint, 120);
   const sourceText = String(options.sourceText || "");
   const fallbackCategory = requestedKind !== "auto"
     ? requestedKind
@@ -611,13 +639,17 @@ function cleanRecognition(value, options = {}) {
   }
   const places = sourcePlaces
     .map((place) => {
-      const nameOriginal = cleanText(place?.nameOriginal, 160);
-      const nameZh = cleanText(place?.nameZh, 160);
       const category = requestedKind !== "auto"
         ? requestedKind
         : ["attraction", "restaurant", "lodging", "shopping"].includes(place?.category)
           ? place.category
           : fallbackCategory;
+      const aiNameOriginal = cleanText(place?.nameOriginal, 160);
+      const aiNameZh = cleanText(place?.nameZh, 160);
+      const useLodgingNameHint = category === "lodging" && Boolean(lodgingNameHint);
+      const nameOriginal = useLodgingNameHint ? lodgingNameHint : aiNameOriginal;
+      const aiZhLooksLikeRoomDescription = /(?:\d+\s*(?:平方|m²|sqm)|浴室|衛生間|卫生间|站地|歌舞伎町|ikeman)/iu.test(aiNameZh);
+      const nameZh = useLodgingNameHint && aiZhLooksLikeRoomDescription ? "" : aiNameZh;
       const address = cleanText(addressHint || place?.address, 260);
       const nameHidden = Boolean(place?.nameHidden) || Boolean(nameHiddenHint && !nameOriginal && !nameZh);
       const name = translatedLabel(nameZh, nameOriginal) || addressCandidateLabel(category);
@@ -689,6 +721,35 @@ function pickArea(addressComponents = []) {
     if (component?.longText) return component.longText;
   }
   return "";
+}
+
+async function searchAddressWithOpenStreetMap(address) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("q", address);
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "zh-TW,zh;q=0.9,ja;q=0.8,en;q=0.6",
+      Referer: "https://trip-eddie23.vercel.app/",
+      "User-Agent": "trip-eddie23-place-import/1.0 (user-triggered lodging address lookup)",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!result.ok) return null;
+  const payload = await result.json();
+  const place = Array.isArray(payload) ? payload[0] : null;
+  if (!place || !validPlaceCoordinates(place.lat, place.lon)) return null;
+  const area = cleanText(place.address?.neighbourhood || place.address?.suburb || place.address?.city_district || place.address?.city, 100);
+  return {
+    id: `osm-${cleanText(place.place_id, 80) || `${Number(place.lat).toFixed(6)}-${Number(place.lon).toFixed(6)}`}`,
+    formattedAddress: cleanText(address || place.display_name, 300),
+    addressComponents: area ? [{ longText: area, types: ["neighborhood"] }] : [],
+    location: { latitude: Number(place.lat), longitude: Number(place.lon) },
+    addressProvider: "OpenStreetMap",
+  };
 }
 
 function placeKind(category) {
@@ -786,12 +847,19 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
         const longitude = Number(matchedAddress?.location?.longitude);
         const duplicatesLodging = lodgingMatches.some((place) => place.id && place.id === matchedAddress?.id);
         const matchesAddress = matchesPreciseAddress(mention.address, matchedAddress?.formattedAddress);
-        if (matchedAddress && Number.isFinite(latitude) && Number.isFinite(longitude) && !duplicatesLodging && matchesAddress) {
+        if (matchedAddress && validPlaceCoordinates(latitude, longitude) && !duplicatesLodging && matchesAddress) {
           addressCoordinatePlace = matchedAddress;
         }
       }
     } catch {
       // Address coordinates are an optional fallback; normal Google candidates remain usable.
+    }
+    if (!addressCoordinatePlace) {
+      try {
+        addressCoordinatePlace = await searchAddressWithOpenStreetMap(mention.address);
+      } catch {
+        addressCoordinatePlace = null;
+      }
     }
   }
   const excludedPlaceIds = new Set((Array.isArray(options.excludePlaceIds) ? options.excludePlaceIds : [])
@@ -821,8 +889,8 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
       sourceImageIndexes: mention.sourceImageIndexes,
       swatch: swatchForKind(kind),
       mark: name.slice(0, 1) || "?",
-      latitude: Number.isFinite(place.location?.latitude) ? place.location.latitude : null,
-      longitude: Number.isFinite(place.location?.longitude) ? place.location.longitude : null,
+      latitude: validPlaceCoordinates(place.location?.latitude, place.location?.longitude) ? Number(place.location.latitude) : null,
+      longitude: validPlaceCoordinates(place.location?.latitude, place.location?.longitude) ? Number(place.location.longitude) : null,
       openingHours: place.regularOpeningHours?.weekdayDescriptions?.join("；") || "待 Google Maps 同步",
       phone: cleanText(place.nationalPhoneNumber, 80) || "待 Google Maps 同步",
       rating: Number(place.rating) || 0,
@@ -878,6 +946,7 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
         candidateRank: candidates.length + 1,
         matchConfidence: mention.confidence,
         coordinateFallback: true,
+        addressProvider: addressCoordinatePlace.addressProvider || "Google Maps",
         isCustom: true,
       };
       if (preciseAddress) candidates.unshift(coordinateCandidate);
@@ -1029,6 +1098,7 @@ export default async function socialPlaceImportHandler(request, response) {
       requestedKind: recognitionKind,
     }), {
       addressHint,
+      lodgingNameHint: metadata.lodgingName,
       nameHiddenHint,
       requestedKind: recognitionKind,
       sourceText,
