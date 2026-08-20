@@ -322,6 +322,7 @@ test("coordinate-only Google Maps links do not expose encoded coordinates as pla
   assert.equal(extractNameFromGoogleMapsUrl(mapsUrl), "");
   assert.match(appSource, /class="import-location-preview"/);
   assert.match(appSource, /這是地址座標，不是住宿名稱/);
+  assert.match(appSource, /地址資料 © OpenStreetMap contributors/);
   assert.match(stylesSource, /\.import-location-preview iframe\s*{[^}]*height:\s*190px/s);
 });
 

@@ -3767,6 +3767,13 @@ body.transport-sheet-open .app {
   line-height: 1.4;
 }
 
+.import-address-attribution {
+  margin: -4px 2px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .import-summary {
   margin: 3px 2px 0;
 }

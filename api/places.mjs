@@ -110,17 +110,58 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
   url.searchParams.set("language", "zh-TW");
   url.searchParams.set("key", apiKey);
   const response = await fetch(url);
-  if (!response.ok) return { requestUrl, error: `Google 地址查詢回應 ${response.status}` };
-  const payload = await response.json();
+  const payload = response.ok ? await response.json() : {};
   const result = payload.results?.[0];
-  if (!result) return { requestUrl, error: "這組座標暫時查不到完整地址" };
-  const areaOriginal = geocodeArea(result.address_components);
+  if (result) {
+    const areaOriginal = geocodeArea(result.address_components);
+    const area = chineseAreaName(areaOriginal, areaOriginal);
+    const formattedAddress = result.formatted_address || "";
+    const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
+    return {
+      requestUrl,
+      placeId: result.place_id || `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+      name: `地址位置｜${addressLabel}`.slice(0, 160),
+      area: area || "待確認區域",
+      areaOriginal: areaOriginal || area || "待確認區域",
+      category: "地址座標",
+      formattedAddress,
+      latitude,
+      longitude,
+      googleMapsUrl: requestUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`,
+      openingHours: "此為地址座標",
+      phone: "此為地址座標",
+      photos: [],
+      coordinateLocation: true,
+      addressProvider: "Google Maps",
+    };
+  }
+
+  const osmUrl = new URL("https://nominatim.openstreetmap.org/reverse");
+  osmUrl.searchParams.set("format", "jsonv2");
+  osmUrl.searchParams.set("lat", String(latitude));
+  osmUrl.searchParams.set("lon", String(longitude));
+  osmUrl.searchParams.set("zoom", "18");
+  osmUrl.searchParams.set("addressdetails", "1");
+  const osmResponse = await fetch(osmUrl, {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "zh-TW,ja;q=0.9,en;q=0.7",
+      Referer: "https://trip-eddie23.vercel.app/",
+      "User-Agent": "TripTravelPlanner/1.0 (https://trip-eddie23.vercel.app)",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!osmResponse.ok) return { requestUrl, error: "這組座標暫時查不到完整地址" };
+  const osm = await osmResponse.json().catch(() => ({}));
+  const formattedAddress = String(osm.display_name || "").trim();
+  if (!formattedAddress) return { requestUrl, error: "這組座標暫時查不到完整地址" };
+  const address = osm.address || {};
+  const areaOriginal = address.neighbourhood || address.suburb || address.quarter || address.city_district || address.city || "";
   const area = chineseAreaName(areaOriginal, areaOriginal);
-  const formattedAddress = result.formatted_address || "";
   const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
   return {
     requestUrl,
-    placeId: result.place_id || `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+    placeId: osm.place_id ? `osm-${osm.place_id}` : `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
     name: `地址位置｜${addressLabel}`.slice(0, 160),
     area: area || "待確認區域",
     areaOriginal: areaOriginal || area || "待確認區域",
@@ -133,6 +174,7 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
     phone: "此為地址座標",
     photos: [],
     coordinateLocation: true,
+    addressProvider: "OpenStreetMap",
   };
 }
 

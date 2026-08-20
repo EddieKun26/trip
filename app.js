@@ -4487,6 +4487,7 @@ async function enrichPlaceImportsFromApi(entries) {
         highlights: [resolved.category || "Google Maps 匯入", resolved.area || place.area || "待確認區域"],
         recognition: "complete",
         coordinateLocation: resolved.coordinateLocation === true || place.coordinateLocation === true,
+        addressProvider: resolved.addressProvider || place.addressProvider || "",
         isExisting,
         canImport: true,
       };
@@ -4896,6 +4897,7 @@ function openImportCandidatePreview(identity) {
           <div><small>Google 評分</small><strong>${escapeHtml(rating)}</strong></div>
         </section>
         <section class="import-candidate-address"><small>完整地址</small><strong>${escapeHtml(place.formattedAddress || "Google Maps 尚未提供地址")}</strong></section>
+        ${place.addressProvider === "OpenStreetMap" ? `<p class="import-address-attribution">地址資料 © OpenStreetMap contributors；請以住宿頁門牌為準。</p>` : ""}
         ${(place.sourceOriginalText || place.sourceOriginalImages?.length || place.sourceEvidence) ? `<button class="import-source-compare-button" type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">查看原文／原圖，比對這個候選</button>` : ""}
         ${place.description ? `<p class="place-description">${escapeHtml(place.description)}</p>` : ""}
         <section class="place-contact-grid" aria-label="營業與聯絡資訊">

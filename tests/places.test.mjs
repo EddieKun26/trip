@@ -82,15 +82,18 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
 test("coordinate-only Google Maps links become readable address locations", async () => {
   process.env.GOOGLE_MAPS_API_KEY = "test-key";
   const calls = [];
-  globalThis.fetch = async (url) => {
-    calls.push(String(url));
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes("maps.googleapis.com")) {
+      return new Response(JSON.stringify({ status: "REQUEST_DENIED", results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({
-      status: "OK",
-      results: [{
-        place_id: "coordinate-address-okubo",
-        formatted_address: "日本、〒169-0072 東京都新宿区大久保1丁目16-19",
-        address_components: [{ long_name: "大久保", types: ["sublocality_level_2"] }],
-      }],
+      place_id: 12345,
+      display_name: "日本、〒169-0072 東京都新宿区大久保1丁目16-19",
+      address: { neighbourhood: "大久保", postcode: "169-0072", country_code: "jp" },
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   const sourceUrl = "https://www.google.com/maps/place/35%C2%B042'02.9%22N+139%C2%B042'09.7%22E/?entry=ttu";
@@ -102,12 +105,15 @@ test("coordinate-only Google Maps links become readable address locations", asyn
   }, response);
 
   assert.equal(response.statusCode, 200);
-  assert.equal(calls.length, 1);
-  assert.match(calls[0], /maps\/api\/geocode\/json/);
-  const [latitude, longitude] = new URL(calls[0]).searchParams.get("latlng").split(",").map(Number);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].url, /maps\/api\/geocode\/json/);
+  const [latitude, longitude] = new URL(calls[0].url).searchParams.get("latlng").split(",").map(Number);
   assert.ok(Math.abs(latitude - 35.7008056) < 0.000001);
   assert.ok(Math.abs(longitude - 139.7026944) < 0.000001);
+  assert.match(calls[1].url, /nominatim\.openstreetmap\.org\/reverse/);
+  assert.match(calls[1].options.headers["User-Agent"], /trip-eddie23\.vercel\.app/);
   assert.equal(response.payload.places[0].name, "地址位置｜東京都新宿区大久保1丁目16-19");
   assert.equal(response.payload.places[0].formattedAddress, "日本、〒169-0072 東京都新宿区大久保1丁目16-19");
   assert.equal(response.payload.places[0].coordinateLocation, true);
+  assert.equal(response.payload.places[0].addressProvider, "OpenStreetMap");
 });
