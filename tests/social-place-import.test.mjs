@@ -31,7 +31,7 @@ process.env.GOOGLE_MAPS_API_KEY = "test-google-key";
 globalThis.fetch = async (url, options = {}) => {
   const target = String(url);
   if (target.includes("booking.com")) {
-    return new Response(`<!doctype html><html><head>
+    return new Response(socialHtmlOverride || `<!doctype html><html><head>
       <meta property="og:title" content="Mitsui Garden Hotel Jingugaien Tokyo Premier" />
       <meta property="og:description" content="Hotel at 11-3 Kasumigaokamachi, Shinjuku City, Tokyo" />
     </head></html>`, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
@@ -91,7 +91,10 @@ globalThis.fetch = async (url, options = {}) => {
       });
     }
     if (googleAddressFallbackOnly) {
-      const isAddressLookup = requestBody.textQuery === "〒169-0072 東京都新宿区大久保1丁目16-19";
+      const isAddressLookup = [
+        "〒169-0072 東京都新宿区大久保1丁目16-19",
+        "東京都, 東京, 〒169-0072 1-16-19, 日本",
+      ].includes(requestBody.textQuery);
       return new Response(JSON.stringify({
         places: isAddressLookup ? [{
           id: "address-okubo-1-16-19",
@@ -227,6 +230,16 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
     imageUrls: ["https://scontent.cdninstagram.com/photo.jpg?x=1"],
     videoUrl: "",
   });
+});
+
+test("Booking structured metadata exposes its full postal address to lodging recognition", () => {
+  const metadata = publicMetadataFromHtml(`<!doctype html><html><head>
+    <meta property="og:title" content="50 平方大久保公寓 - Liberty Stay" />
+    <meta property="og:description" content="東京公寓住宿" />
+    <script type="application/json">{"location":{"latitude":35.703991,"longitude":139.7051782,"formattedAddress":"東京都, 東京, 〒169-0072 1-16-19, 日本"}}</script>
+  </head></html>`);
+
+  assert.equal(metadata.address, "東京都, 東京, 〒169-0072 1-16-19, 日本");
 });
 
 test("social metadata parser collects only main-post carousel images and excludes avatars", () => {
@@ -473,6 +486,46 @@ test("a Booking apartment uses its exact postal address and rejects a nearby lod
   assert.equal(candidate.referenceUrl, bookingUrl);
   assert.equal(candidate.photosLoaded, true);
   assert.match(candidate.description, /沒有獨立商家頁/);
+});
+
+test("a Booking page structured address creates a coordinate candidate when OpenAI omits the address", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  googleAddressFallbackOnly = true;
+  socialHtmlOverride = `<!doctype html><html><head>
+    <meta property="og:title" content="50 平方大久保公寓 - Liberty Stay" />
+    <meta property="og:description" content="東京大久保的公寓住宿" />
+    <script type="application/json">{"location":{"latitude":35.703991,"longitude":139.7051782,"formattedAddress":"東京都, 東京, 〒169-0072 1-16-19, 日本"}}</script>
+  </head></html>`;
+  recognitionPlaceOverride = {
+    nameOriginal: "50平方大久保公寓 - Liberty Stay",
+    nameZh: "50平方大久保公寓",
+    city: "東京",
+    area: "大久保",
+    country: "日本",
+    category: "lodging",
+    address: "",
+    nameHidden: false,
+    searchClues: "公寓型住宿",
+    searchQuery: "50平方大久保公寓 Liberty Stay",
+    evidence: "Booking.com 住宿頁",
+    sourceImageIndexes: [],
+    confidence: 0.9,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const bookingUrl = "https://www.booking.com/hotel/jp/50-ping-fang-da-jiu-bao-xin-su-1-zhan-di-ikeman-st-ge-wu-ji-ting-2-yu-shi-2-wei.zh-tw.html";
+
+  const response = await recognize({ cookie, tripId: trip.id, sourceUrl: bookingUrl });
+  googleAddressFallbackOnly = false;
+  socialHtmlOverride = "";
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(googleRequests[1].body.textQuery, "東京都, 東京, 〒169-0072 1-16-19, 日本");
+  assert.equal(response.payload.groups[0].candidates[0].coordinateFallback, true);
+  assert.equal(response.payload.groups[0].candidates[0].formattedAddress, "〒169-0072 東京都新宿区大久保1丁目16-19");
+  assert.match(openAiRequests[0].input[1].content[0].text, /publicAddress/);
 });
 
 test("one ambiguous place can be rematched without rerunning the social AI recognition", async () => {

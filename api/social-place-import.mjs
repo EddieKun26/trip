@@ -188,6 +188,20 @@ function mainPostImageUrl(attributes = {}) {
   return !isAvatar && isPostMedia ? url.toString() : "";
 }
 
+function jsonTextValue(value) {
+  try {
+    return JSON.parse(`"${String(value || "")}"`);
+  } catch {
+    return decodeHtml(String(value || "").replace(/\\\//g, "/"));
+  }
+}
+
+function structuredLodgingAddressFromHtml(html) {
+  const decoded = decodeHtml(String(html || ""));
+  const match = decoded.match(/"formattedAddress"\s*:\s*"((?:\\.|[^"\\]){4,400})"/i);
+  return cleanText(jsonTextValue(match?.[1] || ""), 300);
+}
+
 function publicMetadataFromHtml(html) {
   const metadata = {};
   for (const tag of String(html || "").match(/<meta\b[^>]*>/gi) || []) {
@@ -218,17 +232,19 @@ function publicMetadataFromHtml(html) {
   }
   const titleMatch = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = cleanText(decodeHtml(titleMatch?.[1] || ""), 500);
+  const structuredAddress = structuredLodgingAddressFromHtml(html);
   return {
     title: metadata["og:title"] || title,
     description: metadata["og:description"] || metadata.description || "",
     imageUrl: imageUrls[0] || "",
     imageUrls,
     videoUrl: metadata.videoUrl || "",
+    ...(structuredAddress ? { address: structuredAddress } : {}),
   };
 }
 
 function socialSourceText(metadata = {}, sharedText = "") {
-  return [metadata.title, metadata.description, sharedText]
+  return [metadata.title, metadata.description, metadata.address, sharedText]
     .map((value) => String(value || ""))
     .filter(Boolean)
     .join("\n");
@@ -494,6 +510,7 @@ async function callOpenAi(apiKey, {
     requestedKind: requestedKind || "auto",
     publicTitle: metadata.title || "",
     publicDescription: metadata.description || "",
+    publicAddress: metadata.address || "",
     linkedMediaKind: metadata.videoUrl ? "video" : metadata.imageUrls?.length ? "image_carousel" : "none",
     linkedMediaCount: Array.isArray(imageInputs) ? imageInputs.length : 0,
     sharedText: sharedText || "",
@@ -998,7 +1015,7 @@ export default async function socialPlaceImportHandler(request, response) {
 
     const platform = sourceUrl ? socialPlatform(sourceUrl) : "社群截圖";
     const sourceText = socialSourceText(metadata, sharedText);
-    const addressHint = extractAddressHint(sourceText);
+    const addressHint = cleanText(metadata.address, 260) || extractAddressHint(sourceText);
     const nameHiddenHint = sourceHidesPlaceName(sourceText);
     const recognition = cleanRecognition(await callOpenAi(openAiKey, {
       sourceUrl: metadata.finalUrl || sourceUrl?.toString() || "",
