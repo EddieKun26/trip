@@ -91,19 +91,37 @@ globalThis.fetch = async (url, options = {}) => {
       });
     }
     if (googleAddressFallbackOnly) {
-      const isAddressLookup = requestBody.textQuery === "東京都新宿区大久保1丁目16-20";
+      const isAddressLookup = requestBody.textQuery === "〒169-0072 東京都新宿区大久保1丁目16-19";
       return new Response(JSON.stringify({
         places: isAddressLookup ? [{
-          id: "address-okubo-1-16-20",
-          displayName: { text: "東京都新宿区大久保1丁目16-20" },
-          formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-20",
+          id: "address-okubo-1-16-19",
+          displayName: { text: "東京都新宿区大久保1丁目16-19" },
+          formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-19",
           addressComponents: [{ longText: "大久保", types: ["sublocality_level_2"] }],
           primaryType: "street_address",
           types: ["street_address"],
           primaryTypeDisplayName: { text: "地址" },
           location: { latitude: 35.702741, longitude: 139.703741 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=35.702741%2C139.703741",
-        }] : [],
+        }] : [{
+          id: "wrong-nearby-lodging",
+          displayName: { text: "附近名稱相似住宿" },
+          formattedAddress: "〒169-0072 東京都新宿区大久保1丁目16-20",
+          addressComponents: [{ longText: "大久保", types: ["sublocality_level_2"] }],
+          primaryType: "lodging",
+          types: ["lodging"],
+          location: { latitude: 35.7028, longitude: 139.7038 },
+          googleMapsUri: "https://www.google.com/maps/search/?api=1&query=wrong",
+        }, {
+          id: "wrong-nearby-lodging-chome",
+          displayName: { text: "另一間附近住宿" },
+          formattedAddress: "〒169-0072 東京都新宿区大久保2丁目16-19",
+          addressComponents: [{ longText: "大久保", types: ["sublocality_level_2"] }],
+          primaryType: "lodging",
+          types: ["lodging"],
+          location: { latitude: 35.703, longitude: 139.704 },
+          googleMapsUri: "https://www.google.com/maps/search/?api=1&query=wrong-chome",
+        }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response(JSON.stringify({
@@ -232,7 +250,39 @@ test("social metadata parser collects only main-post carousel images and exclude
 test("social address helpers retain explicit lodging addresses and detect hidden profile names", () => {
   const caption = "地址:山梨縣南都留郡富士河口湖町淺川\n🔗飯店名稱及訂房連結在個人檔案置頂連結 [03✨]";
   assert.equal(extractAddressHint(caption), "山梨縣南都留郡富士河口湖町淺川");
+  assert.equal(
+    extractAddressHint("50平方大久保公寓\n〒169-0072 東京都新宿区大久保1-16-19\n距離新大久保站很近"),
+    "〒169-0072 東京都新宿区大久保1-16-19",
+  );
   assert.equal(sourceHidesPlaceName(caption), true);
+});
+
+test("an exact source postal address overrides a similar lodging address returned by AI", () => {
+  const result = cleanRecognition({
+    sourceSummary: "Booking.com 住宿頁",
+    sourceLanguage: "繁體中文",
+    needsMoreContext: false,
+    places: [{
+      nameOriginal: "50平方大久保公寓",
+      nameZh: "50平方大久保公寓",
+      city: "東京",
+      area: "大久保",
+      country: "日本",
+      category: "lodging",
+      address: "〒169-0072 東京都新宿区大久保1-16-20",
+      nameHidden: false,
+      searchClues: "公寓",
+      searchQuery: "50平方大久保公寓",
+      evidence: "網頁搜尋找到相似住宿",
+      sourceImageIndexes: [],
+      confidence: 0.8,
+    }],
+  }, {
+    addressHint: "〒169-0072 東京都新宿区大久保1-16-19",
+    requestedKind: "lodging",
+  });
+
+  assert.equal(result.places[0].address, "〒169-0072 東京都新宿区大久保1-16-19");
 });
 
 test("social recognition cleanup removes duplicate aliases and keeps structured place meaning", () => {
@@ -380,7 +430,7 @@ test("Agoda Booking.com and Airbnb links are accepted as lodging sources and kee
   recognitionPlaceOverride = null;
 });
 
-test("a Booking apartment without a Google business page can be saved as a confirmed address coordinate", async () => {
+test("a Booking apartment uses its exact postal address and rejects a nearby lodging", async () => {
   store.clear();
   openAiRequests.length = 0;
   googleRequests.length = 0;
@@ -392,7 +442,7 @@ test("a Booking apartment without a Google business page can be saved as a confi
     area: "大久保",
     country: "日本",
     category: "lodging",
-    address: "東京都新宿区大久保1丁目16-20",
+    address: "〒169-0072 東京都新宿区大久保1丁目16-19",
     nameHidden: false,
     searchClues: "公寓型住宿、新大久保站附近",
     searchQuery: "50平方 大久保 新宿 Ikeman ST",
@@ -409,13 +459,14 @@ test("a Booking apartment without a Google business page can be saved as a confi
 
   assert.equal(response.statusCode, 200);
   assert.equal(googleRequests.length, 2);
-  assert.equal(googleRequests[1].body.textQuery, "東京都新宿区大久保1丁目16-20");
+  assert.equal(googleRequests[1].body.textQuery, "〒169-0072 東京都新宿区大久保1丁目16-19");
+  assert.equal(response.payload.groups[0].candidates.length, 1);
   const candidate = response.payload.groups[0].candidates[0];
   assert.equal(candidate.coordinateFallback, true);
   assert.equal(candidate.kind, "lodging");
   assert.equal(candidate.category, "住宿座標");
   assert.equal(candidate.name, "50平方大久保公寓(50平方-大久保-新宿1站地-Ikeman ST-歌舞伎町-2浴室2衛生間)");
-  assert.equal(candidate.formattedAddress, "〒169-0072 東京都新宿区大久保1丁目16-20");
+  assert.equal(candidate.formattedAddress, "〒169-0072 東京都新宿区大久保1丁目16-19");
   assert.equal(candidate.latitude, 35.702741);
   assert.equal(candidate.longitude, 139.703741);
   assert.match(candidate.sourceUrl, /query=35\.702741%2C139\.703741/);

@@ -3,6 +3,7 @@
 ## 2026-08-20
 
 - Added a safe navigation fallback for Booking.com, Agoda, and Airbnb apartments that have no independent Google Maps business page. The importer preserves a web-verified full address, runs an exact address-only Places lookup, and presents the result as a clearly labeled `住宿座標` candidate with coordinates and the original booking reference. It never substitutes a nearby similar property automatically, and saving still requires explicit address review and confirmation. All 76 tests pass.
+- Corrected the reported Booking apartment match by treating source-page Japanese postal codes and full house numbers as authoritative. The importer now recognizes an unlabeled address such as `〒169-0072 … 1-16-19`, lets it override an AI guess such as `1-16-20`, excludes nearby mismatched lodging, and ranks the exact address coordinate first. All 77 tests pass.
 
 ## 2026-08-19
 
