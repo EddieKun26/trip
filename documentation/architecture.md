@@ -15,7 +15,7 @@
 | API | Vercel Functions（`.mjs`） | 登入、旅程、地點辨識、購物與外部服務代理 |
 | 共用資料 | Upstash Redis | 帳號、工作階段、旅程、邀請碼、私人購物清單、每日 AI 額度 |
 | 地圖 | Google Maps JavaScript API、Places API (New) | 互動地圖、地點資料、候選與地址查詢 |
-| 地圖備援 | Leaflet、OpenStreetMap/Nominatim | 瀏覽器地圖備援與少量地址座標查詢 |
+| 地圖備援 | Leaflet 1.9.4（自帶於 `vendor/leaflet/`）、OpenStreetMap/Nominatim | 瀏覽器地圖備援與少量地址座標查詢；自 2026-08-21 起不再由 unpkg CDN 載入 |
 | AI | OpenAI Responses API，預設 `gpt-5.6-luna` | 社群／住宿地點辨識、購物截圖辨識與網頁資料查核 |
 | 發布 | GitHub `EddieKun26/trip` 的 `main` → Vercel | 自動部署正式站 |
 
@@ -35,13 +35,13 @@
 - 專案記憶：`trip-deploy/memory`
 - 部署鏡像：`trip-deploy`
 - 正式網址：`https://trip-eddie23.vercel.app`
-- 最新確認版本：前端資產 `20260821.2`，Git commit `6861965`
+- 最新確認版本：前端資產 `20260821.3`，Git commit `41f3eca`
 - 發布流程：來源修改 → 本機測試 → 更新 memory/documentation → 複製到鏡像 → 鏡像測試 → commit/push `main` → 確認正式資產版本。
 
 ## 已知風險與假設
 
 - Google Maps key 曾在對話中出現，仍應輪替並限制；詳見 `memory/known_issues.md`。
-- Booking 可能回傳阻擋頁，導致公開標題不可讀。系統會從完整 AI 標題擷取短名稱、以精確地址建立座標候選，但若來源根本沒有提供正式名稱，不能憑空保證名稱正確。
+- Booking 現在對伺服器抓取一律回傳 HTTP 202 阻擋頁（2026-08-21 實測：3962 bytes，title／Open Graph／結構化地址全空），公開 metadata 完全不可用。系統改以 URL slug 拼音線索加 AI 網頁搜尋盡力補足，並在使用者同時貼上房東名稱與地址時走確定性路徑。若來源根本沒有提供正式名稱，不能憑空保證名稱正確。
 - OpenStreetMap/Nominatim 只允許使用者觸發、有限次數的備援查詢，不能改成大量、自動或 autocomplete 用途。
 - 4 位數 PIN 的安全性依賴伺服器雜湊、嘗試次數限制與私密暱稱；不等同高保證帳號系統。
 - Redis 目前同時承擔正式資料與 session；沒有獨立資料庫 migration／備份流程文件。

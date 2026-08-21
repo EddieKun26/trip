@@ -8,9 +8,9 @@
 
 - 正式站：`https://trip-eddie23.vercel.app`
 - GitHub：`EddieKun26/trip`，branch `main`
-- 最新 commit：`6861965`（`Keep Liberty Stay in Booking imports`）
-- 前端資產版本：`20260821.2`
-- 測試：`node --test` 共 85 項全數通過（canonical source 與 deployment mirror 均已驗證）
+- 最新 commit：`41f3eca`（`Split map handoff by device and remove CDN/icon gaps`）
+- 前端資產版本：`20260821.3`
+- 測試：`node --test` 共 90 項全數通過（canonical source 與 deployment mirror 均已驗證）
 - 正式來源：`travel-app/prototype`
 - 發布鏡像：`trip-deploy`
 - 專案記憶：`trip-deploy/memory`
@@ -28,7 +28,7 @@
 8. 最新修正會先檢查完整 AI 回傳標題，再做 160 字顯示截斷，因此尾端 `Liberty Stay` 不會被截掉；搜尋也改用 `Liberty Stay + 精確地址`。
 9. 使用者有明確中文名稱時，可顯示 `自由之家（Liberty Stay）`；只有 Booking 可靠尾端名稱時顯示 `Liberty Stay`。
 10. 直接由 Google Maps 連結新增的地點，不再誤顯示「查看 Threads 貼文」。
-11. 點「查看 Google Maps」改為同頁導向，避免 iPhone 開啟 Maps App 後留下空白 Safari 視窗。
+11. 點「查看 Google Maps」依裝置分流：手機／平板同頁導向（避免 iPhone 開啟 Maps App 後留下空白 Safari 視窗），桌面開新分頁並保留 App 頁面，彈窗被擋則退回同頁。**注意：2026-08-21 前的版本是一律同頁導向，本文件較舊的段落若這樣寫已過時。**
 12. 候選預覽的關閉按鈕固定正圓，不會被長標題擠成橢圓。
 13. `file:///…/index.html` 不是正式登入環境；登入必須使用 HTTP(S) 正式站或本機 HTTP server，否則 Secure Cookie／API 不會正常工作。
 
@@ -98,3 +98,43 @@ Booking 對伺服器常回傳約 4 KB 的阻擋頁，沒有 title、`Liberty Sta
 8. 本文件
 
 如果 Fable 只提供建議，請要求它清楚區分「目前已實作」「推測」「建議變更」，並附上會影響的檔案與驗收方式，不要直接把假設寫成已完成。
+
+---
+
+## 2026-08-21 後續更新（由 Fable 執行，寫於原交接之後）
+
+本文件原本是「請 Fable 接手」的說明。以下記錄 Fable 實際做完的事，與上方較舊的敘述若有衝突，**以本節為準**。完整說明見 `memory/HANDOFF_2026-08-21_CHATGPT_SOL.md`。
+
+### 已回答的問題
+
+**問題 1（Booking metadata 被擋時如何提高名稱可信度，且不硬編碼單一房源）**
+實測確認 Booking 現在對伺服器抓取一律回傳 HTTP 202 阻擋頁（3962 bytes，title／Open Graph／結構化地址全空）。採用的通用做法有兩層：
+
+1. 把訂房網址 slug（頁面標題的拼音／羅馬字轉寫）與 `publicPageUnavailable` 旗標一併交給 AI，並在 prompt 明確要求解讀 slug 中的地名後搜尋原頁面，不得改用相似住宿。這對所有訂房連結通用，沒有硬編碼任何房源。
+2. 新增 `extractLodgingNameHint()`，讓使用者貼上的「公寓名稱／飯店名稱：…」成為權威名稱，優先於房型描述與網搜結果。這是**確定性**路徑。
+
+誠實結論：純連結無法保證。以本例而言，`自由之家` 這個名稱根本不存在於 Booking 頁面（頁面標題只有房型描述），所以無論如何都變不出來。可靠流程是「連結＋房東訊息」，UI 已加提示文案引導。
+
+**問題 3（slug 面積與 AI 結果不一致時是否降級）**
+未實作面積比對降級。實務上更根本的問題不是面積不一致，而是門牌比對失效——見下方「額外發現」。修好門牌比對後，錯誤的鄰近住宿本來就會被排除，不需要再靠面積啟發式判斷。
+
+**問題 2、4（候選卡資訊分層、可編輯住宿名稱欄位）**
+未實作，屬 UI 設計決策，留給後續與使用者確認。
+
+### 額外發現：真正造成定位錯誤的原因
+
+不是 AI 也不是名稱問題，而是**門牌比對認不得 Google 回傳的羅馬字日文地址**。實測 Google Places 對此地址回傳 `1-chōme-16-19 Ōkubo, Shinjuku City, Tokyo 169-0072`，而舊的 `houseNumberOf()` 認不得 `chōme` 的長音符號與 `1-chōme` 的連字號，於是**把正確座標判定為門牌不符而丟棄，留下錯誤的鄰近旅館**。已修正（NFD 正規化去除變音符號 + regex 允許連字號）。
+
+這點純看程式碼看不出來，是實際呼叫 Google API 才發現的。後續除錯這類問題，建議先確認外部資料源實際回傳什麼。
+
+### 本輪其他變更
+
+- Google Maps 開啟改為依裝置分流（見上方第 11 點）。
+- 補齊 PWA 圖示（`icons/`，192/512 any、512 maskable、180 apple-touch-icon）；原本 manifest 的 icons 是空陣列。
+- 自帶 Leaflet 1.9.4 於 `vendor/leaflet/`，移除 unpkg CDN 依賴（備援地圖不應依賴第三方 CDN）。
+- 分頁列裝飾字元加 `aria-hidden`；匯入 sheet 加訂房平台限制提示。
+- **刻意未做資產壓縮**：Vercel 已 brotli 將 app.js 由 334 KB 壓到 85.6 KB，為無建置流程的專案引入建置管線不划算。
+
+### 仍未驗證
+
+Agoda 與 Airbnb 是否也開始阻擋伺服器抓取，本輪未實測。若使用者回報類似問題，第一步請實際抓一次頁面看回傳什麼，不要先假設是程式邏輯問題。

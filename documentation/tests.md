@@ -1,6 +1,6 @@
 # 驗證地圖
 
-目前 `node --test` 共 85 項，會在 canonical source 與 deployment mirror 各跑一次。專案目前沒有 GitHub Actions 或強制 branch protection；測試是發布前工作流程要求，但不是平台強制的 merge gate。
+目前 `node --test` 共 90 項，會在 canonical source 與 deployment mirror 各跑一次。專案目前沒有 GitHub Actions 或強制 branch protection；測試是發布前工作流程要求，但不是平台強制的 merge gate。
 
 ## Existing coverage
 
@@ -17,10 +17,15 @@
 | 社群安全媒體 | allowlist、排除 avatar、輪播上限、最多 20 地點 | `tests/social-place-import.test.mjs` | existing unit/integration |
 | 候選確認 | 分組、來源比對、重搜、略過，不強迫錯誤候選 | `tests/ui-logic.test.mjs`、`tests/social-place-import.test.mjs` | existing static/integration |
 | Booking 地址 | 結構化完整地址優先，門牌不符候選排除，無商家頁使用座標候選 | `tests/social-place-import.test.mjs` | existing integration |
+| Booking 阻擋頁降級 | 頁面回傳空白挑戰頁時，房東訊息的名稱與地址仍產生正確命名座標候選；Google 羅馬字地址（`1-chōme-16-19 Ōkubo`）門牌可正確比對，鄰近錯誤門牌排除 | `tests/social-place-import.test.mjs` | existing integration |
+| 房東訊息擷取 | 多行編號訊息的地址不會吃進下一欄位；`公寓名稱：…` 成為住宿名稱；URL slug 轉為拼音線索 | `tests/social-place-import.test.mjs` | existing unit |
 | Liberty Stay 名稱 | 公開 title 或完整 AI title 的尾端正式名稱在截斷前擷取；搜尋不再用「70 平方…」 | `tests/social-place-import.test.mjs` | existing unit/integration |
 | 無效座標 | null 與 `0,0` 不能建立地圖位置；可走有限 OSM 備援 | `tests/social-place-import.test.mjs`、`tests/ui-logic.test.mjs` | existing unit/integration |
 | 混合住宿證據 | 名稱、地址、Google Maps、Booking 合併成一筆 | `tests/ui-logic.test.mjs` | existing unit/static |
-| 來源按鈕 | Google Maps 不能誤顯示 Threads；Google Maps 使用同頁導向避免空白視窗 | `tests/ui-logic.test.mjs` | existing static |
+| 來源按鈕 | Google Maps 不能誤顯示 Threads | `tests/ui-logic.test.mjs` | existing static |
+| 地圖開啟分流 | 手機／平板同頁導向交給 Maps App；桌面開 `_blank` + `noopener` 保留 App 頁面；彈窗被擋退回同頁 | `tests/ui-logic.test.mjs` | existing unit |
+| 自帶資產 | manifest 具備 192/512 any 與 512 maskable 真實 PNG；Leaflet 由 `vendor/` 提供且 index 不含 unpkg | `tests/ui-logic.test.mjs` | existing static |
+| 無障礙與提示 | 四個分頁列裝飾字元皆 `aria-hidden`；匯入 sheet 說明訂房平台限制 | `tests/ui-logic.test.mjs` | existing static |
 | iPhone UI 規則 | 匯入 sheet、16px 輸入、正圓 close control、時間與航班欄位版面 | `tests/ui-logic.test.mjs` | existing static |
 | 行程／地圖完整性 | 時間排序、拖曳、路線、航班虛線、交通關聯與 review 狀態 | `tests/ui-logic.test.mjs` | existing static/unit |
 | 部署更新 | HTML 資產版本與 foreground update check 存在 | `tests/ui-logic.test.mjs` | existing static |
@@ -42,7 +47,8 @@
 
 | 優先度 | 未驗證規則 | 暴露面 | 狀態 |
 |---|---|---|---|
-| 高 | 沒有自動化 live 測試能證明 Booking 防爬頁在未來仍可安全降級 | 錯誤住宿名稱／位置 | none |
+| 高 | 沒有自動化 live 測試能證明 Booking 防爬頁在未來仍可安全降級（2026-08-21 已確認 Booking 回傳 HTTP 202 阻擋頁；mock 覆蓋此情境，但真實頁面行為可能再變） | 錯誤住宿名稱／位置 | none |
+| 中 | Agoda 與 Airbnb 是否也開始阻擋伺服器抓取，尚未實測 | 住宿匯入靜默退化 | none |
 | 高 | Google Maps browser key 尚待輪替與 referrer 限制的外部確認 | 配額與費用濫用 | none |
 | 高 | 沒有平台強制 CI／branch protection | 未測試變更可直接進 main | none |
 | 中 | Redis 備份、還原與資料保留未演練 | 正式旅程資料遺失 | none |
