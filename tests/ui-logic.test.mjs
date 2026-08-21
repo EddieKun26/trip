@@ -110,13 +110,37 @@ test("day route markers keep place mark and votes with a separate order badge", 
   assert.match(appSource, /class TripPlaceOverlay extends google\.maps\.OverlayView/);
 });
 
-test("map type filter uses the same attraction restaurant and lodging groups as the list", () => {
+test("map type filter uses the same attraction restaurant lodging and shopping groups as the list", () => {
   const mapSection = sourceSection("function mapScreen", "function mapPinColor");
   assert.match(mapSection, /\["attraction", "景點"\]/);
   assert.match(mapSection, /\["restaurant", "餐廳"\]/);
   assert.match(mapSection, /\["lodging", "住宿"\]/);
+  assert.match(mapSection, /\["shopping", "購物"\]/);
   assert.doesNotMatch(mapSection, /data-map-category/);
   assert.match(mapSection, /data-map-kind/);
+});
+
+test("map has a toggleable fullscreen workspace with a left filter and place list", () => {
+  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
+  assert.match(mapSection, /data-toggle-map-fullscreen/);
+  assert.match(mapSection, /map-fullscreen-sidebar/);
+  assert.match(mapSection, /data-toggle-map-sidebar/);
+  assert.match(mapSection, /data-focus-map-place/);
+  assert.match(stylesSource, /body\.map-fullscreen-open \.phone\s*{[^}]*position:\s*fixed[^}]*width:\s*100vw[^}]*height:\s*100dvh/s);
+  assert.match(stylesSource, /\.map-screen\.is-fullscreen\s*{[^}]*grid-template-columns:\s*286px minmax\(0, 1fr\)/s);
+});
+
+test("shopping places are recognized and available throughout place workflows", () => {
+  const kindSection = sourceSection("function kindLabel", "function placesSegment");
+  const classification = sourceSection("function inferPlaceKind", "function placeKindTabs");
+  const { inferPlaceKind, normalizedPlaceKind } = new Function(`${classification}; return { inferPlaceKind, normalizedPlaceKind };`)();
+  assert.match(kindSection, /shopping:\s*"購物"/);
+  assert.match(kindSection, /服飾/);
+  assert.equal(inferPlaceKind("運動鞋店"), "shopping");
+  assert.equal(normalizedPlaceKind({ kind: "attraction", category: "服飾店" }), "shopping");
+  assert.match(appSource, /<option value="shopping">購物<\/option>/);
+  assert.match(appSource, /\["shopping", "購物"\]/);
+  assert.match(stylesSource, /\.place-kind-tabs\s*{[^}]*repeat\(5, 1fr\)/s);
 });
 
 test("planning map live location is private, optional, and cleaned up", () => {
@@ -255,8 +279,8 @@ test("day route lines terminate at pins and transport legend stays off the map",
   const mapSection = sourceSection("function mapScreen", "function mapPinColor");
   assert.doesNotMatch(mapSection, /transportLegend|transport-route-legend/);
   assert.match(appSource, /state\.mapView === \"day\"\) return places\.map\(\(place\) => \(\{ \.\.\.place, pinOffsetX: 0, pinOffsetY: 0 \}\)\)/);
-  assert.match(appSource, /iconAnchor: \[32 - \(place\.pinOffsetX \|\| 0\), 42 - \(place\.pinOffsetY \|\| 0\)\]/);
-  assert.match(stylesSource, /\.google-html-marker\s*{[^}]*height:\s*42px/s);
+  assert.match(appSource, /iconAnchor: \[27 - \(place\.pinOffsetX \|\| 0\), 36 - \(place\.pinOffsetY \|\| 0\)\]/);
+  assert.match(stylesSource, /\.google-html-marker\s*{[^}]*height:\s*36px/s);
   assert.match(stylesSource, /\.map-live-location-icon::before/);
   assert.match(stylesSource, /\.map-live-location-icon::after/);
 });

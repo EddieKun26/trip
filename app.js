@@ -227,7 +227,7 @@ const state = {
   places: [
     ...fallbackPlaces
       .filter((place) => !savedDeletedPlaces.includes(place.name))
-      .map((place) => ({ ...place, ...placeDetails[place.name], kind: inferPlaceKind(place.category) })),
+      .map((place) => ({ ...place, ...placeDetails[place.name], kind: normalizedPlaceKind(place) })),
     ...savedCustomPlaces.map((place) => ({
       description: "這是家人新增的收藏地點，詳細介紹可以稍後再補上。",
       highlights: ["自訂收藏"],
@@ -236,7 +236,7 @@ const state = {
       phone: "待 Google Maps 同步",
       addedByName: "璋",
       ...place,
-      kind: place.kind || inferPlaceKind(place.category),
+      kind: normalizedPlaceKind(place),
     })),
   ],
   deletedPlaces: savedDeletedPlaces,
@@ -280,6 +280,8 @@ let googleMapsLoader = null;
 let mapInteractionUntil = 0;
 let mapCoordinatesLoading = false;
 let airportCoordinatesLoading = false;
+let mapFullscreen = false;
+let mapSidebarOpen = true;
 let pendingTimePicker = null;
 let pendingFlightTicketFile = null;
 let flightTicketPreviewUrl = "";
@@ -1282,7 +1284,7 @@ function applySharedTrip(payload) {
   state.inviteCode = payload.inviteCode || "";
   state.ownerId = payload.ownerId || "";
   state.flights = Array.isArray(payload.flights) ? payload.flights : [];
-  state.places = payload.places.map((place) => ({ ...place, kind: place.kind || inferPlaceKind(place.category) }));
+  state.places = payload.places.map((place) => ({ ...place, kind: normalizedPlaceKind(place) }));
   state.votes = payload.votes && typeof payload.votes === "object" ? payload.votes : {};
   state.itinerary = payload.itinerary && typeof payload.itinerary === "object" ? payload.itinerary : {};
   state.transports = Array.isArray(payload.transports) ? payload.transports : [];
@@ -1778,20 +1780,27 @@ function placesScreen() {
 }
 
 function kindLabel(kind) {
-  return { attraction: "景點", restaurant: "餐廳", lodging: "住宿" }[kind] || "地點";
+  return { attraction: "景點", restaurant: "餐廳", lodging: "住宿", shopping: "購物" }[kind] || "地點";
 }
 
 function inferPlaceKind(category = "") {
   const value = String(category);
   if (/住宿|飯店|酒店|旅館|Hotel|Hostel|Inn/i.test(value)) return "lodging";
   if (/餐廳|料理|燒肉|牛排|咖啡|酒吧|Restaurant|Cafe|Bar/i.test(value)) return "restaurant";
+  if (/購物|百貨|商場|服飾|衣料|鞋|靴|選物|精品|藥妝|商店|店鋪|market|mall|shop|shopping|store|boutique|clothing|shoe/i.test(value)) return "shopping";
   return "attraction";
+}
+
+function normalizedPlaceKind(place = {}) {
+  const inferred = inferPlaceKind(place.category);
+  if (["restaurant", "lodging", "shopping"].includes(place.kind)) return place.kind;
+  return inferred;
 }
 
 function placeKindTabs() {
   return `
     <div class="place-kind-tabs" aria-label="地點分類">
-      ${[["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"]].map(([value, label]) => `<button type="button" class="${state.placeKind === value ? "active" : ""}" data-place-kind="${value}">${label}</button>`).join("")}
+      ${[["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"], ["shopping", "購物"]].map(([value, label]) => `<button type="button" class="${state.placeKind === value ? "active" : ""}" data-place-kind="${value}">${label}</button>`).join("")}
     </div>`;
 }
 
@@ -2002,8 +2011,8 @@ function offsetOverlappingMapPins(places) {
     const offsetIndex = peerIndex - (peers.length - 1) / 2;
     return {
       ...place,
-      pinOffsetX: offsetIndex * 34,
-      pinOffsetY: Math.abs(offsetIndex) % 2 ? -8 : 0,
+      pinOffsetX: offsetIndex * 29,
+      pinOffsetY: Math.abs(offsetIndex) % 2 ? -7 : 0,
     };
   });
 }
@@ -2012,14 +2021,8 @@ function mapScreen() {
   const projectedPlaces = filteredMapPlaces();
   const kindPlaces = state.places.filter((place) => state.placeKind === "all" || place.kind === state.placeKind);
   const unlocatedCount = kindPlaces.length - projectPlaces(kindPlaces).length;
-  const mapCenter = projectedPlaces.length
-    ? {
-        latitude: projectedPlaces.reduce((sum, place) => sum + place.latitude, 0) / projectedPlaces.length,
-        longitude: projectedPlaces.reduce((sum, place) => sum + place.longitude, 0) / projectedPlaces.length,
-      }
-    : { latitude: 35.6762, longitude: 139.6503 };
-
-  const kindOptions = [["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"]]
+  const kindDefinitions = [["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"], ["shopping", "購物"]];
+  const kindOptions = kindDefinitions
     .map(([value, label]) => `<option value="${value}" ${state.placeKind === value ? "selected" : ""}>${label}</option>`)
     .join("");
   const dateOptions = state.mapView === "planning"
@@ -2039,42 +2042,85 @@ function mapScreen() {
   const mapTitle = state.mapView === "planning"
     ? "規劃地圖"
     : state.mapDate === "all" ? "所有日期路線" : `${state.mapDate} 當日地圖`;
+  const mapPurposeTabs = `
+    <div class="map-purpose-tabs" aria-label="地圖用途">
+      <button class="${state.mapView === "planning" ? "active" : ""}" type="button" data-map-view="planning"><strong>規劃地圖</strong><span>全部候選</span></button>
+      <button class="${state.mapView === "day" ? "active" : ""}" type="button" data-map-view="day"><strong>當日地圖</strong><span>拜訪順序</span></button>
+    </div>`;
+  const mapFilters = `
+    <div class="map-filters" aria-label="地圖篩選">
+      <label class="${state.mapView === "planning" ? "map-date-disabled" : ""}"><span>日期</span><select data-map-date ${state.mapView === "planning" ? "disabled" : ""}>${dateOptions}</select></label>
+      <label><span>類型</span><select data-map-kind>${kindOptions}</select></label>
+      <label><span>想去程度</span><select data-map-preference>
+        <option value="all" ${state.mapPreference === "all" ? "selected" : ""}>全部</option>
+        <option value="group" ${state.mapPreference === "group" ? "selected" : ""}>2 人以上</option>
+        <option value="mine" ${state.mapPreference === "mine" ? "selected" : ""}>我已標記</option>
+        <option value="none" ${state.mapPreference === "none" ? "selected" : ""}>尚未推薦</option>
+      </select></label>
+    </div>`;
+  const mapLegend = `
+    <div class="map-legend" aria-label="圖釘狀態">
+      ${state.mapView === "day" ? `${dayLegend}${flightLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
+      ${state.mapView === "planning" ? `
+        <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
+          <span class="map-live-location-icon" aria-hidden="true">⌖</span>
+          <b data-live-location-label>${liveLocationLabel()}</b>
+        </button>` : ""}
+    </div>`;
+  const fullscreenIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>`;
+  const filterIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M7 12h10M10 18h4"/></svg>`;
+  const fullscreenButton = `<button class="map-fullscreen-button" type="button" data-toggle-map-fullscreen aria-pressed="${mapFullscreen}" aria-label="${mapFullscreen ? "離開全螢幕地圖" : "開啟全螢幕地圖"}">${fullscreenIcon}<span>${mapFullscreen ? "離開全圖" : "全螢幕"}</span></button>`;
+  const sidebarKindButtons = kindDefinitions.map(([value, label]) => {
+    const count = value === "all" ? state.places.length : state.places.filter((place) => place.kind === value).length;
+    return `<button type="button" class="${state.placeKind === value ? "active" : ""}" data-place-kind="${value}"><span>${label}</span><b>${count}</b></button>`;
+  }).join("");
+  const sidebarPlaces = projectedPlaces.length
+    ? projectedPlaces.map((place) => `
+        <button class="map-sidebar-place ${state.selectedMapPlace === place.name ? "active" : ""}" type="button" data-focus-map-place="${escapeHtml(place.name)}">
+          <i style="--place-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</i>
+          <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area || "待確認區域"))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
+        </button>`).join("")
+    : `<div class="map-sidebar-empty">目前沒有符合篩選的地點</div>`;
+  const mapCanvas = `
+    <div class="map-canvas" data-map-host>
+      <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
+      <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
+      ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
+      ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
+    </div>`;
+
+  if (mapFullscreen) {
+    return `
+      <section class="screen map-screen is-fullscreen ${mapSidebarOpen ? "sidebar-open" : "sidebar-closed"}">
+        <aside class="map-fullscreen-sidebar" aria-label="地圖功能與地點篩選">
+          <div class="map-sidebar-heading"><div><p class="section-kicker">全圖瀏覽</p><h2>${mapTitle}</h2><span>顯示 ${projectedPlaces.length} 個地點</span></div><button class="icon-button" type="button" data-toggle-map-sidebar aria-label="收合篩選列">×</button></div>
+          ${mapPurposeTabs}
+          <div class="map-sidebar-section"><h3>地點類別</h3><div class="map-sidebar-kind-list">${sidebarKindButtons}</div></div>
+          ${mapFilters}
+          ${mapLegend}
+          <div class="map-sidebar-section map-sidebar-results"><div class="map-sidebar-result-title"><h3>地點</h3><span>${projectedPlaces.length} 筆</span></div>${sidebarPlaces}</div>
+        </aside>
+        <div class="map-fullscreen-stage">
+          <div class="map-fullscreen-floating-actions">
+            <button class="map-floating-button map-sidebar-toggle" type="button" data-toggle-map-sidebar aria-label="${mapSidebarOpen ? "收合地圖篩選" : "開啟地圖篩選"}">${filterIcon}<span>篩選</span></button>
+            ${fullscreenButton}
+          </div>
+          ${mapCanvas}
+        </div>
+      </section>`;
+  }
 
   return `
     <section class="screen map-screen">
-      <div class="map-toolbar">
-        <div><h2 style="margin:0">${mapTitle}</h2><p class="meta" style="margin:4px 0 0">顯示 ${projectedPlaces.length} 個地點</p></div>
-        ${undoButtonMarkup()}
-      </div>
+      <header class="title-row map-toolbar">
+        <div><h1>${mapTitle}</h1><p class="meta">顯示 ${projectedPlaces.length} 個地點</p></div>
+        <div class="map-toolbar-actions">${undoButtonMarkup()}${fullscreenButton}</div>
+      </header>
       <div style="margin-top:14px">${placesSegment("map")}</div>
-      <div class="map-purpose-tabs" aria-label="地圖用途">
-        <button class="${state.mapView === "planning" ? "active" : ""}" type="button" data-map-view="planning"><strong>規劃地圖</strong><span>全部候選</span></button>
-        <button class="${state.mapView === "day" ? "active" : ""}" type="button" data-map-view="day"><strong>當日地圖</strong><span>拜訪順序</span></button>
-      </div>
-      <div class="map-filters" aria-label="地圖篩選">
-        <label class="${state.mapView === "planning" ? "map-date-disabled" : ""}"><span>日期</span><select data-map-date ${state.mapView === "planning" ? "disabled" : ""}>${dateOptions}</select></label>
-        <label><span>類型</span><select data-map-kind>${kindOptions}</select></label>
-        <label><span>想去程度</span><select data-map-preference>
-          <option value="all" ${state.mapPreference === "all" ? "selected" : ""}>全部</option>
-          <option value="group" ${state.mapPreference === "group" ? "selected" : ""}>2 人以上</option>
-          <option value="mine" ${state.mapPreference === "mine" ? "selected" : ""}>我已標記</option>
-          <option value="none" ${state.mapPreference === "none" ? "selected" : ""}>尚未推薦</option>
-        </select></label>
-      </div>
-      <div class="map-legend" aria-label="圖釘狀態">
-        ${state.mapView === "day" ? `${dayLegend}${flightLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
-        ${state.mapView === "planning" ? `
-          <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
-            <span class="map-live-location-icon" aria-hidden="true">⌖</span>
-            <b data-live-location-label>${liveLocationLabel()}</b>
-          </button>` : ""}
-      </div>
-      <div class="map-canvas" data-map-host>
-        <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
-        <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
-        ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
-        ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
-      </div>
+      ${mapPurposeTabs}
+      ${mapFilters}
+      ${mapLegend}
+      ${mapCanvas}
     </section>`;
 }
 
@@ -2432,8 +2478,8 @@ function renderLeafletInteractiveMap(host, places) {
     const icon = L.divIcon({
       className: "trip-div-icon",
       html: markerHtml(place),
-      iconSize: [64, 42],
-      iconAnchor: [32 - (place.pinOffsetX || 0), 42 - (place.pinOffsetY || 0)],
+      iconSize: [54, 36],
+      iconAnchor: [27 - (place.pinOffsetX || 0), 36 - (place.pinOffsetY || 0)],
     });
     L.marker(point, { icon, title: place.name })
       .addTo(activeLeafletMap)
@@ -3523,6 +3569,9 @@ function itineraryScreen() {
 function render({ preserveScroll = false } = {}) {
   const previousScrollTop = app.scrollTop;
   syncTabBarState();
+  const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
+  if (!mapIsActive) mapFullscreen = false;
+  document.body.classList.toggle("map-fullscreen-open", mapIsActive && mapFullscreen);
   if (!state.tripId) app.innerHTML = state.isGuest ? emptyGuestScreen() : emptyTripsScreen();
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
   else if (state.activeTab === "places") app.innerHTML = placesScreen();
@@ -3550,7 +3599,9 @@ function openPlaceSheet(name) {
     ? "刪除這間住宿"
     : place.kind === "restaurant"
       ? "刪除這間餐廳"
-      : "刪除這個景點";
+      : place.kind === "shopping"
+        ? "刪除這間商店"
+        : "刪除這個景點";
   const voters = placeVoters(place.name);
   const hasMyVote = voters.includes(currentMemberId());
   const voterChips = voters.length
@@ -3671,7 +3722,7 @@ async function ensurePlaceDetails(place) {
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
       category: resolved.category || place.category,
-      kind: place.kind || inferPlaceKind(resolved.category || place.category),
+      kind: normalizedPlaceKind({ ...place, category: resolved.category || place.category }),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
       longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
       sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
@@ -4805,7 +4856,7 @@ async function rematchImportCandidateGroup(groupId) {
         action: "rematch",
         tripId: state.tripId,
         query,
-        requestedKind: ["attraction", "restaurant", "lodging"].includes(source.candidateCategory) ? source.candidateCategory : source.kind,
+        requestedKind: ["attraction", "restaurant", "lodging", "shopping"].includes(source.candidateCategory) ? source.candidateCategory : source.kind,
         category: source.candidateCategory,
         address: source.candidateAddress,
         city: source.candidateCity,
@@ -5083,7 +5134,7 @@ function openAddPlaceSheet() {
           <div><p class="section-kicker">地點匯入</p><h2>新增地點</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option></select></div>
+        <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option><option value="shopping">購物</option></select></div>
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
           <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結"></textarea>
@@ -5221,7 +5272,7 @@ function openItineraryPlacesSheet({ reset = false } = {}) {
         <b>${escapeHtml(status)}</b>
       </label>`;
   }).join("");
-  const kindTabs = [["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"]]
+  const kindTabs = [["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"], ["shopping", "購物"]]
     .map(([kind, label]) => `<button type="button" class="${state.itineraryPlaceKind === kind ? "active" : ""}" data-itinerary-place-kind="${kind}">${label}</button>`).join("");
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
@@ -5571,6 +5622,47 @@ document.addEventListener("click", async (event) => {
     state.placeKind = placeKind.dataset.placeKind;
     state.mapCategory = "all";
     return render({ preserveScroll: true });
+  }
+
+  if (event.target.closest("[data-toggle-map-fullscreen]")) {
+    mapFullscreen = !mapFullscreen;
+    mapSidebarOpen = true;
+    return render({ preserveScroll: true });
+  }
+
+  if (event.target.closest("[data-toggle-map-sidebar]")) {
+    mapSidebarOpen = !mapSidebarOpen;
+    const screen = document.querySelector(".map-screen.is-fullscreen");
+    screen?.classList.toggle("sidebar-open", mapSidebarOpen);
+    screen?.classList.toggle("sidebar-closed", !mapSidebarOpen);
+    window.setTimeout(() => {
+      if (activeGoogleMap && window.google?.maps) google.maps.event.trigger(activeGoogleMap, "resize");
+      activeLeafletMap?.invalidateSize?.();
+    }, 260);
+    return;
+  }
+
+  const focusMapPlace = event.target.closest("[data-focus-map-place]");
+  if (focusMapPlace) {
+    const name = focusMapPlace.dataset.focusMapPlace;
+    const place = filteredMapPlaces().find((candidate) => candidate.name === name);
+    if (!place) return;
+    state.selectedMapPlace = name;
+    document.querySelectorAll("[data-focus-map-place]").forEach((button) => button.classList.toggle("active", button.dataset.focusMapPlace === name));
+    if (activeGoogleMap && window.google?.maps) {
+      activeGoogleMap.panTo({ lat: place.latitude, lng: place.longitude });
+      if ((activeGoogleMap.getZoom() || 0) < 15) activeGoogleMap.setZoom(15);
+    } else if (activeLeafletMap) {
+      activeLeafletMap.setView([place.latitude, place.longitude], Math.max(activeLeafletMap.getZoom() || 0, 15));
+    }
+    if (window.matchMedia("(max-width: 700px)").matches && mapSidebarOpen) {
+      mapSidebarOpen = false;
+      const screen = document.querySelector(".map-screen.is-fullscreen");
+      screen?.classList.remove("sidebar-open");
+      screen?.classList.add("sidebar-closed");
+      window.setTimeout(() => activeLeafletMap?.invalidateSize?.(), 260);
+    }
+    return;
   }
 
   const mapView = event.target.closest("[data-map-view]");
@@ -6281,9 +6373,16 @@ document.addEventListener("contextmenu", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || !sheetRoot.querySelector("[data-shopping-image-preview-root]")) return;
-  event.preventDefault();
-  closeShoppingImagePreview();
+  if (event.key !== "Escape") return;
+  if (sheetRoot.querySelector("[data-shopping-image-preview-root]")) {
+    event.preventDefault();
+    return closeShoppingImagePreview();
+  }
+  if (mapFullscreen) {
+    event.preventDefault();
+    mapFullscreen = false;
+    render({ preserveScroll: true });
+  }
 });
 
 document.addEventListener("submit", async (event) => {

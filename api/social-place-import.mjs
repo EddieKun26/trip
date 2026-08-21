@@ -627,7 +627,7 @@ async function callOpenAi(apiKey, {
 }
 
 function normalizedRequestedKind(value) {
-  return ["attraction", "restaurant", "lodging"].includes(value) ? value : "auto";
+  return ["attraction", "restaurant", "lodging", "shopping"].includes(value) ? value : "auto";
 }
 
 function categorySearchLabel(category) {
@@ -649,7 +649,9 @@ function cleanRecognition(value, options = {}) {
     ? requestedKind
     : /飯店|酒店|旅館|住宿|公寓|民宿|hotel|inn|ryokan|apartment/i.test(sourceText)
       ? "lodging"
-      : "attraction";
+      : /購物|百貨|商場|服飾|衣料|鞋|靴|選物|精品|藥妝|商店|店鋪|market|mall|shop|shopping|store|boutique|clothing|shoe/i.test(sourceText)
+        ? "shopping"
+        : "attraction";
   const sourcePlaces = Array.isArray(value?.places) ? [...value.places] : [];
   if (!sourcePlaces.length && addressHint) {
     sourcePlaces.push({
@@ -791,11 +793,11 @@ async function searchAddressWithOpenStreetMap(address) {
 }
 
 function placeKind(category) {
-  return category === "restaurant" ? "restaurant" : category === "lodging" ? "lodging" : "attraction";
+  return category === "restaurant" ? "restaurant" : category === "lodging" ? "lodging" : category === "shopping" ? "shopping" : "attraction";
 }
 
 function swatchForKind(kind) {
-  return kind === "restaurant" ? "#9a5f45" : kind === "lodging" ? "#4f7a5f" : "#587a73";
+  return kind === "restaurant" ? "#9a5f45" : kind === "lodging" ? "#4f7a5f" : kind === "shopping" ? "#8a6740" : "#587a73";
 }
 
 async function searchGoogleCandidates(apiKey, mention, trip, source, options = {}) {
@@ -914,7 +916,7 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
       placeId: cleanText(place.id, 200),
       name,
       fullName: name,
-      category: cleanText(place.primaryTypeDisplayName?.text, 100) || (kind === "restaurant" ? "餐廳" : kind === "lodging" ? "住宿" : "景點"),
+      category: cleanText(place.primaryTypeDisplayName?.text, 100) || (kind === "restaurant" ? "餐廳" : kind === "lodging" ? "住宿" : kind === "shopping" ? "購物" : "景點"),
       kind,
       area,
       areaOriginal: area,

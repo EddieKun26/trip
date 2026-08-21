@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-22
+
+- Added an App-level fullscreen map workspace. The normal Places map now has a fullscreen action; fullscreen hides the phone frame and bottom navigation, gives the interactive map the whole viewport, and adds a collapsible left rail containing planning/day mode, date, place type, preference, live-location status, type counts, and the currently matching place list. Selecting a place in the rail pans and zooms the live Google or Leaflet map; on narrow screens the rail becomes an overlay drawer and closes after selection. Escape exits fullscreen on desktop.
+- Added 購物 as a complete shared place type, distinct from the private Shopping checklist. Apparel, footwear, department stores, malls, boutiques, drugstores, and similar Google/social-import categories can be auto-classified or explicitly selected as Shopping, then filtered in Places, fullscreen map, and itinerary place selection.
+- Made the normal 規劃地圖 heading use the same page-title hierarchy as 收藏地點, while retaining compact controls below it. Reduced map marker boxes from 42px to 34px, tightened their badges/borders, and updated Google and Leaflet anchors so route lines still terminate correctly.
+- Frontend asset version advanced to 20260822.1. Syntax checks pass and all 92 tests pass.
+
 ## 2026-08-21
 
 - Corrected the Google Maps device handoff after an audit found that `window.open(url, "_blank", "noopener")` can return `null` even when the desktop tab opened successfully, causing the App tab to navigate away as well. Desktop now opens a same-origin blank tab, removes its opener, and replaces that tab's location; only a genuinely blocked popup or failed navigation falls back to the App tab. Phones and tablets still navigate in place for native Maps handoff. Place details, airport nodes, route buttons, and transport markers all use this single path. Unit coverage models successful, blocked, and failed desktop navigation separately and prevents those route entry points from bypassing it.

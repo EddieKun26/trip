@@ -1021,6 +1021,52 @@ h2 {
   gap: 12px;
 }
 
+.map-toolbar.title-row {
+  margin-bottom: 0;
+}
+
+.map-toolbar h1,
+.map-toolbar .meta {
+  margin-bottom: 0;
+}
+
+.map-toolbar-actions,
+.map-fullscreen-floating-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.map-fullscreen-button,
+.map-floating-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.94);
+  color: var(--mineral);
+  box-shadow: 0 4px 14px rgba(45, 35, 29, 0.1);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.map-fullscreen-button svg,
+.map-floating-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
 .filter-button {
   height: 42px;
   padding: 0 14px;
@@ -1163,6 +1209,265 @@ h2 {
   background: #e8e6e1;
 }
 
+body.map-fullscreen-open {
+  overflow: hidden;
+}
+
+body.map-fullscreen-open .stage {
+  padding: 0;
+}
+
+body.map-fullscreen-open .phone {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+body.map-fullscreen-open .app {
+  inset: 0;
+  overflow: hidden;
+}
+
+body.map-fullscreen-open .tab-bar,
+body.map-fullscreen-open .home-indicator,
+body.map-fullscreen-open .phone::before {
+  display: none;
+}
+
+.map-screen.is-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 286px minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+  background: var(--paper);
+  transition: grid-template-columns 220ms ease;
+}
+
+.map-fullscreen-sidebar {
+  position: relative;
+  z-index: 15;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: max(18px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: rgba(246, 241, 232, 0.97);
+  box-shadow: 9px 0 24px rgba(45, 35, 29, 0.1);
+  transition: opacity 180ms ease, transform 220ms ease;
+}
+
+.map-screen.is-fullscreen.sidebar-closed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.map-screen.is-fullscreen.sidebar-closed .map-fullscreen-sidebar {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.map-sidebar-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.map-sidebar-heading h2 {
+  margin: 3px 0 2px;
+  font-family: "Songti TC", "Noto Serif TC", serif;
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.map-sidebar-heading > div > span,
+.map-sidebar-result-title span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.map-fullscreen-sidebar .map-purpose-tabs,
+.map-fullscreen-sidebar .map-filters,
+.map-fullscreen-sidebar .map-legend {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+
+.map-fullscreen-sidebar .map-filters {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.map-fullscreen-sidebar .map-filters select {
+  height: 40px;
+  font-size: 12px;
+}
+
+.map-fullscreen-sidebar .map-legend {
+  flex-wrap: wrap;
+  overflow: visible;
+  white-space: normal;
+}
+
+.map-sidebar-section {
+  display: grid;
+  gap: 7px;
+}
+
+.map-sidebar-section h3,
+.map-sidebar-result-title h3 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.map-sidebar-kind-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.map-sidebar-kind-list button {
+  min-width: 0;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.map-sidebar-kind-list button.active {
+  border-color: var(--mineral);
+  background: var(--mineral);
+  color: white;
+}
+
+.map-sidebar-kind-list button b {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-sidebar-results {
+  min-height: 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+.map-sidebar-result-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.map-sidebar-place {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.map-sidebar-place:hover,
+.map-sidebar-place.active {
+  border-color: rgba(64, 119, 122, 0.26);
+  background: var(--mineral-soft);
+}
+
+.map-sidebar-place > i {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--place-swatch, var(--mineral));
+  color: white;
+  font-family: "Songti TC", serif;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.map-sidebar-place > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.map-sidebar-place strong,
+.map-sidebar-place small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-sidebar-place strong {
+  font-size: 12px;
+}
+
+.map-sidebar-place small,
+.map-sidebar-empty {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.map-sidebar-empty {
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.map-fullscreen-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.map-fullscreen-stage .map-canvas {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  margin: 0;
+}
+
+.map-fullscreen-floating-actions {
+  position: absolute;
+  z-index: 18;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+}
+
+.map-screen.is-fullscreen.sidebar-open .map-sidebar-toggle {
+  display: none;
+}
+
 .map-canvas::after {
   content: none;
 }
@@ -1207,8 +1512,8 @@ h2 {
 
 .google-html-marker {
   position: absolute;
-  width: 64px;
-  height: 42px;
+  width: 54px;
+  height: 36px;
   transform: translate(-50%, -100%);
 }
 
@@ -1313,61 +1618,61 @@ h2 {
 
 .google-place-pin {
   position: relative;
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 3px solid white;
-  border-radius: 14px 14px 14px 4px;
+  border: 2px solid white;
+  border-radius: 11px 11px 11px 3px;
   background: var(--pin-color, #777975);
   color: white;
-  box-shadow: 0 5px 14px rgba(45, 35, 29, 0.3);
+  box-shadow: 0 4px 11px rgba(45, 35, 29, 0.27);
   cursor: pointer;
   transform: rotate(-2deg);
 }
 
 .google-place-pin span {
   font-family: "Songti TC", serif;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .google-place-pin b {
   position: absolute;
-  right: -17px;
-  top: -12px;
-  min-width: 30px;
-  padding: 3px 5px;
-  border: 2px solid white;
-  border-radius: 9px;
+  right: -15px;
+  top: -10px;
+  min-width: 24px;
+  padding: 2px 4px;
+  border: 1.5px solid white;
+  border-radius: 7px;
   background: #fff0eb;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 8px;
   white-space: nowrap;
 }
 
 .google-place-pin em {
   position: absolute;
-  right: -10px;
-  top: -12px;
-  min-width: 22px;
-  height: 22px;
+  right: -8px;
+  top: -10px;
+  min-width: 19px;
+  height: 19px;
   display: grid;
   place-items: center;
   border: 2px solid white;
   border-radius: 50%;
   background: var(--ink);
   color: white;
-  font-size: 10px;
+  font-size: 9px;
   font-style: normal;
   font-variant-numeric: tabular-nums;
   font-weight: 900;
 }
 
 .google-place-pin.day-route-pin b {
-  right: -18px;
-  top: 17px;
+  right: -15px;
+  top: 14px;
 }
 
 .day-route-legend {
@@ -2764,7 +3069,7 @@ body.transport-sheet-open .app {
 
 .sheet-kind-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 5px;
   margin: 12px 0;
 }
@@ -4238,7 +4543,7 @@ body.transport-sheet-open .app {
 
 .place-kind-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 5px;
   margin: 10px 0 12px;
 }
@@ -4258,6 +4563,33 @@ body.transport-sheet-open .app {
   border-color: var(--mineral);
   background: var(--mineral);
   color: white;
+}
+
+@media (max-width: 700px) {
+  .map-screen.is-fullscreen,
+  .map-screen.is-fullscreen.sidebar-closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .map-fullscreen-sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(82vw, 300px);
+    border-right: 1px solid var(--line);
+  }
+
+  .map-screen.is-fullscreen.sidebar-closed .map-fullscreen-sidebar {
+    transform: translateX(-102%);
+  }
+
+  .map-screen.is-fullscreen.sidebar-open .map-fullscreen-stage {
+    pointer-events: none;
+  }
+
+  .map-fullscreen-floating-actions {
+    top: max(10px, env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+  }
 }
 
 .editable-flight {
@@ -6502,12 +6834,17 @@ body.transport-sheet-open .app {
     font-size: 10px;
   }
 
-  .map-screen .map-toolbar h2 {
-    font-size: 18px;
-  }
-
   .map-screen .map-toolbar .meta {
     display: none;
+  }
+
+  .map-screen .map-fullscreen-button span {
+    display: none;
+  }
+
+  .map-screen .map-fullscreen-button {
+    width: 40px;
+    padding: 0;
   }
 
   .map-screen > div[style="margin-top:14px"] {
@@ -6553,6 +6890,25 @@ body.transport-sheet-open .app {
   .map-canvas {
     min-height: 0;
     margin: 0 -14px;
+  }
+
+  .screen.map-screen.is-fullscreen {
+    padding: 0;
+  }
+
+  .map-screen.is-fullscreen .map-canvas {
+    margin: 0;
+  }
+
+  .map-screen.is-fullscreen .map-fullscreen-button span,
+  .map-screen.is-fullscreen .map-sidebar-toggle span {
+    display: inline;
+  }
+
+  .map-screen.is-fullscreen .map-fullscreen-button,
+  .map-screen.is-fullscreen .map-sidebar-toggle {
+    width: auto;
+    padding: 0 10px;
   }
 
   .map-sheet {

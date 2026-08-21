@@ -43,6 +43,17 @@
 - Production HTML is not stored as a reusable browser response, while `app.js` and `styles.css` must revalidate. The document loads versioned asset URLs, and the running app checks the current script ETag/Last-Modified value when a long-lived tab returns to the foreground so a newer deployment can reload automatically.
 - After an implementation is complete and its relevant checks pass, publish this project's validated deployment mirror directly to GitHub `main` so Vercel updates production. The user has granted standing project-specific authorization and does not want a separate deployment question each time; platform-enforced security confirmations may still appear.
 
+## Fullscreen map workspace
+
+- Fullscreen map browsing is implemented as an App-level fixed workspace rather than the browser Fullscreen API. This works consistently in iPhone Safari/PWA contexts, retains accessible HTML controls, and avoids a permission-dependent fullscreen transition.
+- Desktop fullscreen uses a left rail and map grid. The rail may be collapsed; the active Google or Leaflet map must be resized afterward. At 700px and below the rail becomes an overlay drawer so it does not permanently reduce map width, and selecting a place closes it automatically.
+- The rail reuses the same placeKind, map date, planning/day, and preference state as the normal map. A filter change must rerender without leaving fullscreen. Rail place selection pans and zooms the existing live map without opening a detail sheet.
+
+## Shopping places versus Shopping checklist
+
+- kind: shopping is a shared place category for physical stores and shopping destinations. It participates in Places, map filters, social/Google import, and itinerary selection.
+- The bottom-tab Shopping checklist remains private per member and trip. Its products, recipients, completion state, and screenshots are never inferred from or synchronized with shared Shopping places.
+
 ## Mobile UI
 
 - iPhone native form controls must have bounded grid tracks and at least 16px input text to avoid overlap and focus zoom.
