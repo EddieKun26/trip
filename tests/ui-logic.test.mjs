@@ -352,6 +352,39 @@ test("place references hide misclassified Google Maps URLs and derive labels fro
   assert.doesNotMatch(appSource, /window\.open\(mapLink\.dataset\.openMaps/);
 });
 
+test("Google Maps links navigate in place on phones and open a new tab on desktop", () => {
+  const section = sourceSection("function isMobileNavigationDevice", "function socialPlaceUrls");
+  const run = (userAgent, maxTouchPoints, openResult = {}) => {
+    const calls = { assigned: [], opened: [] };
+    const openGoogleMaps = new Function(
+      "navigator", "window", "googleMapsNavigationUrl", "showToast",
+      `${section}; return openGoogleMaps;`,
+    )(
+      { userAgent, maxTouchPoints },
+      {
+        location: { assign: (url) => calls.assigned.push(url) },
+        open: (url, target, features) => { calls.opened.push([url, target, features]); return openResult; },
+      },
+      (value) => value,
+      () => {},
+    );
+    openGoogleMaps("https://www.google.com/maps/search/?api=1&query=東京鐵塔");
+    return calls;
+  };
+  const iphone = run("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", 5);
+  assert.equal(iphone.assigned.length, 1);
+  assert.equal(iphone.opened.length, 0);
+  const ipadDesktopUa = run("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 5);
+  assert.equal(ipadDesktopUa.assigned.length, 1);
+  assert.equal(ipadDesktopUa.opened.length, 0);
+  const desktop = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0);
+  assert.equal(desktop.assigned.length, 0);
+  assert.deepEqual(desktop.opened[0], ["https://www.google.com/maps/search/?api=1&query=東京鐵塔", "_blank", "noopener"]);
+  const blockedPopup = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0, null);
+  assert.equal(blockedPopup.opened.length, 1);
+  assert.equal(blockedPopup.assigned.length, 1, "a blocked popup must fall back to same-tab navigation");
+});
+
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
   const section = sourceSection("function googleMapsImportCandidates", "function parseGoogleMapsList");
   const googleMapsImportCandidates = new Function("isGoogleMapsUrl", "isSocialPlaceUrl", `${section}; return googleMapsImportCandidates;`)(
@@ -557,6 +590,35 @@ test("deployed frontend revalidates assets and refreshes long-lived tabs", () =>
   assert.match(appSource, /method: "HEAD", cache: "no-store"/);
   assert.match(appSource, /window\.addEventListener\("pageshow"/);
   assert.match(appSource, /document\.addEventListener\("visibilitychange"/);
+});
+
+test("the App ships its own icons and map library instead of relying on a public CDN", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../manifest.webmanifest", import.meta.url), "utf8"));
+  const iconSizes = manifest.icons.map((icon) => `${icon.sizes} ${icon.purpose}`);
+  assert.ok(iconSizes.includes("192x192 any"), "home-screen installs need a 192px icon");
+  assert.ok(iconSizes.includes("512x512 any"));
+  assert.ok(iconSizes.includes("512x512 maskable"), "Android adaptive icons need a maskable variant");
+  for (const icon of manifest.icons) {
+    const bytes = readFileSync(new URL(`../${icon.src.replace("./", "")}`, import.meta.url));
+    assert.deepEqual([...bytes.subarray(0, 4)], [137, 80, 78, 71], `${icon.src} must be a real PNG`);
+  }
+  assert.match(indexSource, /rel="apple-touch-icon" href="\.\/icons\/apple-touch-icon\.png"/);
+  assert.match(indexSource, /href="\.\/vendor\/leaflet\/leaflet\.css"/);
+  assert.match(indexSource, /src="\.\/vendor\/leaflet\/leaflet\.js"/);
+  assert.doesNotMatch(indexSource, /unpkg\.com/, "the map library must not load from a third-party CDN");
+  const leaflet = readFileSync(new URL("../vendor/leaflet/leaflet.js", import.meta.url), "utf8");
+  assert.match(leaflet.slice(0, 200), /Leaflet 1\.9\.4/);
+  assert.match(vercelSource, /"source": "\/vendor\/\(\.\*\)"[\s\S]*immutable/);
+});
+
+test("tab-bar glyphs stay decorative and lodging imports explain the booking-site limitation", () => {
+  const tabIcons = [...indexSource.matchAll(/<span class="tab-icon"([^>]*)>/g)];
+  assert.equal(tabIcons.length, 4);
+  for (const [, attributes] of tabIcons) {
+    assert.match(attributes, /aria-hidden="true"/, "decorative glyphs must not be announced by VoiceOver");
+  }
+  assert.match(appSource, /class="field-hint">訂房平台常擋住自動讀取/);
+  assert.match(stylesSource, /\.field-hint\s*{[^}]*color:\s*var\(--muted\)/s);
 });
 
 test("flight form offers city-aware airports and creates round trips as two legs", () => {

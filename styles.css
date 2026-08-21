@@ -3291,6 +3291,13 @@ body.transport-sheet-open .app {
   resize: vertical;
 }
 
+.field-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 .place-contact-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;

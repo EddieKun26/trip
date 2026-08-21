@@ -4111,10 +4111,18 @@ function placeReferenceMeta(place) {
   }
 }
 
+function isMobileNavigationDevice() {
+  const userAgent = String(navigator.userAgent || "");
+  return /iphone|ipad|ipod|android/i.test(userAgent)
+    || (/macintosh/i.test(userAgent) && Number(navigator.maxTouchPoints) > 1);
+}
+
 function openGoogleMaps(value) {
   const url = googleMapsNavigationUrl(value);
   if (!url) return showToast("Google Maps 連結格式不正確");
-  window.location.assign(url);
+  if (isMobileNavigationDevice()) return window.location.assign(url);
+  const openedTab = window.open(url, "_blank", "noopener");
+  if (!openedTab) window.location.assign(url);
 }
 
 function socialPlaceUrls(value) {
@@ -5064,6 +5072,7 @@ function openAddPlaceSheet() {
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
           <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結"></textarea>
+          <p class="field-hint">訂房平台常擋住自動讀取。住宿請連同房東訊息或訂單確認信一起貼上（含「公寓名稱：…」「地址：…」），才能用正確名稱與門牌定位。</p>
         </div>
         <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
         <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
