@@ -1464,6 +1464,10 @@ body.map-fullscreen-open .phone::before {
   right: max(12px, env(safe-area-inset-right));
 }
 
+.map-fullscreen-stage .map-gesture-note {
+  top: max(64px, calc(env(safe-area-inset-top) + 54px));
+}
+
 .map-screen.is-fullscreen.sidebar-open .map-sidebar-toggle {
   display: none;
 }

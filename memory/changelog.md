@@ -5,6 +5,7 @@
 - Added an App-level fullscreen map workspace. The normal Places map now has a fullscreen action; fullscreen hides the phone frame and bottom navigation, gives the interactive map the whole viewport, and adds a collapsible left rail containing planning/day mode, date, place type, preference, live-location status, type counts, and the currently matching place list. Selecting a place in the rail pans and zooms the live Google or Leaflet map; on narrow screens the rail becomes an overlay drawer and closes after selection. Escape exits fullscreen on desktop.
 - Added 購物 as a complete shared place type, distinct from the private Shopping checklist. Apparel, footwear, department stores, malls, boutiques, drugstores, and similar Google/social-import categories can be auto-classified or explicitly selected as Shopping, then filtered in Places, fullscreen map, and itinerary place selection.
 - Made the normal 規劃地圖 heading use the same page-title hierarchy as 收藏地點, while retaining compact controls below it. Reduced map marker boxes from 42px to 34px, tightened their badges/borders, and updated Google and Leaflet anchors so route lines still terminate correctly.
+- Responsive checks at 1280×800 and 393×852 caught and fixed an overlap between the fullscreen action cluster and the map gesture hint; the hint now sits below the actions. The desktop rail, mobile overlay drawer, closed full-map view, and compact markers have no horizontal overflow or console errors.
 - Frontend asset version advanced to 20260822.1. Syntax checks pass and all 92 tests pass.
 
 ## 2026-08-21

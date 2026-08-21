@@ -40,6 +40,7 @@
 
 - `node --check app.js` passes.
 - `node --test`: 92 tests passing as of 2026-08-22. Coverage includes fullscreen map structure, shared Shopping place classification across workflows, Booking's server-fetch anti-bot challenge, romanized Japanese house-number matching, multi-line host-message address/name extraction, URL-slug clues, real desktop popup return semantics, and accessible semantic bottom navigation.
+- Responsive layout validation at 1280×800 and 393×852 confirms the fullscreen left rail, narrow-screen overlay drawer, fully expanded map, compact 34px markers, and safe-area floating controls fit without horizontal overflow or console errors. The gesture hint is offset below the fullscreen controls so the two never overlap.
 - Browser validation at 375×812 confirms the four bottom buttons each measure about 89×58px, do not cause horizontal overflow, expose exactly one `aria-current="page"`, switch correctly across all four destinations, and produce no console warnings or errors.
 - A reviewable handoff set now lives in `documentation/` (architecture, protected flows, permissions, variables, AI automation, and test coverage), with a Fable-oriented summary at `memory/FABLE_HANDOFF.md`.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
