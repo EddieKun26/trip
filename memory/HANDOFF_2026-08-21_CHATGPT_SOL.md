@@ -218,3 +218,13 @@ Booking 這個案子的教訓是：**先確認外部資料源真的給了什麼*
 - `node --test`（鏡像 `trip-deploy`）：**90 / 90 通過**
 - 瀏覽器實測：Leaflet 1.9.4 本地載入、App 渲染、無主控台錯誤、marker 圖檔 200、375px 無溢出、桌面／行動地圖開啟行為各自正確
 - Production API 健康檢查：`{"status":"ok","aiReady":true,"placesReady":true}`
+
+---
+
+## 7. 2026-08-21 ChatGPT SOL 接手修正
+
+原第 2 節的桌面寫法後續查出仍有瀏覽器語意漏洞：`window.open(url, "_blank", "noopener")` 可能在分頁已成功開啟時仍回傳 `null`，原程式會把它誤判為彈窗被擋，接著又把 App 原頁導向 Google Maps。
+
+現行程式改為：桌面先開 `about:blank`，確認取得分頁物件後將 `opener` 設為 `null`，再以 `location.replace()` 導向 Google Maps；只有分頁物件真的不存在或導向失敗時，才使用 App 原頁備援。手機與平板仍使用同頁導向交給 Maps App。測試已分別模擬成功開頁、彈窗被擋與分頁導向失敗，不能再以永遠回傳物件的 mock 製造假通過。
+
+同輪也將底部 `總覽／地點／行程／購物` 的 `◇ ● □ ▱` 抽象字元替換為統一 Tabler 語意圖示，保留文字標籤，加入品牌紅選中底座、54px 以上觸控高度、`aria-current="page"`、焦點樣式與 reduced-motion 規則。375×812 瀏覽器檢查確認無水平溢出、四個頁面選中狀態正確且無主控台錯誤。前端資產版本更新為 `20260821.4`。

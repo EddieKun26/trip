@@ -28,7 +28,7 @@
 8. 最新修正會先檢查完整 AI 回傳標題，再做 160 字顯示截斷，因此尾端 `Liberty Stay` 不會被截掉；搜尋也改用 `Liberty Stay + 精確地址`。
 9. 使用者有明確中文名稱時，可顯示 `自由之家（Liberty Stay）`；只有 Booking 可靠尾端名稱時顯示 `Liberty Stay`。
 10. 直接由 Google Maps 連結新增的地點，不再誤顯示「查看 Threads 貼文」。
-11. 點「查看 Google Maps」依裝置分流：手機／平板同頁導向（避免 iPhone 開啟 Maps App 後留下空白 Safari 視窗），桌面開新分頁並保留 App 頁面，彈窗被擋則退回同頁。**注意：2026-08-21 前的版本是一律同頁導向，本文件較舊的段落若這樣寫已過時。**
+11. 點「查看 Google Maps」依裝置分流：手機／平板同頁導向（避免 iPhone 開啟 Maps App 後留下空白 Safari 視窗）；桌面先開同源空白分頁、切斷 opener，再把該分頁導向 Maps。只有彈窗真的被擋或分頁導向失敗才退回同頁。不要改回 `window.open(url, "_blank", "noopener")` 後以回傳 `null` 判斷失敗，因為成功開頁也可能回傳 `null`。
 12. 候選預覽的關閉按鈕固定正圓，不會被長標題擠成橢圓。
 13. `file:///…/index.html` 不是正式登入環境；登入必須使用 HTTP(S) 正式站或本機 HTTP server，否則 Secure Cookie／API 不會正常工作。
 
@@ -132,7 +132,7 @@ Booking 對伺服器常回傳約 4 KB 的阻擋頁，沒有 title、`Liberty Sta
 - Google Maps 開啟改為依裝置分流（見上方第 11 點）。
 - 補齊 PWA 圖示（`icons/`，192/512 any、512 maskable、180 apple-touch-icon）；原本 manifest 的 icons 是空陣列。
 - 自帶 Leaflet 1.9.4 於 `vendor/leaflet/`，移除 unpkg CDN 依賴（備援地圖不應依賴第三方 CDN）。
-- 分頁列裝飾字元加 `aria-hidden`；匯入 sheet 加訂房平台限制提示。
+- 分頁列已改用統一 Tabler 語意圖示（總覽羅盤、地點圖釘、行程日曆、購物袋），保留文字標籤、54px 以上觸控高度、`aria-current`、鍵盤焦點與減少動態模式；不再使用 `◇ ● □ ▱`。匯入 sheet 另有訂房平台限制提示。
 - **刻意未做資產壓縮**：Vercel 已 brotli 將 app.js 由 334 KB 壓到 85.6 KB，為無建置流程的專案引入建置管線不划算。
 
 ### 仍未驗證

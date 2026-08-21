@@ -1570,13 +1570,20 @@ async function setTab(tab) {
     shoppingSelectedIds.clear();
   }
   state.activeTab = tab;
-  document.querySelectorAll(".tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.tab === tab);
-  });
+  syncTabBarState();
   render();
   if (tab === "shopping" && canManageShopping() && !state.shoppingLoaded) {
     await loadShopping({ force: true });
   }
+}
+
+function syncTabBarState() {
+  document.querySelectorAll(".tab").forEach((button) => {
+    const active = button.dataset.tab === state.activeTab;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
 }
 
 function tripDateLabel(date) {
@@ -3515,6 +3522,7 @@ function itineraryScreen() {
 
 function render({ preserveScroll = false } = {}) {
   const previousScrollTop = app.scrollTop;
+  syncTabBarState();
   if (!state.tripId) app.innerHTML = state.isGuest ? emptyGuestScreen() : emptyTripsScreen();
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
   else if (state.activeTab === "places") app.innerHTML = placesScreen();
@@ -4121,8 +4129,15 @@ function openGoogleMaps(value) {
   const url = googleMapsNavigationUrl(value);
   if (!url) return showToast("Google Maps 連結格式不正確");
   if (isMobileNavigationDevice()) return window.location.assign(url);
-  const openedTab = window.open(url, "_blank", "noopener");
-  if (!openedTab) window.location.assign(url);
+  const openedTab = window.open("about:blank", "_blank");
+  if (!openedTab) return window.location.assign(url);
+  try {
+    openedTab.opener = null;
+    openedTab.location.replace(url);
+  } catch {
+    try { openedTab.close(); } catch {}
+    window.location.assign(url);
+  }
 }
 
 function socialPlaceUrls(value) {

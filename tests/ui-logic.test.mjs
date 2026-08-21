@@ -354,8 +354,14 @@ test("place references hide misclassified Google Maps URLs and derive labels fro
 
 test("Google Maps links navigate in place on phones and open a new tab on desktop", () => {
   const section = sourceSection("function isMobileNavigationDevice", "function socialPlaceUrls");
-  const run = (userAgent, maxTouchPoints, openResult = {}) => {
-    const calls = { assigned: [], opened: [] };
+  const run = (userAgent, maxTouchPoints, openResult) => {
+    const calls = { assigned: [], opened: [], replaced: [], closed: 0 };
+    const defaultPopup = {
+      opener: {},
+      location: { replace: (url) => calls.replaced.push(url) },
+      close: () => { calls.closed += 1; },
+    };
+    const popup = openResult === undefined ? defaultPopup : openResult;
     const openGoogleMaps = new Function(
       "navigator", "window", "googleMapsNavigationUrl", "showToast",
       `${section}; return openGoogleMaps;`,
@@ -363,7 +369,7 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
       { userAgent, maxTouchPoints },
       {
         location: { assign: (url) => calls.assigned.push(url) },
-        open: (url, target, features) => { calls.opened.push([url, target, features]); return openResult; },
+        open: (url, target, features) => { calls.opened.push([url, target, features]); return popup; },
       },
       (value) => value,
       () => {},
@@ -379,10 +385,20 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
   assert.equal(ipadDesktopUa.opened.length, 0);
   const desktop = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0);
   assert.equal(desktop.assigned.length, 0);
-  assert.deepEqual(desktop.opened[0], ["https://www.google.com/maps/search/?api=1&query=東京鐵塔", "_blank", "noopener"]);
+  assert.deepEqual(desktop.opened[0], ["about:blank", "_blank", undefined]);
+  assert.deepEqual(desktop.replaced, ["https://www.google.com/maps/search/?api=1&query=東京鐵塔"]);
   const blockedPopup = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0, null);
   assert.equal(blockedPopup.opened.length, 1);
   assert.equal(blockedPopup.assigned.length, 1, "a blocked popup must fall back to same-tab navigation");
+  const failedPopup = {
+    opener: {},
+    location: { replace: () => { throw new Error("navigation failed"); } },
+    close() { this.closed = true; },
+  };
+  const failedNavigation = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0, failedPopup);
+  assert.equal(failedPopup.opener, null, "the opened tab must not retain access to the app window");
+  assert.equal(failedPopup.closed, true);
+  assert.equal(failedNavigation.assigned.length, 1, "a failed new-tab navigation must fall back to the app tab");
 });
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
@@ -611,12 +627,17 @@ test("the App ships its own icons and map library instead of relying on a public
   assert.match(vercelSource, /"source": "\/vendor\/\(\.\*\)"[\s\S]*immutable/);
 });
 
-test("tab-bar glyphs stay decorative and lodging imports explain the booking-site limitation", () => {
-  const tabIcons = [...indexSource.matchAll(/<span class="tab-icon"([^>]*)>/g)];
+test("tab-bar uses meaningful accessible travel icons and lodging imports explain the booking-site limitation", () => {
+  const tabIcons = [...indexSource.matchAll(/<span class="tab-icon"([^>]*)>[\s\S]*?<\/span>/g)];
   assert.equal(tabIcons.length, 4);
-  for (const [, attributes] of tabIcons) {
+  for (const [markup, attributes] of tabIcons) {
     assert.match(attributes, /aria-hidden="true"/, "decorative glyphs must not be announced by VoiceOver");
+    assert.match(markup, /<svg[^>]*viewBox="0 0 24 24"/, "each tab must use one consistent vector icon family");
   }
+  assert.doesNotMatch(indexSource, /[◇●□▱]/, "abstract geometric tab glyphs must not return");
+  assert.match(indexSource, /data-tab="overview" aria-current="page"/);
+  assert.match(stylesSource, /\.tab\.active \.tab-icon\s*{[^}]*background:\s*var\(--accent\)/s);
+  assert.match(appSource, /function syncTabBarState\(\)[\s\S]*setAttribute\("aria-current", "page"\)/);
   assert.match(appSource, /class="field-hint">訂房平台常擋住自動讀取/);
   assert.match(stylesSource, /\.field-hint\s*{[^}]*color:\s*var\(--muted\)/s);
 });
