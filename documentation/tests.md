@@ -23,7 +23,7 @@
 | 無效座標 | null 與 `0,0` 不能建立地圖位置；可走有限 OSM 備援 | `tests/social-place-import.test.mjs`、`tests/ui-logic.test.mjs` | existing unit/integration |
 | 混合住宿證據 | 名稱、地址、Google Maps、Booking 合併成一筆 | `tests/ui-logic.test.mjs` | existing unit/static |
 | 來源按鈕 | Google Maps 不能誤顯示 Threads | `tests/ui-logic.test.mjs` | existing static |
-| 地圖開啟分流 | 手機／平板同頁導向交給 Maps App；桌面先開同源空白分頁、切斷 opener，再導向 Maps；成功、彈窗被擋、分頁導向失敗三種回傳分開驗證 | `tests/ui-logic.test.mjs` | existing unit |
+| 地圖開啟分流 | 手機／平板同頁導向交給 Maps App；桌面先開同源空白分頁、切斷 opener，再導向 Maps；成功、彈窗被擋、分頁導向失敗三種回傳分開驗證；地點、機場、交通按鈕與路線 marker 都必須走同一函式 | `tests/ui-logic.test.mjs` | existing unit/static |
 | 自帶資產 | manifest 具備 192/512 any 與 512 maskable 真實 PNG；Leaflet 由 `vendor/` 提供且 index 不含 unpkg | `tests/ui-logic.test.mjs` | existing static |
 | 底部導覽與提示 | 四個按鈕使用同一套語意旅行圖示、不含舊幾何字元；圖示不重複朗讀，`aria-current` 同步選中頁；匯入 sheet 說明訂房平台限制 | `tests/ui-logic.test.mjs` | existing unit/static + 375×812 browser |
 | iPhone UI 規則 | 匯入 sheet、16px 輸入、正圓 close control、時間與航班欄位版面 | `tests/ui-logic.test.mjs` | existing static |

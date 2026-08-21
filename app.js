@@ -2266,7 +2266,7 @@ function markerHtml(place) {
 }
 
 function openMapNode(place) {
-  if (place.isAirport) return window.open(place.sourceUrl, "_blank", "noopener");
+  if (place.isAirport) return openGoogleMaps(place.sourceUrl);
   return openPlaceSheet(place.name);
 }
 
@@ -2342,7 +2342,7 @@ function renderGoogleInteractiveMap(host, places) {
         });
         marker.addListener("click", () => {
           const url = transportDirectionsUrl(segment.transport);
-          if (url) window.open(url, "_blank", "noopener");
+          if (url) openGoogleMaps(url);
         });
       }
     });
@@ -5879,7 +5879,7 @@ document.addEventListener("click", async (event) => {
   if (transportRoute) {
     const transport = (state.transports || []).find((item) => item.id === transportRoute.dataset.openTransportRoute);
     const url = transport ? transportDirectionsUrl(transport) : "";
-    return url ? window.open(url, "_blank", "noopener") : showToast("請先補上交通起點與終點");
+    return url ? openGoogleMaps(url) : showToast("請先補上交通起點與終點");
   }
 
   const bookingLink = event.target.closest("[data-open-booking-url]");

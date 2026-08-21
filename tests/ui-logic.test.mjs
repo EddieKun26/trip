@@ -399,6 +399,9 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
   assert.equal(failedPopup.opener, null, "the opened tab must not retain access to the app window");
   assert.equal(failedPopup.closed, true);
   assert.equal(failedNavigation.assigned.length, 1, "a failed new-tab navigation must fall back to the app tab");
+  assert.match(appSource, /if \(place\.isAirport\) return openGoogleMaps\(place\.sourceUrl\)/);
+  assert.match(appSource, /const url = transportDirectionsUrl\(segment\.transport\);\s*if \(url\) openGoogleMaps\(url\)/);
+  assert.match(appSource, /return url \? openGoogleMaps\(url\) : showToast\("請先補上交通起點與終點"\)/);
 });
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
