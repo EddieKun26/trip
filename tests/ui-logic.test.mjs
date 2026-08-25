@@ -183,7 +183,7 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
   assert.match(details, /const tabelogWebUrl = tabelogMultilingualWebUrl\(tabelogUrl\)/);
   assert.match(details, /const tabelogLink = tabelogAppLink\(tabelogUrl\)/);
   assert.match(details, /class="place-contact-grid\$\{tabelogLink \? " has-tabelog-action" : ""\}"/);
-  assert.match(details, /<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}" data-tabelog-fallback="\$\{escapeHtml\(tabelogWebUrl\)\}"[\s\S]*Tabelog預約/);
+  assert.match(details, /<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}" rel="noopener"[\s\S]*Tabelog預約/);
   const phoneStart = details.indexOf('class="place-contact-item phone-contact-item"');
   const phoneEnd = details.indexOf("</div>", phoneStart);
   const buttonStart = details.indexOf('class="tabelog-reservation-button"');
@@ -485,42 +485,30 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
 
 test("Tabelog reservation links deep-link to the App with a website fallback", () => {
   const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
-  const assigned = [];
-  const timers = [];
-  const documentListeners = {};
-  const windowListeners = {};
-  const fakeDocument = {
-    visibilityState: "visible",
-    addEventListener: (name, callback) => { documentListeners[name] = callback; },
-    removeEventListener: (name) => { delete documentListeners[name]; },
-  };
-  const fakeWindow = {
-    location: { assign: (value) => assigned.push(value) },
-    setTimeout: (callback, delay) => { timers.push({ callback, delay, cleared: false }); return timers.length; },
-    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; },
-    addEventListener: (name, callback) => { windowListeners[name] = callback; },
-    removeEventListener: (name) => { delete windowListeners[name]; },
-  };
-  const { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink, armTabelogWebFallback } = new Function(
+  const { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink } = new Function(
     "normalizedPlaceKind",
-    "window",
-    "document",
-    `${section}; return { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink, armTabelogWebFallback };`,
-  )((place) => place.kind, fakeWindow, fakeDocument);
+    `${section}; return { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink };`,
+  )((place) => place.kind);
   const restaurantUrl = "https://tabelog.com/tokyo/A1301/A130103/13292459/";
   assert.equal(tabelogRestaurantId(restaurantUrl), "13292459");
   assert.equal(tabelogMultilingualWebUrl(restaurantUrl), "https://tabelog.com/tw/tokyo/A1301/A130103/13292459/");
-  assert.equal(tabelogAppLink(restaurantUrl), "tabelog-tourists://rstdtl/13292459/top/");
+  const restaurantLink = new URL(tabelogAppLink(restaurantUrl));
+  assert.equal(restaurantLink.hostname, "tabelog-tourists.onelink.me");
+  assert.equal(restaurantLink.pathname, "/3eEh");
+  assert.equal(restaurantLink.searchParams.get("af_dp"), "tabelog-tourists://rstdtl/13292459/top/");
+  assert.equal(restaurantLink.searchParams.get("deep_link_value"), "tabelog-tourists://rstdtl/13292459/top/");
+  assert.equal(restaurantLink.searchParams.get("c"), "rstdtl_top_fv_appbtn_tw");
+  assert.equal(restaurantLink.searchParams.get("pid"), "tabelog_tourists");
+  assert.equal(restaurantLink.searchParams.get("af_ios_url"), "https://tabelog.com/tw/tokyo/A1301/A130103/13292459/");
+  assert.equal(restaurantLink.searchParams.get("af_android_url"), "https://tabelog.com/tw/tokyo/A1301/A130103/13292459/");
+  assert.equal(restaurantLink.searchParams.get("af_web_dp"), "https://tabelog.com/tw/tokyo/A1301/A130103/13292459/");
   const searchUrl = "https://tabelog.com/rstLst/?sk=ramen";
   assert.equal(tabelogMultilingualWebUrl(searchUrl), "https://tabelog.com/tw/rstLst/?sk=ramen");
-  assert.equal(tabelogAppLink(searchUrl), "tabelog-tourists://rstlst/");
-  const multilingualRestaurantUrl = tabelogMultilingualWebUrl(restaurantUrl);
-  assert.equal(armTabelogWebFallback(multilingualRestaurantUrl), true);
-  assert.equal(timers[0].delay, 1400);
-  timers[0].callback();
-  assert.deepEqual(assigned, [multilingualRestaurantUrl]);
-  assert.match(appSource, /const tabelogLink = event\.target\.closest\("\[data-tabelog-fallback\]"\)/);
-  assert.doesNotMatch(appSource, /tabelog\.onelink\.me/);
+  const searchLink = new URL(tabelogAppLink(searchUrl));
+  assert.equal(searchLink.hostname, "tabelog-tourists.onelink.me");
+  assert.equal(searchLink.searchParams.get("af_dp"), "tabelog-tourists://rstlst/");
+  assert.equal(searchLink.searchParams.get("c"), "header_appbtn_tw");
+  assert.doesNotMatch(appSource, /armTabelogWebFallback|data-tabelog-fallback|tabelog-v2:\/\//);
 });
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
