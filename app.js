@@ -79,6 +79,14 @@ const fallbackPlaces = [
   },
 ];
 
+const knownTabelogRestaurantUrls = {
+  "銀座八芳": "https://tabelog.com/tokyo/A1301/A130103/13292459/",
+  "Rukuma Tokyo": "https://tabelog.com/tokyo/A1303/A130302/13132685/",
+  "Peter Luger 東京": "https://tabelog.com/tokyo/A1303/A130302/13258435/",
+  "牛たんの檸檬": "https://tabelog.com/tokyo/A1304/A130401/13264721/",
+  "燒肉 Aburu。": "https://tabelog.com/tokyo/A1323/A132302/13136915/",
+};
+
 const placeDetails = {
   "銀座八芳": {
     addedByName: "璋",
@@ -1820,14 +1828,6 @@ function isWithinJapanCoordinates(latitude, longitude) {
 function japaneseDestination(value) {
   return /日本|Japan|東京|大阪|京都|北海道|沖繩|沖縄|福岡|名古屋|神戶|神戸|奈良|橫濱|横浜|札幌|仙台|廣島|広島|金澤|金沢|長野|富士|箱根|九州|四國|四国/i.test(String(value || ""));
 }
-
-const knownTabelogRestaurantUrls = {
-  "銀座八芳": "https://tabelog.com/tokyo/A1301/A130103/13292459/",
-  "Rukuma Tokyo": "https://tabelog.com/tokyo/A1303/A130302/13132685/",
-  "Peter Luger 東京": "https://tabelog.com/tokyo/A1303/A130302/13258435/",
-  "牛たんの檸檬": "https://tabelog.com/tokyo/A1304/A130401/13264721/",
-  "燒肉 Aburu。": "https://tabelog.com/tokyo/A1323/A132302/13136915/",
-};
 
 function isJapaneseRestaurant(place = {}, destination = "") {
   if (normalizedPlaceKind(place) !== "restaurant") return false;

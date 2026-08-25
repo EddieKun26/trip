@@ -144,8 +144,19 @@ test("shopping places are recognized and available throughout place workflows", 
 });
 
 test("Japanese restaurants store a Tabelog link and place its App action inside the phone card", () => {
+  assert.ok(
+    appSource.indexOf("const knownTabelogRestaurantUrls") < appSource.indexOf("state.places = state.places.map"),
+    "the exact-link lookup must be initialized before the startup place backfill runs",
+  );
   const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
-  const { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink } = new Function("normalizedPlaceKind", `${section}; return { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink };`)((place) => place.kind);
+  const { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink } = new Function(
+    "normalizedPlaceKind",
+    "knownTabelogRestaurantUrls",
+    `${section}; return { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink };`,
+  )(
+    (place) => place.kind,
+    { "牛たんの檸檬": "https://tabelog.com/tokyo/A1304/A130401/13264721/" },
+  );
   const tokyoRestaurant = {
     name: "牛たんの檸檬",
     fullName: "牛たんの檸檬 新宿焼肉センター",
