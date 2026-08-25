@@ -4,6 +4,8 @@
 
 - Added a 44px `食べログ查看` action directly below the phone number in Japanese restaurant detail sheets. It opens Tabelog's restaurant search with the Google place's full restaurant name and local area, appears only for restaurant records that resolve to Japan, and keeps non-Japanese restaurants and other place types unchanged.
 - Place-detail enrichment now retains Google's formatted address so Japan detection remains reliable after a place is refreshed. Frontend asset version advanced to 20260825.1; syntax checks pass and all 93 tests pass.
+- Moved the restaurant action out of the phone card into its own full-width `Tablelog預約` card. New Japanese restaurant imports now generate and persist a validated `tabelogUrl` when the place is confirmed rather than constructing it when details open; older restaurant records are safely backfilled in memory. On phones the HTTPS link navigates in the current context so Tabelog's verified Universal Link can hand off to its installed app, while an uninstalled app naturally leaves the user on Tabelog's website. Desktop keeps the travel App open and uses a guarded new tab.
+- Frontend asset version advanced to 20260825.2. Syntax checks pass and all 94 tests pass.
 
 ## 2026-08-22
 

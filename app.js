@@ -256,6 +256,8 @@ const state = {
   shoppingRecipientFilter: "all",
 };
 
+state.places = state.places.map((place) => withStoredTabelogLink(place, state.destination));
+
 const app = document.querySelector("#app");
 const sheetRoot = document.querySelector("#sheet-root");
 const toastRoot = document.querySelector("#toast-root");
@@ -1284,7 +1286,10 @@ function applySharedTrip(payload) {
   state.inviteCode = payload.inviteCode || "";
   state.ownerId = payload.ownerId || "";
   state.flights = Array.isArray(payload.flights) ? payload.flights : [];
-  state.places = payload.places.map((place) => ({ ...place, kind: normalizedPlaceKind(place) }));
+  state.places = payload.places.map((place) => withStoredTabelogLink(
+    { ...place, kind: normalizedPlaceKind(place) },
+    state.destination,
+  ));
   state.votes = payload.votes && typeof payload.votes === "object" ? payload.votes : {};
   state.itinerary = payload.itinerary && typeof payload.itinerary === "object" ? payload.itinerary : {};
   state.transports = Array.isArray(payload.transports) ? payload.transports : [];
@@ -1816,7 +1821,7 @@ function japaneseDestination(value) {
   return /日本|Japan|東京|大阪|京都|北海道|沖繩|沖縄|福岡|名古屋|神戶|神戸|奈良|橫濱|横浜|札幌|仙台|廣島|広島|金澤|金沢|長野|富士|箱根|九州|四國|四国/i.test(String(value || ""));
 }
 
-function isJapaneseRestaurant(place = {}) {
+function isJapaneseRestaurant(place = {}, destination = "") {
   if (normalizedPlaceKind(place) !== "restaurant") return false;
   const locationText = `${place.formattedAddress || ""} ${place.country || ""}`;
   if (/日本|Japan|〒\s*\d{3}[-‐‑‒–—−ー－]\d{4}/i.test(locationText)) return true;
@@ -1826,17 +1831,34 @@ function isJapaneseRestaurant(place = {}) {
     && Number.isFinite(longitude)
     && (Math.abs(latitude) > 0.000001 || Math.abs(longitude) > 0.000001);
   if (hasCoordinates) return isWithinJapanCoordinates(latitude, longitude);
-  return japaneseDestination(state.destination);
+  return japaneseDestination(destination);
 }
 
-function tabelogRestaurantUrl(place = {}) {
-  if (!isJapaneseRestaurant(place)) return "";
+function safeTabelogUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" && (host === "tabelog.com" || host.endsWith(".tabelog.com")) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function tabelogRestaurantUrl(place = {}, destination = "") {
+  if (!isJapaneseRestaurant(place, destination)) return "";
   const terms = [...new Set([place.fullName || place.name, place.areaOriginal || place.area]
     .map((value) => String(value || "").trim())
     .filter(Boolean))];
   if (!terms.length) return "";
   const params = new URLSearchParams({ vs: "1", sa: "", sk: terms.join(" ") });
   return `https://tabelog.com/rstLst/?${params.toString()}`;
+}
+
+function withStoredTabelogLink(place = {}, destination = "") {
+  const storedUrl = safeTabelogUrl(place.tabelogUrl);
+  if (storedUrl) return storedUrl === place.tabelogUrl ? place : { ...place, tabelogUrl: storedUrl };
+  const tabelogUrl = tabelogRestaurantUrl(place, destination);
+  return tabelogUrl ? { ...place, tabelogUrl } : place;
 }
 
 function placeKindTabs() {
@@ -3637,7 +3659,7 @@ function openPlaceSheet(name) {
   const place = state.places.find((item) => item.name === name);
   if (!place) return;
   const reference = placeReferenceMeta(place);
-  const tabelogUrl = tabelogRestaurantUrl(place);
+  const tabelogUrl = safeTabelogUrl(place.tabelogUrl);
   const deleteLabel = place.kind === "lodging"
     ? "刪除這間住宿"
     : place.kind === "restaurant"
@@ -3710,9 +3732,9 @@ function openPlaceSheet(name) {
                 ? `<a href="tel:${escapeHtml(place.phone.replaceAll("-", ""))}">${escapeHtml(place.phone)}</a>`
                 : `<strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong>`
             }
-            ${tabelogUrl ? `<button class="tabelog-navigation-button" type="button" data-open-tabelog="${escapeHtml(tabelogUrl)}">食べログ查看 ↗</button>` : ""}
           </div>
         </section>
+        ${tabelogUrl ? `<button class="tabelog-reservation-button" type="button" data-open-tabelog="${escapeHtml(tabelogUrl)}"><span>Tablelog預約</span><small>優先開啟 App，未安裝則使用網頁版</small><b aria-hidden="true">↗</b></button>` : ""}
         <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
           <div class="section-row"><div><small>共同註記</small><strong>旅伴都看得到</strong></div>${canEdit() ? `<button type="submit">儲存註記</button>` : ""}</div>
           ${canEdit()
@@ -4224,6 +4246,21 @@ function isMobileNavigationDevice() {
 function openGoogleMaps(value) {
   const url = googleMapsNavigationUrl(value);
   if (!url) return showToast("Google Maps 連結格式不正確");
+  if (isMobileNavigationDevice()) return window.location.assign(url);
+  const openedTab = window.open("about:blank", "_blank");
+  if (!openedTab) return window.location.assign(url);
+  try {
+    openedTab.opener = null;
+    openedTab.location.replace(url);
+  } catch {
+    try { openedTab.close(); } catch {}
+    window.location.assign(url);
+  }
+}
+
+function openTabelog(value) {
+  const url = safeTabelogUrl(value);
+  if (!url) return showToast("Tablelog 連結格式不正確");
   if (isMobileNavigationDevice()) return window.location.assign(url);
   const openedTab = window.open("about:blank", "_blank");
   if (!openedTab) return window.location.assign(url);
@@ -5990,7 +6027,7 @@ document.addEventListener("click", async (event) => {
   if (referenceLink) return window.open(referenceLink.dataset.openReference, "_blank", "noopener");
 
   const tabelogLink = event.target.closest("[data-open-tabelog]");
-  if (tabelogLink) return window.open(tabelogLink.dataset.openTabelog, "_blank", "noopener");
+  if (tabelogLink) return openTabelog(tabelogLink.dataset.openTabelog);
 
   const addTransport = event.target.closest("[data-add-transport]");
   if (addTransport) {
@@ -6803,10 +6840,10 @@ document.addEventListener("submit", async (event) => {
     const requestedKind = String(form.get("placeKind") || "auto");
     const additions = parsed
       .filter(importCanBeAdded)
-      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => ({
+      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => withStoredTabelogLink({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
-      }));
+      }, state.destination));
     if (!additions.length) return showToast("沒有可新增的地點");
     state.places.push(...additions);
     const addedKinds = [...new Set(additions.map((place) => place.kind))];

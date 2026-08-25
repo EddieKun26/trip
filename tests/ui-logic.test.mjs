@@ -143,13 +143,9 @@ test("shopping places are recognized and available throughout place workflows", 
   assert.match(stylesSource, /\.place-kind-tabs\s*{[^}]*repeat\(5, 1fr\)/s);
 });
 
-test("Japanese restaurant details show a Tabelog search button below the phone", () => {
+test("Japanese restaurants store an independent Tablelog reservation link when added", () => {
   const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
-  const state = { destination: "首爾" };
-  const { isJapaneseRestaurant, tabelogRestaurantUrl } = new Function("state", "normalizedPlaceKind", `${section}; return { isJapaneseRestaurant, tabelogRestaurantUrl };`)(
-    state,
-    (place) => place.kind,
-  );
+  const { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink } = new Function("normalizedPlaceKind", `${section}; return { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink };`)((place) => place.kind);
   const tokyoRestaurant = {
     name: "牛たんの檸檬",
     fullName: "牛たんの檸檬 新宿焼肉センター",
@@ -160,18 +156,26 @@ test("Japanese restaurant details show a Tabelog search button below the phone",
   };
   assert.equal(isJapaneseRestaurant(tokyoRestaurant), true);
   assert.equal(isJapaneseRestaurant({ ...tokyoRestaurant, kind: "attraction" }), false);
-  state.destination = "東京";
   assert.equal(isJapaneseRestaurant({ ...tokyoRestaurant, latitude: 37.56, longitude: 126.97 }), false);
   assert.equal(isJapaneseRestaurant({ ...tokyoRestaurant, latitude: null, longitude: null, formattedAddress: "日本、〒160-0023 東京都新宿区" }), true);
   const url = new URL(tabelogRestaurantUrl(tokyoRestaurant));
   assert.equal(url.hostname, "tabelog.com");
   assert.equal(url.searchParams.get("sk"), "牛たんの檸檬 新宿焼肉センター 西新宿");
+  const storedPlace = withStoredTabelogLink(tokyoRestaurant, "東京");
+  assert.equal(storedPlace.tabelogUrl, url.toString());
+  assert.equal(withStoredTabelogLink({ ...tokyoRestaurant, tabelogUrl: "https://evil.example/restaurant" }, "東京").tabelogUrl, url.toString());
 
   const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
-  assert.match(details, /<small>電話<\/small>[\s\S]*data-open-tabelog/);
-  assert.match(details, /食べログ查看/);
-  assert.match(appSource, /tabelogLink\.dataset\.openTabelog/);
-  assert.match(stylesSource, /\.tabelog-navigation-button\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(details, /const tabelogUrl = safeTabelogUrl\(place\.tabelogUrl\)/);
+  assert.match(details, /<\/section>\s*\$\{tabelogUrl \? `<button class="tabelog-reservation-button"[\s\S]*Tablelog預約/);
+  const contactSectionEnd = details.indexOf("</section>", details.indexOf('class="place-contact-grid"'));
+  assert.ok(details.indexOf("data-open-tabelog") > contactSectionEnd);
+  const importSection = sourceSection('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")');
+  assert.match(importSection, /withStoredTabelogLink\([\s\S]*state\.destination/);
+  assert.match(appSource, /state\.places = state\.places\.map\(\(place\) => withStoredTabelogLink/);
+  assert.match(appSource, /payload\.places\.map\(\(place\) => withStoredTabelogLink/);
+  assert.match(appSource, /if \(tabelogLink\) return openTabelog\(tabelogLink\.dataset\.openTabelog\)/);
+  assert.match(stylesSource, /\.tabelog-reservation-button\s*\{[^}]*width:\s*100%[^}]*min-height:\s*44px/s);
 });
 
 test("planning map live location is private, optional, and cleaned up", () => {
@@ -457,6 +461,35 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
   assert.match(appSource, /if \(place\.isAirport\) return openGoogleMaps\(place\.sourceUrl\)/);
   assert.match(appSource, /const url = transportDirectionsUrl\(segment\.transport\);\s*if \(url\) openGoogleMaps\(url\)/);
   assert.match(appSource, /return url \? openGoogleMaps\(url\) : showToast\("請先補上交通起點與終點"\)/);
+});
+
+test("Tablelog reservation links prefer the mobile app handoff and fall back to the website", () => {
+  const section = sourceSection("function isMobileNavigationDevice", "function socialPlaceUrls");
+  const run = (userAgent) => {
+    const calls = { assigned: [], opened: [], replaced: [], toasts: [] };
+    const popup = { opener: {}, location: { replace: (url) => calls.replaced.push(url) }, close: () => {} };
+    const openTabelog = new Function(
+      "navigator", "window", "googleMapsNavigationUrl", "safeTabelogUrl", "showToast",
+      `${section}; return openTabelog;`,
+    )(
+      { userAgent, maxTouchPoints: 0 },
+      {
+        location: { assign: (url) => calls.assigned.push(url) },
+        open: (url, target, features) => { calls.opened.push([url, target, features]); return popup; },
+      },
+      (value) => value,
+      (value) => String(value).startsWith("https://tabelog.com/") ? value : "",
+      (message) => calls.toasts.push(message),
+    );
+    openTabelog("https://tabelog.com/rstLst/?sk=ramen");
+    return calls;
+  };
+  const iphone = run("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");
+  assert.deepEqual(iphone.assigned, ["https://tabelog.com/rstLst/?sk=ramen"]);
+  assert.equal(iphone.opened.length, 0);
+  const desktop = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  assert.deepEqual(desktop.opened[0], ["about:blank", "_blank", undefined]);
+  assert.deepEqual(desktop.replaced, ["https://tabelog.com/rstLst/?sk=ramen"]);
 });
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {

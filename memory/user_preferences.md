@@ -41,5 +41,6 @@
 - When one recognized place has several Google Maps matches, provide an in-place comparison of the original caption, AI evidence, and relevant original attachments; source thumbnails must open at a readable size.
 - Never force a user to choose between incorrect social-place candidates. Let each recognized place be independently re-searched with an editable name, branch, or address, and let it be skipped without affecting the other correct places.
 - Place details opened from either a list or map should let an editor delete an unwanted attraction, restaurant, or lodging with a second confirmation.
+- Japanese restaurant details should show `Tablelog預約` as an independent action rather than embedding it in the phone field. The Tabelog URL should be attached when the restaurant is added; tapping on mobile should prefer the installed Tabelog App and otherwise open its website.
 - Ship the web version first; build a test iOS app only after the web product matures.
 - For this travel-app project, deploy completed and validated changes directly to the public GitHub/Vercel production site without asking again each time; always return the latest public App link after deployment.
