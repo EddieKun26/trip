@@ -1797,6 +1797,48 @@ function normalizedPlaceKind(place = {}) {
   return inferred;
 }
 
+function isWithinJapanCoordinates(latitude, longitude) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return [
+    [24, 30.9, 122.8, 131.5],
+    [30.8, 34.2, 129.2, 132.2],
+    [32.5, 35.9, 131.5, 136.9],
+    [34, 38.2, 135, 141.7],
+    [37, 41.7, 139, 142.3],
+    [41.2, 45.8, 139.3, 146],
+    [20, 28.6, 136, 154],
+  ].some(([minLat, maxLat, minLng, maxLng]) => lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng);
+}
+
+function japaneseDestination(value) {
+  return /日本|Japan|東京|大阪|京都|北海道|沖繩|沖縄|福岡|名古屋|神戶|神戸|奈良|橫濱|横浜|札幌|仙台|廣島|広島|金澤|金沢|長野|富士|箱根|九州|四國|四国/i.test(String(value || ""));
+}
+
+function isJapaneseRestaurant(place = {}) {
+  if (normalizedPlaceKind(place) !== "restaurant") return false;
+  const locationText = `${place.formattedAddress || ""} ${place.country || ""}`;
+  if (/日本|Japan|〒\s*\d{3}[-‐‑‒–—−ー－]\d{4}/i.test(locationText)) return true;
+  const latitude = Number(place.latitude);
+  const longitude = Number(place.longitude);
+  const hasCoordinates = Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && (Math.abs(latitude) > 0.000001 || Math.abs(longitude) > 0.000001);
+  if (hasCoordinates) return isWithinJapanCoordinates(latitude, longitude);
+  return japaneseDestination(state.destination);
+}
+
+function tabelogRestaurantUrl(place = {}) {
+  if (!isJapaneseRestaurant(place)) return "";
+  const terms = [...new Set([place.fullName || place.name, place.areaOriginal || place.area]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))];
+  if (!terms.length) return "";
+  const params = new URLSearchParams({ vs: "1", sa: "", sk: terms.join(" ") });
+  return `https://tabelog.com/rstLst/?${params.toString()}`;
+}
+
 function placeKindTabs() {
   return `
     <div class="place-kind-tabs" aria-label="地點分類">
@@ -3595,6 +3637,7 @@ function openPlaceSheet(name) {
   const place = state.places.find((item) => item.name === name);
   if (!place) return;
   const reference = placeReferenceMeta(place);
+  const tabelogUrl = tabelogRestaurantUrl(place);
   const deleteLabel = place.kind === "lodging"
     ? "刪除這間住宿"
     : place.kind === "restaurant"
@@ -3667,6 +3710,7 @@ function openPlaceSheet(name) {
                 ? `<a href="tel:${escapeHtml(place.phone.replaceAll("-", ""))}">${escapeHtml(place.phone)}</a>`
                 : `<strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong>`
             }
+            ${tabelogUrl ? `<button class="tabelog-navigation-button" type="button" data-open-tabelog="${escapeHtml(tabelogUrl)}">食べログ查看 ↗</button>` : ""}
           </div>
         </section>
         <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
@@ -3726,6 +3770,7 @@ async function ensurePlaceDetails(place) {
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
       longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
       sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
+      formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
       openingHours: resolved.openingHours || place.openingHours,
       phone: resolved.phone || place.phone,
       photos: resolved.photos || place.photos || [],
@@ -5943,6 +5988,9 @@ document.addEventListener("click", async (event) => {
 
   const referenceLink = event.target.closest("[data-open-reference]");
   if (referenceLink) return window.open(referenceLink.dataset.openReference, "_blank", "noopener");
+
+  const tabelogLink = event.target.closest("[data-open-tabelog]");
+  if (tabelogLink) return window.open(tabelogLink.dataset.openTabelog, "_blank", "noopener");
 
   const addTransport = event.target.closest("[data-add-transport]");
   if (addTransport) {

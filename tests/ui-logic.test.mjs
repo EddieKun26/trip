@@ -143,6 +143,37 @@ test("shopping places are recognized and available throughout place workflows", 
   assert.match(stylesSource, /\.place-kind-tabs\s*{[^}]*repeat\(5, 1fr\)/s);
 });
 
+test("Japanese restaurant details show a Tabelog search button below the phone", () => {
+  const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
+  const state = { destination: "首爾" };
+  const { isJapaneseRestaurant, tabelogRestaurantUrl } = new Function("state", "normalizedPlaceKind", `${section}; return { isJapaneseRestaurant, tabelogRestaurantUrl };`)(
+    state,
+    (place) => place.kind,
+  );
+  const tokyoRestaurant = {
+    name: "牛たんの檸檬",
+    fullName: "牛たんの檸檬 新宿焼肉センター",
+    area: "西新宿",
+    kind: "restaurant",
+    latitude: 35.69,
+    longitude: 139.69,
+  };
+  assert.equal(isJapaneseRestaurant(tokyoRestaurant), true);
+  assert.equal(isJapaneseRestaurant({ ...tokyoRestaurant, kind: "attraction" }), false);
+  state.destination = "東京";
+  assert.equal(isJapaneseRestaurant({ ...tokyoRestaurant, latitude: 37.56, longitude: 126.97 }), false);
+  assert.equal(isJapaneseRestaurant({ ...tokyoRestaurant, latitude: null, longitude: null, formattedAddress: "日本、〒160-0023 東京都新宿区" }), true);
+  const url = new URL(tabelogRestaurantUrl(tokyoRestaurant));
+  assert.equal(url.hostname, "tabelog.com");
+  assert.equal(url.searchParams.get("sk"), "牛たんの檸檬 新宿焼肉センター 西新宿");
+
+  const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
+  assert.match(details, /<small>電話<\/small>[\s\S]*data-open-tabelog/);
+  assert.match(details, /食べログ查看/);
+  assert.match(appSource, /tabelogLink\.dataset\.openTabelog/);
+  assert.match(stylesSource, /\.tabelog-navigation-button\s*\{[^}]*min-height:\s*44px/s);
+});
+
 test("planning map live location is private, optional, and cleaned up", () => {
   const locationSection = sourceSection("function liveLocationLabel", "function markerHtml");
   const payloadSection = sourceSection("function sharedTripPayload", "function applySharedTrip");

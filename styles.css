@@ -3706,6 +3706,31 @@ body.transport-sheet-open .app {
   word-break: keep-all;
 }
 
+.tabelog-navigation-button {
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 0 12px;
+  border: 1px solid rgba(168, 66, 51, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 250, 242, 0.86);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.tabelog-navigation-button:hover,
+.tabelog-navigation-button:focus-visible {
+  border-color: rgba(168, 66, 51, 0.48);
+  background: #fffaf2;
+}
+
+.tabelog-navigation-button:active {
+  transform: translateY(1px);
+}
+
 .place-note-card {
   display: grid;
   gap: 9px;

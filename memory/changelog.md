@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-25
+
+- Added a 44px `食べログ查看` action directly below the phone number in Japanese restaurant detail sheets. It opens Tabelog's restaurant search with the Google place's full restaurant name and local area, appears only for restaurant records that resolve to Japan, and keeps non-Japanese restaurants and other place types unchanged.
+- Place-detail enrichment now retains Google's formatted address so Japan detection remains reliable after a place is refreshed. Frontend asset version advanced to 20260825.1; syntax checks pass and all 93 tests pass.
+
 ## 2026-08-22
 
 - Added an App-level fullscreen map workspace. The normal Places map now has a fullscreen action; fullscreen hides the phone frame and bottom navigation, gives the interactive map the whole viewport, and adds a collapsible left rail containing planning/day mode, date, place type, preference, live-location status, type counts, and the currently matching place list. Selecting a place in the rail pans and zooms the live Google or Leaflet map; on narrow screens the rail becomes an overlay drawer and closes after selection. Escape exits fullscreen on desktop.
