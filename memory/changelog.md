@@ -9,6 +9,7 @@
 - Replaced the ordinary Tabelog webpage navigation with Tabelog's official OneLink and `tabelog-v2` restaurant deep link. The five existing Tokyo restaurant records now backfill to their exact Tabelog restaurant IDs instead of English-name search pages; newly imported Japanese restaurants still persist a validated fallback link at confirmation time. If the App is installed, the direct anchor hands off to it; otherwise OneLink falls back to the same restaurant/search webpage.
 - Moved `Tabelog預約` into the unused lower area of the phone card, made it the same inner width as the phone column, and applied the App's orange accent with a 44px touch target. Frontend asset version advanced to 20260825.3; syntax checks pass and all 94 tests pass.
 - Hotfixed the blank-screen startup regression introduced in 20260825.3: the exact Tabelog restaurant lookup is now initialized before the startup place backfill uses it. Added an explicit initialization-order regression assertion, advanced frontend assets to 20260825.4, and reran all 94 tests.
+- Separated the fixed 44px `Tabelog預約` action from the phone card while retaining the exact same right-column width. Its orange background now explicitly uses white label/arrow colors. Replaced AppsFlyer OneLink, which could incorrectly route an installed App to an unavailable regional App Store, with the direct `tabelog-v2` restaurant scheme and a visibility-aware 1.4-second website fallback. Frontend assets advanced to 20260825.5; all 94 tests pass.
 
 ## 2026-08-22
 

@@ -1880,22 +1880,30 @@ function tabelogAppLink(value) {
   const webUrl = safeTabelogUrl(value);
   if (!webUrl) return "";
   const restaurantId = tabelogRestaurantId(webUrl);
-  const deepLink = restaurantId
+  return restaurantId
     ? `tabelog-v2://rstdtl/${restaurantId}/`
     : "tabelog-v2://rstlst?prefecture=0";
-  const params = new URLSearchParams({
-    pid: "travel_companion",
-    c: "restaurant_reservation",
-    af_dp: deepLink,
-    deep_link_value: deepLink,
-    af_force_deeplink: "true",
-    is_retargeting: "true",
-    af_inactivity_window: "1d",
-    af_ios_url: webUrl,
-    af_android_url: webUrl,
-    af_web_dp: webUrl,
-  });
-  return `https://tabelog.onelink.me/kcDZ?${params.toString()}`;
+}
+
+function armTabelogWebFallback(value) {
+  const webUrl = safeTabelogUrl(value);
+  if (!webUrl) return false;
+  let fallbackTimer = 0;
+  const cleanup = () => {
+    window.clearTimeout(fallbackTimer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("pagehide", cleanup);
+  };
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") cleanup();
+  };
+  fallbackTimer = window.setTimeout(() => {
+    cleanup();
+    if (document.visibilityState !== "hidden") window.location.assign(webUrl);
+  }, 1400);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", cleanup, { once: true });
+  return true;
 }
 
 function placeKindTabs() {
@@ -3757,8 +3765,8 @@ function openPlaceSheet(name) {
         <p class="place-description">${escapeHtml(place.description)}</p>
         ${reference ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(reference.url)}">查看原始 ${escapeHtml(reference.platform)} 連結 ↗</button>` : ""}
         <div class="highlight-list">${highlights}</div>
-        <section class="place-contact-grid" aria-label="營業資訊">
-          <div class="place-contact-item">
+        <section class="place-contact-grid${tabelogLink ? " has-tabelog-action" : ""}" aria-label="營業資訊">
+          <div class="place-contact-item hours-contact-item">
             <small>營業時間</small>
             <strong>${formatOpeningHours(place.openingHours)}</strong>
             <span>Google Maps 參考，出發前請再次確認</span>
@@ -3770,8 +3778,8 @@ function openPlaceSheet(name) {
                 ? `<a href="tel:${escapeHtml(place.phone.replaceAll("-", ""))}">${escapeHtml(place.phone)}</a>`
                 : `<strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong>`
             }
-            ${tabelogLink ? `<a class="tabelog-reservation-button" href="${escapeHtml(tabelogLink)}" rel="noopener"><span>Tabelog預約</span><b aria-hidden="true">↗</b></a>` : ""}
           </div>
+          ${tabelogLink ? `<a class="tabelog-reservation-button" href="${escapeHtml(tabelogLink)}" data-tabelog-fallback="${escapeHtml(tabelogUrl)}"><span>Tabelog預約</span><b aria-hidden="true">↗</b></a>` : ""}
         </section>
         <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
           <div class="section-row"><div><small>共同註記</small><strong>旅伴都看得到</strong></div>${canEdit() ? `<button type="submit">儲存註記</button>` : ""}</div>
@@ -6048,6 +6056,12 @@ document.addEventListener("click", async (event) => {
 
   const referenceLink = event.target.closest("[data-open-reference]");
   if (referenceLink) return window.open(referenceLink.dataset.openReference, "_blank", "noopener");
+
+  const tabelogLink = event.target.closest("[data-tabelog-fallback]");
+  if (tabelogLink && !armTabelogWebFallback(tabelogLink.dataset.tabelogFallback)) {
+    event.preventDefault();
+    return showToast("Tabelog 連結格式不正確");
+  }
 
   const addTransport = event.target.closest("[data-add-transport]");
   if (addTransport) {

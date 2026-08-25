@@ -143,7 +143,7 @@ test("shopping places are recognized and available throughout place workflows", 
   assert.match(stylesSource, /\.place-kind-tabs\s*{[^}]*repeat\(5, 1fr\)/s);
 });
 
-test("Japanese restaurants store a Tabelog link and place its App action inside the phone card", () => {
+test("Japanese restaurants store a Tabelog link and place its fixed App action beside the phone card", () => {
   assert.ok(
     appSource.indexOf("const knownTabelogRestaurantUrls") < appSource.indexOf("state.places = state.places.map"),
     "the exact-link lookup must be initialized before the startup place backfill runs",
@@ -181,16 +181,20 @@ test("Japanese restaurants store a Tabelog link and place its App action inside 
   const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
   assert.match(details, /const tabelogUrl = safeTabelogUrl\(place\.tabelogUrl\)/);
   assert.match(details, /const tabelogLink = tabelogAppLink\(tabelogUrl\)/);
-  assert.match(details, /class="place-contact-item phone-contact-item"[\s\S]*<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}"[\s\S]*Tabelog預約/);
+  assert.match(details, /class="place-contact-grid\$\{tabelogLink \? " has-tabelog-action" : ""\}"/);
+  assert.match(details, /<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}" data-tabelog-fallback="\$\{escapeHtml\(tabelogUrl\)\}"[\s\S]*Tabelog預約/);
+  const phoneStart = details.indexOf('class="place-contact-item phone-contact-item"');
+  const phoneEnd = details.indexOf("</div>", phoneStart);
+  const buttonStart = details.indexOf('class="tabelog-reservation-button"');
   const contactSectionEnd = details.indexOf("</section>", details.indexOf('class="place-contact-grid"'));
-  assert.ok(details.indexOf('class="tabelog-reservation-button"') < contactSectionEnd);
+  assert.ok(buttonStart > phoneEnd && buttonStart < contactSectionEnd, "the reservation action must be outside the phone card but in the same grid");
   const importSection = sourceSection('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")');
   assert.match(importSection, /withStoredTabelogLink\([\s\S]*state\.destination/);
   assert.match(appSource, /state\.places = state\.places\.map\(\(place\) => withStoredTabelogLink/);
   assert.match(appSource, /payload\.places\.map\(\(place\) => withStoredTabelogLink/);
   assert.doesNotMatch(appSource, /data-open-tabelog|function openTabelog/);
-  assert.match(stylesSource, /\.phone-contact-item\s*\{[^}]*grid-template-rows:\s*auto auto 1fr/s);
-  assert.match(stylesSource, /\.tabelog-reservation-button\s*\{[^}]*align-self:\s*end[^}]*width:\s*100%[^}]*min-height:\s*44px[^}]*background:\s*var\(--accent\)/s);
+  assert.match(stylesSource, /\.place-contact-grid\.has-tabelog-action\s*\{[^}]*grid-template-rows:\s*minmax\(0, 1fr\) 44px/s);
+  assert.match(stylesSource, /\.tabelog-reservation-button\s*\{[^}]*grid-column:\s*2[^}]*width:\s*100%[^}]*height:\s*44px[^}]*background:\s*var\(--accent\)[^}]*color:\s*#fff !important/s);
 });
 
 test("planning map live location is private, optional, and cleaned up", () => {
@@ -480,19 +484,39 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
 
 test("Tabelog reservation links deep-link to the App with a website fallback", () => {
   const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
-  const { tabelogRestaurantId, tabelogAppLink } = new Function("normalizedPlaceKind", `${section}; return { tabelogRestaurantId, tabelogAppLink };`)((place) => place.kind);
+  const assigned = [];
+  const timers = [];
+  const documentListeners = {};
+  const windowListeners = {};
+  const fakeDocument = {
+    visibilityState: "visible",
+    addEventListener: (name, callback) => { documentListeners[name] = callback; },
+    removeEventListener: (name) => { delete documentListeners[name]; },
+  };
+  const fakeWindow = {
+    location: { assign: (value) => assigned.push(value) },
+    setTimeout: (callback, delay) => { timers.push({ callback, delay, cleared: false }); return timers.length; },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; },
+    addEventListener: (name, callback) => { windowListeners[name] = callback; },
+    removeEventListener: (name) => { delete windowListeners[name]; },
+  };
+  const { tabelogRestaurantId, tabelogAppLink, armTabelogWebFallback } = new Function(
+    "normalizedPlaceKind",
+    "window",
+    "document",
+    `${section}; return { tabelogRestaurantId, tabelogAppLink, armTabelogWebFallback };`,
+  )((place) => place.kind, fakeWindow, fakeDocument);
   const restaurantUrl = "https://tabelog.com/tokyo/A1301/A130103/13292459/";
   assert.equal(tabelogRestaurantId(restaurantUrl), "13292459");
-  const exactLink = new URL(tabelogAppLink(restaurantUrl));
-  assert.equal(exactLink.hostname, "tabelog.onelink.me");
-  assert.equal(exactLink.searchParams.get("af_dp"), "tabelog-v2://rstdtl/13292459/");
-  assert.equal(exactLink.searchParams.get("deep_link_value"), "tabelog-v2://rstdtl/13292459/");
-  assert.equal(exactLink.searchParams.get("af_force_deeplink"), "true");
-  assert.equal(exactLink.searchParams.get("af_ios_url"), restaurantUrl);
-  assert.equal(exactLink.searchParams.get("af_android_url"), restaurantUrl);
-  assert.equal(exactLink.searchParams.get("af_web_dp"), restaurantUrl);
+  assert.equal(tabelogAppLink(restaurantUrl), "tabelog-v2://rstdtl/13292459/");
   const searchUrl = "https://tabelog.com/rstLst/?sk=ramen";
-  assert.equal(new URL(tabelogAppLink(searchUrl)).searchParams.get("af_dp"), "tabelog-v2://rstlst?prefecture=0");
+  assert.equal(tabelogAppLink(searchUrl), "tabelog-v2://rstlst?prefecture=0");
+  assert.equal(armTabelogWebFallback(restaurantUrl), true);
+  assert.equal(timers[0].delay, 1400);
+  timers[0].callback();
+  assert.deepEqual(assigned, [restaurantUrl]);
+  assert.match(appSource, /const tabelogLink = event\.target\.closest\("\[data-tabelog-fallback\]"\)/);
+  assert.doesNotMatch(appSource, /tabelog\.onelink\.me/);
 });
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {

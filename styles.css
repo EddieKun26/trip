@@ -3706,45 +3706,57 @@ body.transport-sheet-open .app {
   word-break: keep-all;
 }
 
-.phone-contact-item {
-  grid-template-rows: auto auto 1fr;
+.place-contact-grid.has-tabelog-action {
+  grid-template-rows: minmax(0, 1fr) 44px;
+}
+
+.place-contact-grid.has-tabelog-action .hours-contact-item {
+  grid-row: 1 / 3;
+}
+
+.place-contact-grid.has-tabelog-action .phone-contact-item {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .tabelog-reservation-button {
-  align-self: end;
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  min-height: 44px;
-  margin-top: 8px;
-  padding: 9px 12px;
+  height: 44px;
+  min-width: 0;
+  padding: 0 12px;
   border: 0;
   border-radius: 12px;
   background: var(--accent);
-  color: #fff;
+  color: #fff !important;
   cursor: pointer;
   text-align: left;
+  text-decoration: none;
+  box-sizing: border-box;
   box-shadow: 0 5px 12px rgba(168, 52, 31, 0.2);
 }
 
 .tabelog-reservation-button span {
-  color: inherit;
+  color: #fff !important;
   font-size: 12px;
   font-weight: 850;
   line-height: 1.25;
 }
 
 .tabelog-reservation-button b {
-  color: inherit;
+  color: #fff !important;
   font-size: 15px;
 }
 
 .tabelog-reservation-button:hover,
 .tabelog-reservation-button:focus-visible {
   background: var(--accent-deep);
-  color: #fff;
+  color: #fff !important;
 }
 
 .tabelog-reservation-button:active {
