@@ -6,6 +6,8 @@
 - Place-detail enrichment now retains Google's formatted address so Japan detection remains reliable after a place is refreshed. Frontend asset version advanced to 20260825.1; syntax checks pass and all 93 tests pass.
 - Moved the restaurant action out of the phone card into its own full-width `Tablelog預約` card. New Japanese restaurant imports now generate and persist a validated `tabelogUrl` when the place is confirmed rather than constructing it when details open; older restaurant records are safely backfilled in memory. On phones the HTTPS link navigates in the current context so Tabelog's verified Universal Link can hand off to its installed app, while an uninstalled app naturally leaves the user on Tabelog's website. Desktop keeps the travel App open and uses a guarded new tab.
 - Frontend asset version advanced to 20260825.2. Syntax checks pass and all 94 tests pass.
+- Replaced the ordinary Tabelog webpage navigation with Tabelog's official OneLink and `tabelog-v2` restaurant deep link. The five existing Tokyo restaurant records now backfill to their exact Tabelog restaurant IDs instead of English-name search pages; newly imported Japanese restaurants still persist a validated fallback link at confirmation time. If the App is installed, the direct anchor hands off to it; otherwise OneLink falls back to the same restaurant/search webpage.
+- Moved `Tabelog預約` into the unused lower area of the phone card, made it the same inner width as the phone column, and applied the App's orange accent with a 44px touch target. Frontend asset version advanced to 20260825.3; syntax checks pass and all 94 tests pass.
 
 ## 2026-08-22
 

@@ -1821,6 +1821,14 @@ function japaneseDestination(value) {
   return /日本|Japan|東京|大阪|京都|北海道|沖繩|沖縄|福岡|名古屋|神戶|神戸|奈良|橫濱|横浜|札幌|仙台|廣島|広島|金澤|金沢|長野|富士|箱根|九州|四國|四国/i.test(String(value || ""));
 }
 
+const knownTabelogRestaurantUrls = {
+  "銀座八芳": "https://tabelog.com/tokyo/A1301/A130103/13292459/",
+  "Rukuma Tokyo": "https://tabelog.com/tokyo/A1303/A130302/13132685/",
+  "Peter Luger 東京": "https://tabelog.com/tokyo/A1303/A130302/13258435/",
+  "牛たんの檸檬": "https://tabelog.com/tokyo/A1304/A130401/13264721/",
+  "燒肉 Aburu。": "https://tabelog.com/tokyo/A1323/A132302/13136915/",
+};
+
 function isJapaneseRestaurant(place = {}, destination = "") {
   if (normalizedPlaceKind(place) !== "restaurant") return false;
   const locationText = `${place.formattedAddress || ""} ${place.country || ""}`;
@@ -1855,10 +1863,39 @@ function tabelogRestaurantUrl(place = {}, destination = "") {
 }
 
 function withStoredTabelogLink(place = {}, destination = "") {
+  const knownUrl = safeTabelogUrl(knownTabelogRestaurantUrls[place.name]);
+  if (knownUrl) return knownUrl === place.tabelogUrl ? place : { ...place, tabelogUrl: knownUrl };
   const storedUrl = safeTabelogUrl(place.tabelogUrl);
   if (storedUrl) return storedUrl === place.tabelogUrl ? place : { ...place, tabelogUrl: storedUrl };
   const tabelogUrl = tabelogRestaurantUrl(place, destination);
   return tabelogUrl ? { ...place, tabelogUrl } : place;
+}
+
+function tabelogRestaurantId(value) {
+  const url = safeTabelogUrl(value);
+  return url.match(/\/(\d{8})(?:\/|$)/)?.[1] || "";
+}
+
+function tabelogAppLink(value) {
+  const webUrl = safeTabelogUrl(value);
+  if (!webUrl) return "";
+  const restaurantId = tabelogRestaurantId(webUrl);
+  const deepLink = restaurantId
+    ? `tabelog-v2://rstdtl/${restaurantId}/`
+    : "tabelog-v2://rstlst?prefecture=0";
+  const params = new URLSearchParams({
+    pid: "travel_companion",
+    c: "restaurant_reservation",
+    af_dp: deepLink,
+    deep_link_value: deepLink,
+    af_force_deeplink: "true",
+    is_retargeting: "true",
+    af_inactivity_window: "1d",
+    af_ios_url: webUrl,
+    af_android_url: webUrl,
+    af_web_dp: webUrl,
+  });
+  return `https://tabelog.onelink.me/kcDZ?${params.toString()}`;
 }
 
 function placeKindTabs() {
@@ -3660,6 +3697,7 @@ function openPlaceSheet(name) {
   if (!place) return;
   const reference = placeReferenceMeta(place);
   const tabelogUrl = safeTabelogUrl(place.tabelogUrl);
+  const tabelogLink = tabelogAppLink(tabelogUrl);
   const deleteLabel = place.kind === "lodging"
     ? "刪除這間住宿"
     : place.kind === "restaurant"
@@ -3725,16 +3763,16 @@ function openPlaceSheet(name) {
             <strong>${formatOpeningHours(place.openingHours)}</strong>
             <span>Google Maps 參考，出發前請再次確認</span>
           </div>
-          <div class="place-contact-item">
+          <div class="place-contact-item phone-contact-item">
             <small>電話</small>
             ${
               place.phone && !place.phone.startsWith("待")
                 ? `<a href="tel:${escapeHtml(place.phone.replaceAll("-", ""))}">${escapeHtml(place.phone)}</a>`
                 : `<strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong>`
             }
+            ${tabelogLink ? `<a class="tabelog-reservation-button" href="${escapeHtml(tabelogLink)}" rel="noopener"><span>Tabelog預約</span><b aria-hidden="true">↗</b></a>` : ""}
           </div>
         </section>
-        ${tabelogUrl ? `<button class="tabelog-reservation-button" type="button" data-open-tabelog="${escapeHtml(tabelogUrl)}"><span>Tablelog預約</span><small>優先開啟 App，未安裝則使用網頁版</small><b aria-hidden="true">↗</b></button>` : ""}
         <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
           <div class="section-row"><div><small>共同註記</small><strong>旅伴都看得到</strong></div>${canEdit() ? `<button type="submit">儲存註記</button>` : ""}</div>
           ${canEdit()
@@ -4246,21 +4284,6 @@ function isMobileNavigationDevice() {
 function openGoogleMaps(value) {
   const url = googleMapsNavigationUrl(value);
   if (!url) return showToast("Google Maps 連結格式不正確");
-  if (isMobileNavigationDevice()) return window.location.assign(url);
-  const openedTab = window.open("about:blank", "_blank");
-  if (!openedTab) return window.location.assign(url);
-  try {
-    openedTab.opener = null;
-    openedTab.location.replace(url);
-  } catch {
-    try { openedTab.close(); } catch {}
-    window.location.assign(url);
-  }
-}
-
-function openTabelog(value) {
-  const url = safeTabelogUrl(value);
-  if (!url) return showToast("Tablelog 連結格式不正確");
   if (isMobileNavigationDevice()) return window.location.assign(url);
   const openedTab = window.open("about:blank", "_blank");
   if (!openedTab) return window.location.assign(url);
@@ -6025,9 +6048,6 @@ document.addEventListener("click", async (event) => {
 
   const referenceLink = event.target.closest("[data-open-reference]");
   if (referenceLink) return window.open(referenceLink.dataset.openReference, "_blank", "noopener");
-
-  const tabelogLink = event.target.closest("[data-open-tabelog]");
-  if (tabelogLink) return openTabelog(tabelogLink.dataset.openTabelog);
 
   const addTransport = event.target.closest("[data-add-transport]");
   if (addTransport) {

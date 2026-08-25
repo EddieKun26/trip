@@ -143,7 +143,7 @@ test("shopping places are recognized and available throughout place workflows", 
   assert.match(stylesSource, /\.place-kind-tabs\s*{[^}]*repeat\(5, 1fr\)/s);
 });
 
-test("Japanese restaurants store an independent Tablelog reservation link when added", () => {
+test("Japanese restaurants store a Tabelog link and place its App action inside the phone card", () => {
   const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
   const { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink } = new Function("normalizedPlaceKind", `${section}; return { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink };`)((place) => place.kind);
   const tokyoRestaurant = {
@@ -162,20 +162,24 @@ test("Japanese restaurants store an independent Tablelog reservation link when a
   assert.equal(url.hostname, "tabelog.com");
   assert.equal(url.searchParams.get("sk"), "牛たんの檸檬 新宿焼肉センター 西新宿");
   const storedPlace = withStoredTabelogLink(tokyoRestaurant, "東京");
-  assert.equal(storedPlace.tabelogUrl, url.toString());
-  assert.equal(withStoredTabelogLink({ ...tokyoRestaurant, tabelogUrl: "https://evil.example/restaurant" }, "東京").tabelogUrl, url.toString());
+  assert.equal(storedPlace.tabelogUrl, "https://tabelog.com/tokyo/A1304/A130401/13264721/");
+  assert.equal(withStoredTabelogLink({ ...tokyoRestaurant, tabelogUrl: "https://evil.example/restaurant" }, "東京").tabelogUrl, storedPlace.tabelogUrl);
+  const unknownRestaurant = { ...tokyoRestaurant, name: "新餐廳", fullName: "New Restaurant" };
+  assert.equal(withStoredTabelogLink(unknownRestaurant, "東京").tabelogUrl, tabelogRestaurantUrl(unknownRestaurant));
 
   const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
   assert.match(details, /const tabelogUrl = safeTabelogUrl\(place\.tabelogUrl\)/);
-  assert.match(details, /<\/section>\s*\$\{tabelogUrl \? `<button class="tabelog-reservation-button"[\s\S]*Tablelog預約/);
+  assert.match(details, /const tabelogLink = tabelogAppLink\(tabelogUrl\)/);
+  assert.match(details, /class="place-contact-item phone-contact-item"[\s\S]*<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}"[\s\S]*Tabelog預約/);
   const contactSectionEnd = details.indexOf("</section>", details.indexOf('class="place-contact-grid"'));
-  assert.ok(details.indexOf("data-open-tabelog") > contactSectionEnd);
+  assert.ok(details.indexOf('class="tabelog-reservation-button"') < contactSectionEnd);
   const importSection = sourceSection('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")');
   assert.match(importSection, /withStoredTabelogLink\([\s\S]*state\.destination/);
   assert.match(appSource, /state\.places = state\.places\.map\(\(place\) => withStoredTabelogLink/);
   assert.match(appSource, /payload\.places\.map\(\(place\) => withStoredTabelogLink/);
-  assert.match(appSource, /if \(tabelogLink\) return openTabelog\(tabelogLink\.dataset\.openTabelog\)/);
-  assert.match(stylesSource, /\.tabelog-reservation-button\s*\{[^}]*width:\s*100%[^}]*min-height:\s*44px/s);
+  assert.doesNotMatch(appSource, /data-open-tabelog|function openTabelog/);
+  assert.match(stylesSource, /\.phone-contact-item\s*\{[^}]*grid-template-rows:\s*auto auto 1fr/s);
+  assert.match(stylesSource, /\.tabelog-reservation-button\s*\{[^}]*align-self:\s*end[^}]*width:\s*100%[^}]*min-height:\s*44px[^}]*background:\s*var\(--accent\)/s);
 });
 
 test("planning map live location is private, optional, and cleaned up", () => {
@@ -463,33 +467,21 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
   assert.match(appSource, /return url \? openGoogleMaps\(url\) : showToast\("請先補上交通起點與終點"\)/);
 });
 
-test("Tablelog reservation links prefer the mobile app handoff and fall back to the website", () => {
-  const section = sourceSection("function isMobileNavigationDevice", "function socialPlaceUrls");
-  const run = (userAgent) => {
-    const calls = { assigned: [], opened: [], replaced: [], toasts: [] };
-    const popup = { opener: {}, location: { replace: (url) => calls.replaced.push(url) }, close: () => {} };
-    const openTabelog = new Function(
-      "navigator", "window", "googleMapsNavigationUrl", "safeTabelogUrl", "showToast",
-      `${section}; return openTabelog;`,
-    )(
-      { userAgent, maxTouchPoints: 0 },
-      {
-        location: { assign: (url) => calls.assigned.push(url) },
-        open: (url, target, features) => { calls.opened.push([url, target, features]); return popup; },
-      },
-      (value) => value,
-      (value) => String(value).startsWith("https://tabelog.com/") ? value : "",
-      (message) => calls.toasts.push(message),
-    );
-    openTabelog("https://tabelog.com/rstLst/?sk=ramen");
-    return calls;
-  };
-  const iphone = run("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");
-  assert.deepEqual(iphone.assigned, ["https://tabelog.com/rstLst/?sk=ramen"]);
-  assert.equal(iphone.opened.length, 0);
-  const desktop = run("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-  assert.deepEqual(desktop.opened[0], ["about:blank", "_blank", undefined]);
-  assert.deepEqual(desktop.replaced, ["https://tabelog.com/rstLst/?sk=ramen"]);
+test("Tabelog reservation links deep-link to the App with a website fallback", () => {
+  const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
+  const { tabelogRestaurantId, tabelogAppLink } = new Function("normalizedPlaceKind", `${section}; return { tabelogRestaurantId, tabelogAppLink };`)((place) => place.kind);
+  const restaurantUrl = "https://tabelog.com/tokyo/A1301/A130103/13292459/";
+  assert.equal(tabelogRestaurantId(restaurantUrl), "13292459");
+  const exactLink = new URL(tabelogAppLink(restaurantUrl));
+  assert.equal(exactLink.hostname, "tabelog.onelink.me");
+  assert.equal(exactLink.searchParams.get("af_dp"), "tabelog-v2://rstdtl/13292459/");
+  assert.equal(exactLink.searchParams.get("deep_link_value"), "tabelog-v2://rstdtl/13292459/");
+  assert.equal(exactLink.searchParams.get("af_force_deeplink"), "true");
+  assert.equal(exactLink.searchParams.get("af_ios_url"), restaurantUrl);
+  assert.equal(exactLink.searchParams.get("af_android_url"), restaurantUrl);
+  assert.equal(exactLink.searchParams.get("af_web_dp"), restaurantUrl);
+  const searchUrl = "https://tabelog.com/rstLst/?sk=ramen";
+  assert.equal(new URL(tabelogAppLink(searchUrl)).searchParams.get("af_dp"), "tabelog-v2://rstlst?prefecture=0");
 });
 
 test("a Google Maps shared-list title followed by its URL is one import candidate", () => {
