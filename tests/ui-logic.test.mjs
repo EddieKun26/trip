@@ -180,9 +180,10 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
 
   const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
   assert.match(details, /const tabelogUrl = safeTabelogUrl\(place\.tabelogUrl\)/);
+  assert.match(details, /const tabelogWebUrl = tabelogMultilingualWebUrl\(tabelogUrl\)/);
   assert.match(details, /const tabelogLink = tabelogAppLink\(tabelogUrl\)/);
   assert.match(details, /class="place-contact-grid\$\{tabelogLink \? " has-tabelog-action" : ""\}"/);
-  assert.match(details, /<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}" data-tabelog-fallback="\$\{escapeHtml\(tabelogUrl\)\}"[\s\S]*Tabelog預約/);
+  assert.match(details, /<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}" data-tabelog-fallback="\$\{escapeHtml\(tabelogWebUrl\)\}"[\s\S]*Tabelog預約/);
   const phoneStart = details.indexOf('class="place-contact-item phone-contact-item"');
   const phoneEnd = details.indexOf("</div>", phoneStart);
   const buttonStart = details.indexOf('class="tabelog-reservation-button"');
@@ -500,21 +501,24 @@ test("Tabelog reservation links deep-link to the App with a website fallback", (
     addEventListener: (name, callback) => { windowListeners[name] = callback; },
     removeEventListener: (name) => { delete windowListeners[name]; },
   };
-  const { tabelogRestaurantId, tabelogAppLink, armTabelogWebFallback } = new Function(
+  const { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink, armTabelogWebFallback } = new Function(
     "normalizedPlaceKind",
     "window",
     "document",
-    `${section}; return { tabelogRestaurantId, tabelogAppLink, armTabelogWebFallback };`,
+    `${section}; return { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink, armTabelogWebFallback };`,
   )((place) => place.kind, fakeWindow, fakeDocument);
   const restaurantUrl = "https://tabelog.com/tokyo/A1301/A130103/13292459/";
   assert.equal(tabelogRestaurantId(restaurantUrl), "13292459");
-  assert.equal(tabelogAppLink(restaurantUrl), "tabelog-v2://rstdtl/13292459/");
+  assert.equal(tabelogMultilingualWebUrl(restaurantUrl), "https://tabelog.com/tw/tokyo/A1301/A130103/13292459/");
+  assert.equal(tabelogAppLink(restaurantUrl), "tabelog-tourists://rstdtl/13292459/top/");
   const searchUrl = "https://tabelog.com/rstLst/?sk=ramen";
-  assert.equal(tabelogAppLink(searchUrl), "tabelog-v2://rstlst?prefecture=0");
-  assert.equal(armTabelogWebFallback(restaurantUrl), true);
+  assert.equal(tabelogMultilingualWebUrl(searchUrl), "https://tabelog.com/tw/rstLst/?sk=ramen");
+  assert.equal(tabelogAppLink(searchUrl), "tabelog-tourists://rstlst/");
+  const multilingualRestaurantUrl = tabelogMultilingualWebUrl(restaurantUrl);
+  assert.equal(armTabelogWebFallback(multilingualRestaurantUrl), true);
   assert.equal(timers[0].delay, 1400);
   timers[0].callback();
-  assert.deepEqual(assigned, [restaurantUrl]);
+  assert.deepEqual(assigned, [multilingualRestaurantUrl]);
   assert.match(appSource, /const tabelogLink = event\.target\.closest\("\[data-tabelog-fallback\]"\)/);
   assert.doesNotMatch(appSource, /tabelog\.onelink\.me/);
 });

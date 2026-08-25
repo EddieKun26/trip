@@ -1876,13 +1876,21 @@ function tabelogRestaurantId(value) {
   return url.match(/\/(\d{8})(?:\/|$)/)?.[1] || "";
 }
 
+function tabelogMultilingualWebUrl(value) {
+  const safeUrl = safeTabelogUrl(value);
+  if (!safeUrl) return "";
+  const url = new URL(safeUrl);
+  if (!/^\/(?:tw)(?:\/|$)/i.test(url.pathname)) url.pathname = `/tw${url.pathname}`;
+  return url.toString();
+}
+
 function tabelogAppLink(value) {
   const webUrl = safeTabelogUrl(value);
   if (!webUrl) return "";
   const restaurantId = tabelogRestaurantId(webUrl);
   return restaurantId
-    ? `tabelog-v2://rstdtl/${restaurantId}/`
-    : "tabelog-v2://rstlst?prefecture=0";
+    ? `tabelog-tourists://rstdtl/${restaurantId}/top/`
+    : "tabelog-tourists://rstlst/";
 }
 
 function armTabelogWebFallback(value) {
@@ -3705,6 +3713,7 @@ function openPlaceSheet(name) {
   if (!place) return;
   const reference = placeReferenceMeta(place);
   const tabelogUrl = safeTabelogUrl(place.tabelogUrl);
+  const tabelogWebUrl = tabelogMultilingualWebUrl(tabelogUrl);
   const tabelogLink = tabelogAppLink(tabelogUrl);
   const deleteLabel = place.kind === "lodging"
     ? "刪除這間住宿"
@@ -3779,7 +3788,7 @@ function openPlaceSheet(name) {
                 : `<strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong>`
             }
           </div>
-          ${tabelogLink ? `<a class="tabelog-reservation-button" href="${escapeHtml(tabelogLink)}" data-tabelog-fallback="${escapeHtml(tabelogUrl)}"><span>Tabelog預約</span><b aria-hidden="true">↗</b></a>` : ""}
+          ${tabelogLink && tabelogWebUrl ? `<a class="tabelog-reservation-button" href="${escapeHtml(tabelogLink)}" data-tabelog-fallback="${escapeHtml(tabelogWebUrl)}"><span>Tabelog預約</span><b aria-hidden="true">↗</b></a>` : ""}
         </section>
         <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
           <div class="section-row"><div><small>共同註記</small><strong>旅伴都看得到</strong></div>${canEdit() ? `<button type="submit">儲存註記</button>` : ""}</div>
