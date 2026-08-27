@@ -186,6 +186,13 @@ const sharedInviteCode = String(new URLSearchParams(window.location.search).get(
   .trim()
   .toUpperCase()
   .slice(0, 6);
+const shareTargetSessionKey = "pending-place-share-target-v1";
+const incomingShareTargetText = shareTargetTextFromUrl(window.location.href);
+if (incomingShareTargetText) sessionStorage.setItem(shareTargetSessionKey, incomingShareTargetText);
+let pendingShareTargetText = incomingShareTargetText || sessionStorage.getItem(shareTargetSessionKey) || "";
+if (isShareTargetPath(window.location.pathname)) {
+  window.history.replaceState(window.history.state, "", "/");
+}
 
 const defaultShoppingCategories = [
   { id: "souvenir", name: "伴手禮", builtIn: true },
@@ -1483,6 +1490,7 @@ async function switchTrip(tripId) {
   closeSheet();
   await loadSharedTrip({ force: true });
   await loadShopping({ quiet: true, force: true });
+  maybeOpenShareTargetImport();
 }
 
 async function mutateTrips(payload) {
@@ -4308,6 +4316,32 @@ function socialPlaceUrls(value) {
     .filter(isSocialPlaceUrl))].slice(0, 3);
 }
 
+function isShareTargetPath(value) {
+  return /\/share-target\/?$/i.test(String(value || ""));
+}
+
+function shareTargetTextFromUrl(value) {
+  let requestUrl;
+  try {
+    requestUrl = new URL(String(value || ""));
+  } catch {
+    return "";
+  }
+  if (!isShareTargetPath(requestUrl.pathname)) return "";
+  const parts = [
+    String(requestUrl.searchParams.get("share_title") || "").normalize("NFKC").trim().slice(0, 300),
+    String(requestUrl.searchParams.get("share_text") || "").normalize("NFKC").trim().slice(0, 3000),
+    String(requestUrl.searchParams.get("share_url") || "").trim().slice(0, 1000),
+  ].filter(Boolean);
+  const combined = [...new Set(parts)].join("\n");
+  const sharedUrls = String(combined).match(/https?:\/\/[^\s<>"']+/g) || [];
+  const hasSupportedLink = sharedUrls.some((url) => {
+    const cleanUrl = url.replace(/[),，。]+$/, "");
+    return isSocialPlaceUrl(cleanUrl) || isGoogleMapsUrl(cleanUrl);
+  });
+  return hasSupportedLink ? combined.slice(0, 4000) : "";
+}
+
 function explicitLodgingDetailsFromText(value) {
   const textValue = String(value || "").normalize("NFKC");
   const name = textValue.match(/(?:公寓|住宿|飯店|酒店|民宿)(?:名稱|名称)\s*[:：]\s*([^\r\n]{1,120})/iu)?.[1]?.trim() || "";
@@ -5234,21 +5268,22 @@ function importPreviewMarkup(entries) {
   return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}${socialSummary}${rows}<p class="import-summary">${summary}</p>`;
 }
 
-function openAddPlaceSheet() {
+function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
   pendingPlaceImports = [];
   pendingPlaceImportScreenshot = "";
   pendingPlaceImportNotice = "";
+  const fromShareTarget = Boolean(initialText);
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet import-places-sheet" id="import-places-form">
         <div class="section-row">
-          <div><p class="section-kicker">地點匯入</p><h2>新增地點</h2></div>
+          <div><p class="section-kicker">${fromShareTarget ? "從系統分享收到" : "地點匯入"}</p>${fromShareTarget ? "<h2>確認分享地點</h2>" : "<h2>新增地點</h2>"}</div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option><option value="shopping">購物</option></select></div>
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
-          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結"></textarea>
+          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結">${escapeHtml(initialText)}</textarea>
           <p class="field-hint">訂房平台常擋住自動讀取。住宿請連同房東訊息或訂單確認信一起貼上（含「公寓名稱：…」「地址：…」），才能用正確名稱與門牌定位。</p>
         </div>
         <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
@@ -5258,6 +5293,83 @@ function openAddPlaceSheet() {
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>加入收藏</button></div>
       </form>
     </div>`;
+  if (autoAnalyze) {
+    const analyzeButton = sheetRoot.querySelector("[data-analyze-places]");
+    window.setTimeout(() => analyzePlaceImportSheet(analyzeButton), 0);
+  }
+}
+
+function maybeOpenShareTargetImport() {
+  if (!pendingShareTargetText || !canEdit()) return false;
+  const sharedText = pendingShareTargetText;
+  pendingShareTargetText = "";
+  sessionStorage.removeItem(shareTargetSessionKey);
+  state.activeTab = "places";
+  state.placesMode = "list";
+  render();
+  openAddPlaceSheet({ initialText: sharedText, autoAnalyze: true });
+  return true;
+}
+
+async function analyzePlaceImportSheet(analyzePlaces) {
+  const textarea = document.querySelector("#google-maps-list");
+  const preview = document.querySelector("#import-preview");
+  if (!analyzePlaces || !textarea || !preview) return;
+  analyzePlaces.disabled = true;
+  analyzePlaces.textContent = "正在理解連結與地點…";
+  preview.innerHTML = `<div class="import-empty loading"><strong>正在辨識</strong><span>正在理解連結內容，再比對 Google Maps 候選。</span></div>`;
+  pendingPlaceImports = [];
+  pendingPlaceImportNotice = "";
+  const notices = [];
+  try {
+    pendingPlaceImports = parseGoogleMapsList(textarea.value);
+    pendingPlaceImports = await expandGoogleMapsSharedLists(pendingPlaceImports);
+    pendingPlaceImports = await enrichPlaceImportsFromApi(pendingPlaceImports);
+    const mapImports = [...pendingPlaceImports];
+
+    const socialUrls = socialPlaceUrls(textarea.value);
+    const requestedKind = String(document.querySelector("#import-place-kind")?.value || "auto");
+    const socialSources = socialUrls.length
+      ? socialUrls
+      : pendingPlaceImportScreenshot
+        ? [""]
+        : [];
+    for (let sourceIndex = 0; sourceIndex < socialSources.length; sourceIndex += 1) {
+      try {
+        const sourceRequestedKind = requestedKind === "auto" && isLodgingShareUrl(socialSources[sourceIndex]) ? "lodging" : requestedKind;
+        const socialImports = await recognizeSocialPlace(
+          socialSources[sourceIndex],
+          textarea.value,
+          sourceIndex === 0 ? pendingPlaceImportScreenshot : "",
+          sourceIndex,
+          sourceRequestedKind,
+        );
+        pendingPlaceImports.push(...socialImports);
+      } catch (error) {
+        notices.push(socialImportErrorMessage(error));
+      }
+    }
+    pendingPlaceImports = mergeLodgingMapEvidence(pendingPlaceImports, textarea.value);
+    if (pendingPlaceImports.some((place) => place.kind === "lodging"
+      && place.referenceUrl
+      && validMapCoordinates(Number(place.latitude), Number(place.longitude)))) {
+      const notFoundNotice = socialImportErrorMessage(new Error("GOOGLE_PLACE_NOT_FOUND"));
+      for (let index = notices.length - 1; index >= 0; index -= 1) {
+        if (notices[index] === notFoundNotice) notices.splice(index, 1);
+      }
+    }
+    if (!mapImports.length && !socialSources.length && textarea.value.trim()) {
+      notices.push("沒有找到支援的連結，請貼上 Google Maps、Agoda、Booking.com、Airbnb、Instagram 或 Threads 分享網址。");
+    }
+  } catch {
+    notices.push("地點資料暫時無法辨識，請稍後再試。");
+  } finally {
+    pendingPlaceImportNotice = [...new Set(notices)].join(" ");
+    preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+    updateImportConfirmState();
+    analyzePlaces.disabled = false;
+    analyzePlaces.textContent = "⌁　重新辨識";
+  }
 }
 
 function openDateSheet(area) {
@@ -5968,64 +6080,7 @@ document.addEventListener("click", async (event) => {
 
   const analyzePlaces = event.target.closest("[data-analyze-places]");
   if (analyzePlaces) {
-    const textarea = document.querySelector("#google-maps-list");
-    const preview = document.querySelector("#import-preview");
-    if (!textarea || !preview) return;
-    analyzePlaces.disabled = true;
-    analyzePlaces.textContent = "正在理解連結與地點…";
-    preview.innerHTML = `<div class="import-empty loading"><strong>正在辨識</strong><span>正在理解連結內容，再比對 Google Maps 候選。</span></div>`;
-    pendingPlaceImports = [];
-    pendingPlaceImportNotice = "";
-    const notices = [];
-    try {
-      pendingPlaceImports = parseGoogleMapsList(textarea.value);
-      pendingPlaceImports = await expandGoogleMapsSharedLists(pendingPlaceImports);
-      pendingPlaceImports = await enrichPlaceImportsFromApi(pendingPlaceImports);
-      const mapImports = [...pendingPlaceImports];
-
-      const socialUrls = socialPlaceUrls(textarea.value);
-      const requestedKind = String(document.querySelector("#import-place-kind")?.value || "auto");
-      const socialSources = socialUrls.length
-        ? socialUrls
-        : pendingPlaceImportScreenshot
-          ? [""]
-          : [];
-      for (let sourceIndex = 0; sourceIndex < socialSources.length; sourceIndex += 1) {
-        try {
-          const sourceRequestedKind = requestedKind === "auto" && isLodgingShareUrl(socialSources[sourceIndex]) ? "lodging" : requestedKind;
-          const socialImports = await recognizeSocialPlace(
-            socialSources[sourceIndex],
-            textarea.value,
-            sourceIndex === 0 ? pendingPlaceImportScreenshot : "",
-            sourceIndex,
-            sourceRequestedKind,
-          );
-          pendingPlaceImports.push(...socialImports);
-        } catch (error) {
-          notices.push(socialImportErrorMessage(error));
-        }
-      }
-      pendingPlaceImports = mergeLodgingMapEvidence(pendingPlaceImports, textarea.value);
-      if (pendingPlaceImports.some((place) => place.kind === "lodging"
-        && place.referenceUrl
-        && validMapCoordinates(Number(place.latitude), Number(place.longitude)))) {
-        const notFoundNotice = socialImportErrorMessage(new Error("GOOGLE_PLACE_NOT_FOUND"));
-        for (let index = notices.length - 1; index >= 0; index -= 1) {
-          if (notices[index] === notFoundNotice) notices.splice(index, 1);
-        }
-      }
-      if (!mapImports.length && !socialSources.length && textarea.value.trim()) {
-        notices.push("沒有找到支援的連結，請貼上 Google Maps、Agoda、Booking.com、Airbnb、Instagram 或 Threads 分享網址。");
-      }
-    } catch {
-      notices.push("地點資料暫時無法辨識，請稍後再試。");
-    } finally {
-      pendingPlaceImportNotice = [...new Set(notices)].join(" ");
-      preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
-      updateImportConfirmState();
-      analyzePlaces.disabled = false;
-      analyzePlaces.textContent = "⌁　重新辨識";
-    }
+    await analyzePlaceImportSheet(analyzePlaces);
     return;
   }
 
@@ -6739,6 +6794,7 @@ document.addEventListener("submit", async (event) => {
         return showToast(error.message === "INVITE_NOT_FOUND" ? "找不到這組邀請碼，請確認後重試" : "已登入，但暫時無法加入旅程");
       }
     }
+    maybeOpenShareTargetImport();
     return showToast(`接下來會用「${nickname}」標記你的選擇`);
   }
 
@@ -6912,6 +6968,7 @@ if (state.profile) {
   loadTrips()
     .then(() => {
       if (state.pendingInviteCode) openJoinTripSheet();
+      else maybeOpenShareTargetImport();
     })
     .catch(() => showToast("旅程清單暫時無法載入"));
 } else if (state.isGuest) {

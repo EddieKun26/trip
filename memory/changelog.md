@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-27
+
+- Added a standards-based PWA Web Share Target for links. The manifest sends GET `title`, `text`, and `url` fields to a no-cache `/share-target` route; the receiver bounds and validates shared content, rejects deceptive lookalike hosts, preserves a valid payload through login/trip loading, strips it from browser history, and opens the existing import sheet with automatic recognition and the same explicit Google-candidate confirmation used by pasted links. Agoda, Booking.com, Airbnb, Instagram, Threads, and existing Google Maps links are covered, while the manual paste and screenshot fallbacks remain intact. Frontend assets advanced to 20260827.1; `node --check app.js` and all 95 tests pass.
+- Recorded the current platform boundary: WebKit bug 194593 is still open, so iPhone home-screen web apps do not register manifest Web Share Targets. The new receiver is ready for compatible platforms and future Safari support, but direct iPhone Share Sheet delivery still needs an iOS Shortcut or native Share Extension and has not been reported as an iPhone validation pass.
+
 ## 2026-08-25
 
 - Added a 44px `食べログ查看` action directly below the phone number in Japanese restaurant detail sheets. It opens Tabelog's restaurant search with the Google place's full restaurant name and local area, appears only for restaurant records that resolve to Japan, and keeps non-Japanese restaurants and other place types unchanged.

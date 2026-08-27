@@ -707,6 +707,42 @@ test("each social place group can be rematched or skipped without forcing a wron
   assert.match(stylesSource, /\.import-rematch-sheet input\s*{[^}]*font-size:\s*16px/s);
 });
 
+test("PWA share target routes supported links into the existing confirmed place-import flow", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../manifest.webmanifest", import.meta.url), "utf8"));
+  assert.deepEqual(manifest.share_target, {
+    action: "./share-target",
+    method: "GET",
+    enctype: "application/x-www-form-urlencoded",
+    params: { title: "share_title", text: "share_text", url: "share_url" },
+  });
+  assert.match(vercelSource, /"source": "\/share-target", "destination": "\/index\.html"/);
+  assert.match(vercelSource, /"source": "\/share-target"[\s\S]*no-cache, no-store, must-revalidate/);
+
+  const section = sourceSection("function isGoogleMapsUrl", "function explicitLodgingDetailsFromText");
+  const { shareTargetTextFromUrl } = new Function(`${section}; return { shareTargetTextFromUrl };`)();
+  const sources = [
+    "https://www.agoda.com/example-hotel/hotel/tokyo-jp.html",
+    "https://www.booking.com/hotel/jp/example.html",
+    "https://www.airbnb.com/rooms/123456",
+    "https://www.instagram.com/reel/ABC123/",
+    "https://www.threads.com/@traveler/post/ABC123",
+  ];
+  for (const sourceUrl of sources) {
+    const request = new URL("https://trip.example/share-target");
+    request.searchParams.set("share_title", "分享的住宿或貼文");
+    request.searchParams.set("share_text", "請匯入這個地點");
+    request.searchParams.set("share_url", sourceUrl);
+    const parsed = shareTargetTextFromUrl(request.toString());
+    assert.match(parsed, /分享的住宿或貼文/);
+    assert.match(parsed, new RegExp(sourceUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.equal(shareTargetTextFromUrl("https://trip.example/?share_url=https://www.booking.com/hotel/jp/example.html"), "");
+  assert.equal(shareTargetTextFromUrl("https://trip.example/share-target?share_url=https://booking.com.evil.example/phish"), "");
+  assert.match(appSource, /openAddPlaceSheet\(\{ initialText: sharedText, autoAnalyze: true \}\)/);
+  assert.match(appSource, /async function analyzePlaceImportSheet/);
+  assert.match(appSource, /sessionStorage\.removeItem\(shareTargetSessionKey\)/);
+});
+
 test("deployed frontend revalidates assets and refreshes long-lived tabs", () => {
   assert.match(indexSource, /styles\.css\?v=\d{8}\.\d+/);
   assert.match(indexSource, /app\.js\?v=\d{8}\.\d+/);

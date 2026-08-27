@@ -42,6 +42,7 @@
 ## Delivery reliability
 
 - Production HTML is not stored as a reusable browser response, while `app.js` and `styles.css` must revalidate. The document loads versioned asset URLs, and the running app checks the current script ETag/Last-Modified value when a long-lived tab returns to the foreground so a newer deployment can reload automatically.
+- PWA link sharing uses a same-origin GET `share_target` route with bounded `title`, `text`, and `url` parameters. The client accepts only supported social/booking or Google Maps hosts, removes the share payload from browser history, holds it in session storage only until an authenticated editable trip is ready, and then invokes the existing review-and-confirm import path. Manual paste and screenshot import remain first-class fallbacks. This standards receiver must not be described as an iPhone Share Sheet feature while WebKit bug 194593 remains open; iPhone requires an iOS Shortcut, a native Share Extension, or future WebKit support.
 - After an implementation is complete and its relevant checks pass, publish this project's validated deployment mirror directly to GitHub `main` so Vercel updates production. The user has granted standing project-specific authorization and does not want a separate deployment question each time; platform-enforced security confirmations may still appear.
 
 ## Fullscreen map workspace

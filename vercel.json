@@ -7,6 +7,9 @@
     "api/shopping-research.mjs": { "maxDuration": 90 },
     "api/shopping-images.mjs": { "maxDuration": 60 }
   },
+  "rewrites": [
+    { "source": "/share-target", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -23,6 +26,12 @@
     },
     {
       "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/share-target",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]

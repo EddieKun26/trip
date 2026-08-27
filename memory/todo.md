@@ -6,7 +6,7 @@
 - Verify representative public, login-gated, private, and address-only hidden-lodging Instagram/Threads posts on a signed-in production iPhone session and tune matching prompts only from observed failures.
 - Verify representative Agoda, Booking.com, Airbnb, and `abnb.me` share links on a signed-in production iPhone session, including links whose public metadata is blocked or incomplete and apartments that use the new address-coordinate fallback.
 - Verify independent social-place re-search and skip/unskip behavior with a real ambiguous multi-store post on iPhone, including several consecutive re-search rounds.
-- Consider an iOS Shortcut or native Share Extension after the web import flow is stable; the web version deliberately starts with pasted links rather than claiming direct app-share-sheet integration.
+- Choose and implement either an iOS Shortcut or native Share Extension if direct iPhone Share Sheet delivery is required before WebKit implements Web Share Target; keep the standards-based `/share-target` receiver ready for compatible platforms and future Safari support.
 - Rotate the exposed Google Maps key, then restrict the browser key by production HTTP referrer and enable only required APIs.
 - Perform final real-device iPhone verification before packaging a test app.
 - Consider Google Routes/Transit integration only after the manual transport workflow is stable; it adds API cost and routing complexity.
