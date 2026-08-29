@@ -1,0 +1,36 @@
+name: Sign iOS Shortcut
+
+on:
+  push:
+    branches:
+      - shortcut-signing-20260829
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign distributable Shortcut
+        shell: bash
+        run: |
+          if [[ -f 'shortcuts/旅伴匯入.shortcut' ]]; then
+            exit 0
+          fi
+          cp 'shortcuts/source/旅伴匯入.plist' "$RUNNER_TEMP/travel-import.shortcut"
+          shortcuts sign --mode anyone --input "$RUNNER_TEMP/travel-import.shortcut" --output 'shortcuts/旅伴匯入.shortcut'
+          test "$(xxd -p -l 4 'shortcuts/旅伴匯入.shortcut')" = '41454131'
+      - name: Commit signed artifact
+        shell: bash
+        run: |
+          if git diff --quiet -- 'shortcuts/旅伴匯入.shortcut'; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'shortcuts/旅伴匯入.shortcut'
+          git commit -m 'Sign iOS Shortcut artifact'
+          git push
