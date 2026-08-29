@@ -17,20 +17,27 @@ jobs:
       - name: Sign distributable Shortcut
         shell: bash
         run: |
-          if [[ -f 'shortcuts/旅伴匯入.shortcut' ]]; then
-            exit 0
-          fi
           cp 'shortcuts/source/旅伴匯入.plist' "$RUNNER_TEMP/travel-import.shortcut"
-          shortcuts sign --mode anyone --input "$RUNNER_TEMP/travel-import.shortcut" --output 'shortcuts/旅伴匯入.shortcut'
-          test "$(xxd -p -l 4 'shortcuts/旅伴匯入.shortcut')" = '41454131'
+          set +e
+          shortcuts sign --mode anyone --input "$RUNNER_TEMP/travel-import.shortcut" --output 'shortcuts/旅伴匯入.shortcut' > signing-output.txt 2>&1
+          status=$?
+          set -e
+          printf 'exit=%s\n' "$status" > signing-status.txt
+          cat signing-output.txt >> signing-status.txt
+          if [[ "$status" -eq 0 ]]; then
+            test "$(xxd -p -l 4 'shortcuts/旅伴匯入.shortcut')" = '41454131'
+          fi
       - name: Commit signed artifact
         shell: bash
         run: |
-          if git diff --quiet -- 'shortcuts/旅伴匯入.shortcut'; then
+          git add signing-status.txt
+          if [[ -f 'shortcuts/旅伴匯入.shortcut' ]]; then
+            git add 'shortcuts/旅伴匯入.shortcut'
+          fi
+          if git diff --cached --quiet; then
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'shortcuts/旅伴匯入.shortcut'
-          git commit -m 'Sign iOS Shortcut artifact'
+          git commit -m 'Report iOS Shortcut signing result'
           git push
