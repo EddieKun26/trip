@@ -637,9 +637,27 @@ const flightAirportCatalog = [
   { city: "新加坡", aliases: ["Singapore"], code: "SIN", name: "樟宜機場" },
   { city: "曼谷", aliases: ["Bangkok", "素萬那普"], code: "BKK", name: "蘇凡納布機場" },
   { city: "曼谷", aliases: ["Bangkok", "廊曼"], code: "DMK", name: "廊曼國際機場" },
+  { city: "杜拜", aliases: ["Dubai", "迪拜"], code: "DXB", name: "杜拜國際機場" },
+  { city: "阿布達比", aliases: ["Abu Dhabi", "阿布扎比"], code: "AUH", name: "扎耶德國際機場" },
+  { city: "杜哈", aliases: ["Doha", "多哈"], code: "DOH", name: "哈馬德國際機場" },
+  { city: "伊斯坦堡", aliases: ["Istanbul", "伊斯坦布爾"], code: "IST", name: "伊斯坦堡機場" },
+  { city: "倫敦", aliases: ["London"], code: "LHR", name: "希斯洛機場" },
+  { city: "倫敦", aliases: ["London", "Gatwick"], code: "LGW", name: "蓋威克機場" },
+  { city: "巴黎", aliases: ["Paris"], code: "CDG", name: "戴高樂機場" },
+  { city: "阿姆斯特丹", aliases: ["Amsterdam"], code: "AMS", name: "史基浦機場" },
+  { city: "法蘭克福", aliases: ["Frankfurt"], code: "FRA", name: "法蘭克福機場" },
+  { city: "慕尼黑", aliases: ["Munich"], code: "MUC", name: "慕尼黑機場" },
+  { city: "蘇黎世", aliases: ["Zurich", "Zürich"], code: "ZRH", name: "蘇黎世機場" },
+  { city: "赫爾辛基", aliases: ["Helsinki"], code: "HEL", name: "赫爾辛基機場" },
+  { city: "羅馬", aliases: ["Rome"], code: "FCO", name: "羅馬菲烏米奇諾機場" },
+  { city: "洛杉磯", aliases: ["Los Angeles"], code: "LAX", name: "洛杉磯國際機場" },
+  { city: "舊金山", aliases: ["San Francisco"], code: "SFO", name: "舊金山國際機場" },
+  { city: "紐約", aliases: ["New York"], code: "JFK", name: "甘迺迪國際機場" },
+  { city: "溫哥華", aliases: ["Vancouver"], code: "YVR", name: "溫哥華國際機場" },
+  { city: "多倫多", aliases: ["Toronto"], code: "YYZ", name: "多倫多皮爾遜國際機場" },
 ];
 
-const flightCitySuggestions = ["高雄", "台北", "桃園", "台中", "東京", "成田", "大阪", "名古屋", "福岡", "札幌", "沖繩", "首爾", "釜山", "濟州", "香港", "澳門", "新加坡", "曼谷"];
+const flightCitySuggestions = [...new Set(flightAirportCatalog.flatMap((airport) => [airport.city, ...airport.aliases]))];
 
 function normalizeFlightCity(value = "") {
   return String(value).normalize("NFKC").trim().toLocaleLowerCase();
@@ -686,9 +704,9 @@ function updateFlightFormMode(form) {
   const returnFields = form.querySelector("[data-flight-return-fields]");
   if (returnFields) {
     returnFields.hidden = !isRoundTrip;
-    returnFields.querySelectorAll("input").forEach((input) => {
-      input.disabled = !isRoundTrip;
-      input.required = isRoundTrip;
+    returnFields.querySelectorAll("input, select, button").forEach((control) => {
+      control.disabled = !isRoundTrip;
+      if (control.matches("input, select") && !control.closest("[data-flight-connection]")) control.required = isRoundTrip;
     });
   }
   const routeLabel = form.querySelector("[data-flight-return-route]");
@@ -698,6 +716,64 @@ function updateFlightFormMode(form) {
     routeLabel.textContent = `${arrivalCity} → ${departureCity}`;
   }
   form.classList.toggle("round-trip-mode", isRoundTrip);
+}
+
+function flightConnectionFieldMarkup({ id, direction, segment = {}, index = 1 }) {
+  const prefix = `flight-connection-${id}`;
+  return `
+    <section class="flight-connection-segment" data-flight-connection data-flight-direction="${direction}">
+      <div class="flight-connection-heading"><span>航段 ${index + 1}</span><strong>轉機後續航班</strong><button type="button" data-remove-flight-connection aria-label="移除航段 ${index + 1}">移除</button></div>
+      <div class="flight-form-grid"><div class="field"><label for="${prefix}-departure-city">出發城市</label><input id="${prefix}-departure-city" name="${prefix}-departureCity" list="flight-city-options" data-flight-segment-field="departureCity" data-flight-city-side="${prefix}-departure" autocomplete="off" required value="${escapeHtml(segment.departureCity || "")}" placeholder="轉機城市" /></div><div class="field compact-field"><label>機場</label><select data-flight-segment-field="departureCode" name="${prefix}-departureCode" required>${airportOptionsMarkup(segment.departureCity, segment.departureCode)}</select></div></div>
+      <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "出發日期", name: `${prefix}-departureDate`, type: "date", value: segment.departureDate || state.startDate })}${flightDateTimeInputMarkup({ label: "出發時間", name: `${prefix}-departureTime`, type: "time", value: segment.departureTime || "12:00" })}</div>
+      <div class="flight-form-grid"><div class="field"><label for="${prefix}-arrival-city">抵達城市</label><input id="${prefix}-arrival-city" name="${prefix}-arrivalCity" list="flight-city-options" data-flight-segment-field="arrivalCity" data-flight-city-side="${prefix}-arrival" autocomplete="off" required value="${escapeHtml(segment.arrivalCity || "")}" placeholder="最終目的地" /></div><div class="field compact-field"><label>機場</label><select data-flight-segment-field="arrivalCode" name="${prefix}-arrivalCode" required>${airportOptionsMarkup(segment.arrivalCity, segment.arrivalCode)}</select></div></div>
+      <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "抵達日期", name: `${prefix}-arrivalDate`, type: "date", value: segment.arrivalDate || segment.departureDate || state.startDate })}${flightDateTimeInputMarkup({ label: "抵達時間", name: `${prefix}-arrivalTime`, type: "time", value: segment.arrivalTime || "16:00" })}</div>
+    </section>`;
+}
+
+function flightSegmentFromConnection(section) {
+  const value = (field) => String(section.querySelector(`[data-flight-segment-field="${field}"]`)?.value || "").trim();
+  const namedValue = (suffix) => String(section.querySelector(`[name$="-${suffix}"]`)?.value || "").trim();
+  return {
+    departureCity: value("departureCity"),
+    departureCode: value("departureCode").toUpperCase(),
+    departureDate: namedValue("departureDate"),
+    departureTime: namedValue("departureTime"),
+    arrivalCity: value("arrivalCity"),
+    arrivalCode: value("arrivalCode").toUpperCase(),
+    arrivalDate: namedValue("arrivalDate"),
+    arrivalTime: namedValue("arrivalTime"),
+  };
+}
+
+function addFlightConnection(form, direction) {
+  const list = form?.querySelector(`[data-flight-connection-list="${direction}"]`);
+  if (!form || !list || list.children.length >= 5) return showToast("單一方向最多可加入 6 個航段");
+  const previous = list.lastElementChild
+    ? flightSegmentFromConnection(list.lastElementChild)
+    : direction === "return"
+      ? {
+          arrivalCity: String(form.elements.returnArrivalCity?.value || ""),
+          arrivalCode: String(form.elements.returnArrivalCode?.value || ""),
+          arrivalDate: String(form.elements.returnArrivalDate?.value || state.endDate),
+        }
+      : {
+          arrivalCity: String(form.elements.arrivalCity?.value || ""),
+          arrivalCode: String(form.elements.arrivalCode?.value || ""),
+          arrivalDate: String(form.elements.arrivalDate?.value || state.startDate),
+        };
+  const id = `${direction}-${crypto.randomUUID?.() || Date.now()}`;
+  list.insertAdjacentHTML("beforeend", flightConnectionFieldMarkup({
+    id,
+    direction,
+    index: list.children.length + 1,
+    segment: {
+      departureCity: previous.arrivalCity,
+      departureCode: previous.arrivalCode,
+      departureDate: previous.arrivalDate,
+      arrivalDate: previous.arrivalDate,
+    },
+  }));
+  list.lastElementChild?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
 }
 
 function flightDateTimeDisplayValue(type, value = "") {
@@ -933,6 +1009,10 @@ async function handleFlightTicketFile(input) {
 }
 
 function flightItineraryDate(flight) {
+  if (flight?.journeyId || Number(flight?.segmentCount) > 1) {
+    const segmentDate = compactTripDate(flight.departureDate);
+    if (dateMeta.some(([date]) => date === segmentDate)) return segmentDate;
+  }
   if (flight.direction === "去程") return dateMeta[0]?.[0] || compactTripDate(flight.departureDate);
   if (flight.direction === "回程") return dateMeta.at(-1)?.[0] || compactTripDate(flight.departureDate);
   const departureDate = compactTripDate(flight.departureDate);
@@ -1641,14 +1721,33 @@ function emptyGuestScreen() {
     </section>`;
 }
 
+function flightDirectionLabel(flight) {
+  const segmentCount = Math.max(1, Number(flight?.segmentCount) || 1);
+  const segmentIndex = Math.max(0, Number(flight?.segmentIndex) || 0);
+  return segmentCount > 1 ? `${flight.direction || "航班"} ${segmentIndex + 1}/${segmentCount}` : flight.direction || tripDateLabel(flight.departureDate);
+}
+
+function flightLayoverLabel(flight) {
+  if (!flight?.journeyId || !(Number(flight.segmentIndex) > 0)) return "";
+  const previous = state.flights.find((candidate) => candidate.journeyId === flight.journeyId && Number(candidate.segmentIndex) === Number(flight.segmentIndex) - 1);
+  if (!previous) return "";
+  const previousArrival = new Date(`${previous.arrivalDate}T${previous.arrivalTime || "00:00"}`).getTime();
+  const departure = new Date(`${flight.departureDate}T${flight.departureTime || "00:00"}`).getTime();
+  const minutes = Math.round((departure - previousArrival) / 60000);
+  if (!Number.isFinite(minutes) || minutes < 0) return `${flight.departureCity || previous.arrivalCity}轉機`;
+  const duration = minutes >= 60 ? `${Math.floor(minutes / 60)} 小時${minutes % 60 ? ` ${minutes % 60} 分` : ""}` : `${minutes} 分`;
+  return `${flight.departureCity || previous.arrivalCity}轉機 ${duration}`;
+}
+
 function flightMarkup(flight) {
+  const layover = flightLayoverLabel(flight);
   return `
     <button class="flight-leg editable-flight" type="button" ${canEdit() ? `data-edit-flight="${escapeHtml(flight.id)}"` : "data-guest-action"}>
-      <span class="flight-direction-badge">${escapeHtml(flight.direction || tripDateLabel(flight.departureDate))}</span>
+      <span class="flight-direction-badge">${escapeHtml(flightDirectionLabel(flight))}</span>
       <div class="airport departure-airport"><strong>${escapeHtml(flight.departureCity || "出發地")}</strong><span>${escapeHtml(flight.departureCode || "---")} · ${escapeHtml(flight.departureTime || "--:--")}</span></div>
       <div class="flight-arrow" aria-hidden="true"><span class="plane">✈</span></div>
       <div class="airport arrival-airport"><strong>${escapeHtml(flight.arrivalCity || "抵達地")}</strong><span>${escapeHtml(flight.arrivalCode || "---")} · ${escapeHtml(flight.arrivalTime || "--:--")}</span></div>
-      <span class="flight-travelers">${escapeHtml(flight.travelers || "尚未註記乘客")}</span>
+      <span class="flight-travelers">${layover ? `<b>${escapeHtml(layover)}</b><i>·</i>` : ""}${escapeHtml(flight.travelers || "尚未註記乘客")}</span>
     </button>`;
 }
 
@@ -2195,12 +2294,14 @@ function mapScreen() {
           <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area || "待確認區域"))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
         </button>`).join("")
     : `<div class="map-sidebar-empty">目前沒有符合篩選的地點</div>`;
+  const selectedPreviewPlace = projectedPlaces.find((place) => place.name === state.selectedMapPlace);
   const mapCanvas = `
     <div class="map-canvas" data-map-host>
       <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
       <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
       ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
       ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
+      <div class="map-place-preview-dock" data-map-preview-dock ${selectedPreviewPlace ? "" : "hidden"}>${selectedPreviewPlace ? mapPlacePreviewMarkup(selectedPreviewPlace) : ""}</div>
     </div>`;
 
   if (mapFullscreen) {
@@ -2422,12 +2523,60 @@ function markerHtml(place) {
   const routeLabel = isDayRoute ? `${escapeHtml(place.routeDate || "當日")}第 ${place.dayOrder} 站，` : "";
   const badge = place.isAirport ? escapeHtml(place.airportCode || "機場") : `★ ${placeVoters(place.name).length}`;
   const recommendationLabel = place.isAirport ? "" : `，${placeVoters(place.name).length} 人推薦`;
-  return `<button class="google-place-pin ${isDayRoute ? "day-route-pin" : ""} ${place.isAirport ? "airport-pin" : ""}" type="button" style="--pin-color:${color}" aria-label="${routeLabel}${escapeHtml(place.name)}${recommendationLabel}"><span>${escapeHtml(place.mark)}</span><b>${badge}</b>${isDayRoute ? `<em>${place.dayOrder}</em>` : ""}</button>`;
+  return `<button class="google-place-pin ${isDayRoute ? "day-route-pin" : ""} ${place.isAirport ? "airport-pin" : ""} ${state.selectedMapPlace === place.name ? "selected" : ""}" type="button" data-map-place-marker="${escapeHtml(place.name)}" style="--pin-color:${color}" aria-label="${routeLabel}${escapeHtml(place.name)}${recommendationLabel}"><span>${escapeHtml(place.mark)}</span><b>${badge}</b>${isDayRoute ? `<em>${place.dayOrder}</em>` : ""}</button>`;
+}
+
+function mapPlacePreviewMarkup(place) {
+  if (!place || place.isAirport) return "";
+  const photo = place.photos?.[0]?.name
+    ? `<img src="/api/place-photo?name=${encodeURIComponent(place.photos[0].name)}" alt="${escapeHtml(place.name)}照片" loading="eager" />`
+    : `<span style="--preview-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</span>`;
+  const voters = placeVoters(place.name).length;
+  const rating = Number(place.rating) > 0 ? `★ ${Number(place.rating).toFixed(1)}` : voters ? `★ ${voters} 人推薦` : "尚未有人推薦";
+  return `
+    <article class="map-place-preview-card" aria-label="${escapeHtml(place.name)}地點預覽">
+      <button class="map-place-preview-main" type="button" data-open-map-place-detail="${escapeHtml(place.name)}">
+        <span class="map-place-preview-photo">${photo}</span>
+        <span class="map-place-preview-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(rating)} · ${escapeHtml(kindLabel(place.kind))}</small><em>${escapeHtml(areaChineseName(place.area || "待確認區域"))}</em></span>
+        <b aria-hidden="true">›</b>
+      </button>
+      <button class="map-place-preview-close" type="button" data-close-map-preview aria-label="關閉地點預覽">×</button>
+    </article>`;
+}
+
+function focusActiveMapOnPlace(place) {
+  if (!place || !Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) return;
+  if (activeGoogleMap && window.google?.maps) {
+    activeGoogleMap.panTo({ lat: place.latitude, lng: place.longitude });
+    if ((activeGoogleMap.getZoom() || 0) < 15) activeGoogleMap.setZoom(15);
+  } else if (activeLeafletMap) {
+    activeLeafletMap.setView([place.latitude, place.longitude], Math.max(activeLeafletMap.getZoom() || 0, 15), { animate: true });
+  }
+}
+
+function updateMapPlacePreview(place) {
+  state.selectedMapPlace = place?.name || "";
+  const dock = document.querySelector("[data-map-preview-dock]");
+  if (dock) {
+    dock.hidden = !place || place.isAirport;
+    dock.innerHTML = place && !place.isAirport ? mapPlacePreviewMarkup(place) : "";
+  }
+  document.querySelectorAll("[data-map-place-marker]").forEach((marker) => marker.classList.toggle("selected", marker.dataset.mapPlaceMarker === state.selectedMapPlace));
+  document.querySelectorAll("[data-focus-map-place]").forEach((button) => button.classList.toggle("active", button.dataset.focusMapPlace === state.selectedMapPlace));
+  if (place) focusActiveMapOnPlace(place);
+}
+
+function selectMapPlace(place) {
+  updateMapPlacePreview(place);
+  if (!place || place.isAirport || place.photosLoaded) return;
+  ensurePlaceDetails(place).then(() => {
+    if (state.selectedMapPlace === place.name) updateMapPlacePreview(place);
+  });
 }
 
 function openMapNode(place) {
   if (place.isAirport) return openGoogleMaps(place.sourceUrl);
-  return openPlaceSheet(place.name);
+  return selectMapPlace(place);
 }
 
 async function getGoogleMapsBrowserKey() {
@@ -2476,6 +2625,7 @@ function renderGoogleInteractiveMap(host, places) {
     streetViewControl: false,
   });
   activeGoogleMap = map;
+  map.addListener("click", () => updateMapPlacePreview(null));
   map.addListener("dragstart", () => { mapInteractionUntil = Date.now() + 5000; });
   map.addListener("zoom_changed", () => { mapInteractionUntil = Date.now() + 3000; });
   const bounds = new google.maps.LatLngBounds();
@@ -2544,6 +2694,8 @@ function renderGoogleInteractiveMap(host, places) {
     new TripPlaceOverlay(place).setMap(map);
   });
   if (places.length > 1) map.fitBounds(bounds, 42);
+  const selectedPlace = places.find((place) => place.name === state.selectedMapPlace);
+  if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
   syncLiveLocationLayers({ center: liveLocationEnabled });
 }
 
@@ -2595,12 +2747,15 @@ function renderLeafletInteractiveMap(host, places) {
       iconSize: [54, 36],
       iconAnchor: [27 - (place.pinOffsetX || 0), 36 - (place.pinOffsetY || 0)],
     });
-    L.marker(point, { icon, title: place.name })
+    L.marker(point, { icon, title: place.name, bubblingMouseEvents: false })
       .addTo(activeLeafletMap)
       .on("click", () => openMapNode(place));
   });
   if (bounds.length > 1) activeLeafletMap.fitBounds(bounds, { padding: [42, 42] });
   else activeLeafletMap.setView(bounds[0] || [35.6762, 139.6503], bounds.length ? 14 : 11);
+  activeLeafletMap.on("click", () => updateMapPlacePreview(null));
+  const selectedPlace = places.find((place) => place.name === state.selectedMapPlace);
+  if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
   syncLiveLocationLayers({ center: liveLocationEnabled });
 }
 
@@ -2805,6 +2960,52 @@ function shoppingPreferredPhoto(item) {
   return selected?.url || shoppingPhoto(item?.photoId);
 }
 
+const shoppingCurrencies = ["JPY", "TWD", "KRW", "USD", "EUR", "GBP", "CNY", "HKD", "THB", "SGD", "CAD", "AUD"];
+
+function defaultShoppingCurrency() {
+  const destination = String(state.destination || "");
+  if (/日本|東京|大阪|京都|Japan/i.test(destination)) return "JPY";
+  if (/韓國|首爾|釜山|Korea/i.test(destination)) return "KRW";
+  if (/台灣|臺灣|Taiwan/i.test(destination)) return "TWD";
+  if (/英國|倫敦|United Kingdom|London/i.test(destination)) return "GBP";
+  if (/歐洲|法國|德國|義大利|西班牙|荷蘭|Europe|Paris|Frankfurt|Rome/i.test(destination)) return "EUR";
+  return "JPY";
+}
+
+function normalizeShoppingPrice(value) {
+  const normalized = String(value ?? "").normalize("NFKC").replace(/[,，\s]/g, "");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) && amount > 0 ? Math.min(amount, 1_000_000_000) : 0;
+}
+
+function shoppingCurrencyOptions(selected = "") {
+  const active = shoppingCurrencies.includes(String(selected).toUpperCase()) ? String(selected).toUpperCase() : defaultShoppingCurrency();
+  return shoppingCurrencies.map((currency) => `<option value="${currency}" ${currency === active ? "selected" : ""}>${currency}</option>`).join("");
+}
+
+function shoppingMoneyLabel(item) {
+  const amount = normalizeShoppingPrice(item?.price);
+  const currency = shoppingCurrencies.includes(String(item?.currency).toUpperCase()) ? String(item.currency).toUpperCase() : "";
+  if (!amount || !currency) return "";
+  try {
+    return new Intl.NumberFormat("zh-TW", { style: "currency", currency, maximumFractionDigits: ["JPY", "KRW"].includes(currency) ? 0 : 2 }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString("zh-TW")}`;
+  }
+}
+
+function shoppingBudgetMarkup() {
+  const totals = new Map();
+  state.shopping.items.forEach((item) => {
+    const amount = normalizeShoppingPrice(item.price);
+    const currency = shoppingCurrencies.includes(String(item.currency).toUpperCase()) ? String(item.currency).toUpperCase() : "";
+    if (amount && currency) totals.set(currency, (totals.get(currency) || 0) + amount);
+  });
+  if (!totals.size) return `<section class="shopping-budget-strip empty"><span>預估採買</span><strong>加入價格後自動加總</strong></section>`;
+  const values = [...totals].map(([currency, price]) => shoppingMoneyLabel({ currency, price })).join(" ＋ ");
+  return `<section class="shopping-budget-strip"><span>預估採買總額</span><strong>${escapeHtml(values)}</strong><small>依幣別分開計算，不自動換匯</small></section>`;
+}
+
 function shoppingClone() {
   return JSON.parse(JSON.stringify(state.shopping));
 }
@@ -2847,6 +3048,7 @@ function shoppingItemMarkup(item) {
     .filter(Boolean)
     .map((name) => `<span>${escapeHtml(name)}</span>`)
     .join("");
+  const priceLabel = shoppingMoneyLabel(item);
   return `
     <div class="swipe-row shopping-swipe-row ${shoppingSelectionMode ? "selection-mode" : ""}">
       ${canManageShopping() && !shoppingSelectionMode ? `<button class="swipe-delete" type="button" data-request-delete-shopping="${escapeHtml(item.id)}" aria-label="刪除${escapeHtml(item.name)}">刪除</button>` : ""}
@@ -2858,6 +3060,7 @@ function shoppingItemMarkup(item) {
         <span class="shopping-thumb">${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}商品圖" referrerpolicy="no-referrer" />` : `<b>${escapeHtml(item.name.slice(0, 1))}</b>`}</span>
         <span class="shopping-item-copy">
           <span class="shopping-item-heading"><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(shoppingCategoryName(item.categoryId))}</em></span>
+          ${priceLabel ? `<small class="shopping-price-line">預估 · ${escapeHtml(priceLabel)}</small>` : ""}
           ${item.brand ? `<small class="shopping-brand-line">品牌 · ${escapeHtml(item.brand)}</small>` : ""}
           ${item.benefits ? `<small>功效 · ${escapeHtml(item.benefits)}</small>` : tags ? `<span class="shopping-recipient-tags">${tags}</span>` : `<small>尚未標記購買對象</small>`}
         </span>
@@ -2906,6 +3109,7 @@ function shoppingScreen() {
         <div><strong>${total}</strong><span>全部</span></div>
         <i style="--shopping-progress:${total ? Math.round((done / total) * 100) : 0}%"></i>
       </section>
+      ${shoppingBudgetMarkup()}
       <div class="shopping-category-tabs">${categoryTabs}</div>
       ${recipientFilter}
       <div class="shopping-status-tabs" role="group" aria-label="購買狀態">
@@ -2977,7 +3181,7 @@ function openShoppingDetailSheet(itemId) {
         </div>
         ${aiProductPhoto || `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
         <div class="shopping-detail-state ${item.purchased ? "done" : ""}"><span>${item.purchased ? "✓" : "○"}</span><strong>${item.purchased ? "已經買到了" : "還沒有購買"}</strong></div>
-        <section class="shopping-detail-facts"><div><small>品牌</small><strong>${escapeHtml(item.brand || "尚未辨識")}</strong></div><div><small>分類</small><strong>${escapeHtml(shoppingCategoryName(item.categoryId))}</strong></div></section>
+        <section class="shopping-detail-facts"><div><small>品牌</small><strong>${escapeHtml(item.brand || "尚未辨識")}</strong></div><div><small>分類</small><strong>${escapeHtml(shoppingCategoryName(item.categoryId))}</strong></div><div><small>參考價格</small><strong>${escapeHtml(shoppingMoneyLabel(item) || "尚未填寫")}</strong></div></section>
         <section class="shopping-detail-block"><small>功效／推薦重點</small><p>${item.benefits ? escapeHtml(item.benefits) : "尚未辨識功效"}</p></section>
         <section class="shopping-detail-block"><small>購買對象</small><div class="shopping-recipient-tags">${tags.length ? tags.map((name) => `<span>${escapeHtml(name)}</span>`).join("") : `<em>尚未標記</em>`}</div></section>
         <section class="shopping-detail-block"><small>備註</small><p>${item.note ? escapeHtml(item.note) : "尚未新增備註"}</p></section>
@@ -2991,7 +3195,7 @@ function openShoppingDetailSheet(itemId) {
 
 function openShoppingItemSheet(itemId = "") {
   const existing = state.shopping.items.find((item) => item.id === itemId);
-  const item = existing || { id: "", brand: "", name: "", benefits: "", categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "", preferredProductImageUrl: "", aiAnnotation: null };
+  const item = existing || { id: "", brand: "", name: "", benefits: "", price: 0, currency: defaultShoppingCurrency(), categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "", preferredProductImageUrl: "", aiAnnotation: null };
   const photo = shoppingPhoto(item.photoId);
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
@@ -3004,6 +3208,7 @@ function openShoppingItemSheet(itemId = "") {
           ${photo ? `<img class="shopping-form-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : ""}
           <div class="field"><label>品牌名稱</label><input name="brand" maxlength="100" value="${escapeHtml(item.brand || "")}" placeholder="例如 興和製藥" /></div>
           <div class="field"><label>物品名稱</label><input name="name" required maxlength="100" value="${escapeHtml(item.name)}" placeholder="例如 東京香蕉" /></div>
+          <div class="shopping-price-fields"><div class="field"><label>參考價格</label><input name="price" inputmode="decimal" maxlength="14" value="${item.price ? escapeHtml(item.price) : ""}" placeholder="例如 1280" /></div><div class="field"><label>幣別</label><select name="currency">${shoppingCurrencyOptions(item.currency)}</select></div></div>
           <div class="field"><label>功效／推薦重點</label><textarea name="benefits" maxlength="500" placeholder="例如 關節保養、維持靈活行動">${escapeHtml(item.benefits || "")}</textarea></div>
           <div class="field"><label>分類</label><select name="categoryId" data-shopping-category-select>${shoppingCategoryOptions(item.categoryId)}</select></div>
           <div class="field shopping-custom-category-field" data-shopping-custom-category hidden><label>自訂分類名稱</label><input name="newCategory" maxlength="24" placeholder="例如 文具、紀念品" /></div>
@@ -3253,6 +3458,8 @@ function syncPendingShoppingImportEdits(form) {
       brand: String(row.querySelector("[data-import-brand]")?.value || "").normalize("NFKC").trim().slice(0, 100),
       name: String(row.querySelector("[data-import-name]")?.value || "").normalize("NFKC").trim().slice(0, 100),
       benefits: String(row.querySelector("[data-import-benefits]")?.value || "").normalize("NFKC").trim().slice(0, 500),
+      price: normalizeShoppingPrice(row.querySelector("[data-import-price]")?.value),
+      currency: String(row.querySelector("[data-import-currency]")?.value || defaultShoppingCurrency()).toUpperCase(),
       categoryId: String(row.querySelector("[data-import-category]")?.value || "daily"),
       newCategory: String(row.querySelector("[data-import-custom-category]")?.value || "").normalize("NFKC").trim().slice(0, 24),
     };
@@ -3357,6 +3564,8 @@ function renderShoppingImportRows(form) {
       <div class="shopping-import-fields">
         <div class="field"><label>品牌名稱</label><input data-import-brand maxlength="100" value="${escapeHtml(entry.details?.brand || "")}" placeholder="尚未辨識，可自行輸入" /></div>
         <div class="field"><label>商品名稱</label><input data-import-name required maxlength="100" value="${escapeHtml(entry.details?.name || "")}" placeholder="請確認商品名稱" /></div>
+        <div class="field"><label>參考價格</label><input data-import-price inputmode="decimal" maxlength="14" value="${entry.details?.price ? escapeHtml(entry.details.price) : ""}" placeholder="圖片有標價時自動帶入" /></div>
+        <div class="field"><label>幣別</label><select data-import-currency>${shoppingCurrencyOptions(entry.details?.currency)}</select></div>
         <div class="field full"><label>功效／推薦重點</label><textarea data-import-benefits maxlength="500" placeholder="可修改自動辨識結果">${escapeHtml(entry.details?.benefits || "")}</textarea></div>
         <div class="field full"><label>分類</label><select data-import-category data-shopping-category-select>${shoppingCategoryOptions(entry.details?.categoryId || "daily")}</select></div>
         <div class="field full shopping-custom-category-field" data-shopping-custom-category ${entry.details?.categoryId === "__custom__" ? "" : "hidden"}><label>自訂分類名稱</label><input data-import-custom-category maxlength="24" value="${escapeHtml(entry.details?.newCategory || "")}" placeholder="例如 文具、紀念品" /></div>
@@ -3543,7 +3752,7 @@ async function handleShoppingScreenshotFile(input) {
     id: `shopping-import-${crypto.randomUUID?.() || `${Date.now()}-${index}`}`,
     file,
     dataUrl: "",
-    details: { brand: "", name: "", benefits: "", categoryId: "daily", newCategory: "" },
+    details: { brand: "", name: "", benefits: "", price: 0, currency: defaultShoppingCurrency(), categoryId: "daily", newCategory: "" },
     productImages: [],
     seenProductImageIds: [],
     selectedProductImageId: "",
@@ -3984,20 +4193,25 @@ function openFlightSheet(flightId = "") {
         </section>
         <div class="field"><label for="flight-direction">航程標記</label><select id="flight-direction" name="direction" data-flight-direction><option ${selectedDirection === "去程" ? "selected" : ""}>去程</option><option ${selectedDirection === "回程" ? "selected" : ""}>回程</option>${flight.id ? "" : "<option>來回</option>"}</select></div>
         <section class="flight-leg-fields">
-          <div class="flight-segment-heading" data-flight-outbound-heading hidden><span>去程</span><strong>先填出發與抵達資料</strong></div>
+          <div class="flight-segment-heading" data-flight-outbound-heading ${flight.id ? "" : "hidden"}><span>航段 1</span><strong>${flight.id ? "目前航段" : "先填出發與抵達資料"}</strong></div>
           <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="departureCity" list="flight-city-options" data-flight-city-side="departure" autocomplete="off" required value="${escapeHtml(flight.departureCity)}" placeholder="選擇城市" /></div><div class="field compact-field"><label>機場</label><select name="departureCode" required>${airportOptionsMarkup(flight.departureCity, flight.departureCode)}</select></div></div>
           <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "出發日期", name: "departureDate", type: "date", value: flight.departureDate })}${flightDateTimeInputMarkup({ label: "出發時間", name: "departureTime", type: "time", value: flight.departureTime })}</div>
           <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="arrivalCity" list="flight-city-options" data-flight-city-side="arrival" autocomplete="off" required value="${escapeHtml(flight.arrivalCity)}" placeholder="選擇城市" /></div><div class="field compact-field"><label>機場</label><select name="arrivalCode" required>${airportOptionsMarkup(flight.arrivalCity, flight.arrivalCode)}</select></div></div>
           <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "抵達日期", name: "arrivalDate", type: "date", value: flight.arrivalDate })}${flightDateTimeInputMarkup({ label: "抵達時間", name: "arrivalTime", type: "time", value: flight.arrivalTime })}</div>
+          ${flight.id ? "" : `<div class="flight-connection-list" data-flight-connection-list="outbound"></div><button class="flight-add-connection" type="button" data-add-flight-connection="outbound">＋ 加入轉機航段</button>`}
         </section>
         <section class="flight-return-fields" data-flight-return-fields hidden>
           <div class="flight-segment-heading"><span>回程</span><strong data-flight-return-route>目的地 → 出發地</strong></div>
-          <p class="field-note">回程會自動使用相反方向的城市與機場。</p>
+          <p class="field-note">回程先帶入相反方向，仍可修改城市、機場並加入不同的轉機點。</p>
+          <div class="flight-form-grid"><div class="field"><label>出發城市</label><input name="returnDepartureCity" list="flight-city-options" data-flight-city-side="returnDeparture" autocomplete="off" required value="${escapeHtml(flight.arrivalCity)}" placeholder="選擇城市" /></div><div class="field compact-field"><label>機場</label><select name="returnDepartureCode" required>${airportOptionsMarkup(flight.arrivalCity, flight.arrivalCode)}</select></div></div>
           <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "回程出發日期", name: "returnDepartureDate", type: "date", value: state.endDate, required: false })}${flightDateTimeInputMarkup({ label: "回程出發時間", name: "returnDepartureTime", type: "time", value: "17:00", required: false })}</div>
+          <div class="flight-form-grid"><div class="field"><label>抵達城市</label><input name="returnArrivalCity" list="flight-city-options" data-flight-city-side="returnArrival" autocomplete="off" required value="${escapeHtml(flight.departureCity)}" placeholder="選擇城市" /></div><div class="field compact-field"><label>機場</label><select name="returnArrivalCode" required>${airportOptionsMarkup(flight.departureCity, flight.departureCode)}</select></div></div>
           <div class="field-grid flight-date-time-grid">${flightDateTimeInputMarkup({ label: "回程抵達日期", name: "returnArrivalDate", type: "date", value: state.endDate, required: false })}${flightDateTimeInputMarkup({ label: "回程抵達時間", name: "returnArrivalTime", type: "time", value: "21:00", required: false })}</div>
+          <div class="flight-connection-list" data-flight-connection-list="return"></div>
+          <button class="flight-add-connection" type="button" data-add-flight-connection="return">＋ 加入回程轉機航段</button>
         </section>
         <datalist id="flight-city-options">${cityOptions}</datalist>
-        <p class="flight-airport-note">選擇城市後，機場欄位會自動列出該城市可用的機場。</p>
+        <p class="flight-airport-note">選擇城市後會列出常用機場。每個方向最多 6 個航段，轉機航段會依時間分別出現在每日行程與地圖。</p>
         <div class="field"><label>搭乘成員</label><input name="travelers" required value="${escapeHtml(flight.travelers)}" placeholder="弟弟，或媽媽、妹妹、璋" /><span class="field-note">可填一人或多人，使用頓號或逗號分隔。</span></div>
         <div class="modal-actions">${flight.id ? `<button class="danger-button" type="button" data-delete-flight="${escapeHtml(flight.id)}">刪除</button>` : `<button class="secondary-button" type="button" data-close-sheet>取消</button>`}<button class="primary-button" type="submit">儲存航班</button></div>
       </form>
@@ -5870,14 +6084,7 @@ document.addEventListener("click", async (event) => {
     const name = focusMapPlace.dataset.focusMapPlace;
     const place = filteredMapPlaces().find((candidate) => candidate.name === name);
     if (!place) return;
-    state.selectedMapPlace = name;
-    document.querySelectorAll("[data-focus-map-place]").forEach((button) => button.classList.toggle("active", button.dataset.focusMapPlace === name));
-    if (activeGoogleMap && window.google?.maps) {
-      activeGoogleMap.panTo({ lat: place.latitude, lng: place.longitude });
-      if ((activeGoogleMap.getZoom() || 0) < 15) activeGoogleMap.setZoom(15);
-    } else if (activeLeafletMap) {
-      activeLeafletMap.setView([place.latitude, place.longitude], Math.max(activeLeafletMap.getZoom() || 0, 15));
-    }
+    selectMapPlace(place);
     if (window.matchMedia("(max-width: 700px)").matches && mapSidebarOpen) {
       mapSidebarOpen = false;
       const screen = document.querySelector(".map-screen.is-fullscreen");
@@ -5885,6 +6092,14 @@ document.addEventListener("click", async (event) => {
       screen?.classList.add("sidebar-closed");
       window.setTimeout(() => activeLeafletMap?.invalidateSize?.(), 260);
     }
+    return;
+  }
+
+  const openMapPlaceDetail = event.target.closest("[data-open-map-place-detail]");
+  if (openMapPlaceDetail) return openPlaceSheet(openMapPlaceDetail.dataset.openMapPlaceDetail);
+
+  if (event.target.closest("[data-close-map-preview]")) {
+    updateMapPlacePreview(null);
     return;
   }
 
@@ -6002,6 +6217,16 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-add-flight]")) return canEdit() ? openFlightSheet() : guestOnlyMessage();
   const editFlight = event.target.closest("[data-edit-flight]");
   if (editFlight) return canEdit() ? openFlightSheet(editFlight.dataset.editFlight) : guestOnlyMessage();
+  const addFlightConnectionButton = event.target.closest("[data-add-flight-connection]");
+  if (addFlightConnectionButton) {
+    if (!canEdit()) return guestOnlyMessage();
+    return addFlightConnection(addFlightConnectionButton.closest("#flight-form"), addFlightConnectionButton.dataset.addFlightConnection);
+  }
+  const removeFlightConnectionButton = event.target.closest("[data-remove-flight-connection]");
+  if (removeFlightConnectionButton) {
+    removeFlightConnectionButton.closest("[data-flight-connection]")?.remove();
+    return;
+  }
   const recognizeFlightTicketButton = event.target.closest("[data-recognize-flight-ticket]");
   if (recognizeFlightTicketButton) {
     if (!canEdit()) return guestOnlyMessage();
@@ -6571,6 +6796,8 @@ document.addEventListener("submit", async (event) => {
       brand: String(form.get("brand") || "").normalize("NFKC").trim().slice(0, 100),
       name,
       benefits: String(form.get("benefits") || "").normalize("NFKC").trim().slice(0, 500),
+      price: normalizeShoppingPrice(form.get("price")),
+      currency: shoppingCurrencies.includes(String(form.get("currency") || "").toUpperCase()) ? String(form.get("currency")).toUpperCase() : defaultShoppingCurrency(),
       categoryId: selectedCategoryId === "__custom__" ? shoppingCustomCategory(newCategoryName) : selectedCategoryId,
       recipientTagIds: shoppingRecipientTagIds(form),
       note: String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800),
@@ -6615,6 +6842,8 @@ document.addEventListener("submit", async (event) => {
         brand: entry.details.brand,
         name: entry.details.name,
         benefits: entry.details.benefits,
+        price: normalizeShoppingPrice(entry.details.price),
+        currency: shoppingCurrencies.includes(String(entry.details.currency || "").toUpperCase()) ? String(entry.details.currency).toUpperCase() : defaultShoppingCurrency(),
         categoryId,
         recipientTagIds,
         note,
@@ -6855,29 +7084,54 @@ document.addEventListener("submit", async (event) => {
     };
     const isRoundTrip = direction === "來回" && !event.target.dataset.flightId;
     let index = -1;
-    if (isRoundTrip) {
+    if (!event.target.dataset.flightId) {
       const batchId = crypto.randomUUID?.() || Date.now();
-      state.flights.push(
-        { ...baseFlight, id: `flight-${batchId}-outbound`, direction: "去程" },
-        {
-          ...baseFlight,
-          id: `flight-${batchId}-return`,
-          direction: "回程",
-          departureCity: baseFlight.arrivalCity,
-          departureCode: baseFlight.arrivalCode,
+      const journeyRecords = [];
+      const outboundSegments = [
+        baseFlight,
+        ...[...event.target.querySelectorAll('[data-flight-connection][data-flight-direction="outbound"]')].map(flightSegmentFromConnection),
+      ];
+      const pushJourney = (segments, journeyDirection, suffix) => {
+        const journeyId = `journey-${batchId}-${suffix}`;
+        segments.forEach((segment, segmentIndex) => journeyRecords.push({
+          ...segment,
+          id: `flight-${batchId}-${suffix}-${segmentIndex + 1}`,
+          direction: journeyDirection,
+          journeyId,
+          segmentIndex,
+          segmentCount: segments.length,
+          travelers: baseFlight.travelers,
+        }));
+      };
+      pushJourney(outboundSegments, direction === "回程" ? "回程" : "去程", direction === "回程" ? "return" : "outbound");
+      if (isRoundTrip) {
+        const returnBase = {
+          departureCity: String(form.get("returnDepartureCity") || "").trim(),
+          departureCode: String(form.get("returnDepartureCode") || "").trim().toUpperCase(),
           departureDate: String(form.get("returnDepartureDate") || ""),
           departureTime: String(form.get("returnDepartureTime") || ""),
-          arrivalCity: baseFlight.departureCity,
-          arrivalCode: baseFlight.departureCode,
+          arrivalCity: String(form.get("returnArrivalCity") || "").trim(),
+          arrivalCode: String(form.get("returnArrivalCode") || "").trim().toUpperCase(),
           arrivalDate: String(form.get("returnArrivalDate") || ""),
           arrivalTime: String(form.get("returnArrivalTime") || ""),
-        },
-      );
+          travelers: baseFlight.travelers,
+        };
+        const returnSegments = [
+          returnBase,
+          ...[...event.target.querySelectorAll('[data-flight-connection][data-flight-direction="return"]')].map(flightSegmentFromConnection),
+        ];
+        pushJourney(returnSegments, "回程", "return");
+      }
+      state.flights.push(...journeyRecords);
     } else {
+      const previousFlight = state.flights.find((item) => item.id === event.target.dataset.flightId);
       const flight = {
         ...baseFlight,
         id: event.target.dataset.flightId || `flight-${crypto.randomUUID?.() || Date.now()}`,
         direction: direction === "回程" ? "回程" : "去程",
+        journeyId: previousFlight?.journeyId || "",
+        segmentIndex: Number.isInteger(previousFlight?.segmentIndex) ? previousFlight.segmentIndex : 0,
+        segmentCount: Number.isInteger(previousFlight?.segmentCount) ? previousFlight.segmentCount : 1,
       };
       index = state.flights.findIndex((item) => item.id === flight.id);
       if (index >= 0) state.flights[index] = flight;
@@ -6888,7 +7142,8 @@ document.addEventListener("submit", async (event) => {
     persist();
     closeSheet();
     render();
-    return showToast(isRoundTrip ? "來回航班已新增" : index >= 0 ? "航班已更新" : "航班已新增");
+    const newSegmentCount = event.target.querySelectorAll("[data-flight-connection]").length;
+    return showToast(isRoundTrip ? "來回航班與轉機航段已新增" : index >= 0 ? "航班已更新" : newSegmentCount ? `已新增 ${newSegmentCount + 1} 個航段` : "航班已新增");
   }
 
   if (event.target.id === "add-place-day-form") {

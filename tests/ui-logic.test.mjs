@@ -726,6 +726,7 @@ test("PWA share target routes supported links into the existing confirmed place-
     "https://www.airbnb.com/rooms/123456",
     "https://www.instagram.com/reel/ABC123/",
     "https://www.threads.com/@traveler/post/ABC123",
+    "https://maps.app.goo.gl/ABC123",
   ];
   for (const sourceUrl of sources) {
     const request = new URL("https://trip.example/share-target");
@@ -788,7 +789,7 @@ test("tab-bar uses meaningful accessible travel icons and lodging imports explai
   assert.match(stylesSource, /\.field-hint\s*{[^}]*color:\s*var\(--muted\)/s);
 });
 
-test("flight form offers city-aware airports and creates round trips as two legs", () => {
+test("flight form offers city-aware airports and supports multi-leg transfers", () => {
   const section = sourceSection("const flightAirportCatalog", "function itineraryItemKey");
   const { airportsForCity, airportOptionsMarkup, parseFlightTicketText } = new Function(
     "escapeHtml",
@@ -797,13 +798,17 @@ test("flight form offers city-aware airports and creates round trips as two legs
 
   assert.deepEqual(airportsForCity("高雄").map((airport) => airport.code), ["KHH"]);
   assert.deepEqual(airportsForCity("東京").map((airport) => airport.code), ["NRT", "HND"]);
+  assert.deepEqual(airportsForCity("杜拜").map((airport) => airport.code), ["DXB"]);
+  assert.deepEqual(airportsForCity("倫敦").map((airport) => airport.code), ["LHR", "LGW"]);
   assert.match(airportOptionsMarkup("高雄"), /value="KHH" selected/);
   assert.match(appSource, /<option>來回<\/option>/);
   assert.doesNotMatch(sourceSection("function openFlightSheet", "function openTransportSheet"), /<option[^>]*>其他<\/option>/);
-  assert.match(appSource, /direction: "去程"/);
-  assert.match(appSource, /direction: "回程"/);
-  assert.match(appSource, /departureCity: baseFlight\.arrivalCity/);
-  assert.match(appSource, /arrivalCity: baseFlight\.departureCity/);
+  assert.match(appSource, /data-add-flight-connection="outbound"/);
+  assert.match(appSource, /data-add-flight-connection="return"/);
+  assert.match(appSource, /journeyId/);
+  assert.match(appSource, /segmentIndex/);
+  assert.match(appSource, /segmentCount/);
+  assert.match(stylesSource, /\.flight-connection-segment/);
 
   const parsed = parseFlightTicketText(
     "KHH NRT 20 SEP 2026 09:55 14:45 NRT KHH 26 SEP 2026 17:50 21:00",
@@ -816,6 +821,17 @@ test("flight form offers city-aware airports and creates round trips as two legs
   assert.equal(parsed.fields.returnDepartureDate, "2026-09-26");
   assert.equal(parsed.fields.departureTime, "09:55");
   assert.equal(parsed.fields.returnArrivalTime, "21:00");
+});
+
+test("map markers open a compact bottom preview before the full place sheet", () => {
+  const mapSection = sourceSection("function mapScreen", "async function getGoogleMapsBrowserKey");
+  assert.match(mapSection, /data-map-preview-dock/);
+  assert.match(mapSection, /mapPlacePreviewMarkup/);
+  assert.match(mapSection, /data-open-map-place-detail/);
+  assert.match(mapSection, /updateMapPlacePreview\(place\)/);
+  assert.doesNotMatch(mapSection, /function openMapNode\(place\)[\s\S]*return openPlaceSheet\(place\.name\)/);
+  assert.match(stylesSource, /\.map-place-preview-card/);
+  assert.match(stylesSource, /@keyframes map-preview-enter/);
 });
 
 test("flight and itinerary time fields fit and center on iPhone", () => {
@@ -863,6 +879,10 @@ test("shopping is a fourth private tab with categories reusable tags and complet
   assert.match(appSource, /name="recipientTag"/);
   assert.match(appSource, /newTags/);
   assert.match(appSource, /newCategory/);
+  assert.match(appSource, /shoppingBudgetMarkup/);
+  assert.match(appSource, /data-import-price/);
+  assert.match(appSource, /name="price" inputmode="decimal"/);
+  assert.match(stylesSource, /\.shopping-budget-strip/);
   assert.match(stylesSource, /\.shopping-form-sheet \.field input,[\s\S]*font-size:\s*16px/s);
 });
 

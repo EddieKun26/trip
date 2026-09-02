@@ -29,6 +29,8 @@ globalThis.fetch = async (url, options = {}) => {
             productNameOriginal: "新ビオフェルミンS錠",
             productNameZh: "新表飛鳴 S 錠",
             benefitsZh: ["幫助整腸", "改善便秘與腹部脹氣"],
+            priceAmount: 1280,
+            priceCurrency: "JPY",
             category: "medicine",
             summaryZh: "日本興和的整腸商品。[官方資料](https://example.com/kowa)",
             featuresZh: ["含多種乳酸菌"],
@@ -143,6 +145,8 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.equal(response.payload.details.name, "新表飛鳴 S 錠（新ビオフェルミンS錠）");
   assert.equal(response.payload.details.categoryId, "medicine");
   assert.equal(response.payload.details.benefits, "幫助整腸、改善便秘與腹部脹氣");
+  assert.equal(response.payload.details.price, 1280);
+  assert.equal(response.payload.details.currency, "JPY");
   assert.equal(response.payload.source.language, "日文");
   assert.equal(response.payload.confidence, 0.94);
   assert.equal(response.payload.annotation.summary, "日本興和的整腸商品。官方資料");
@@ -164,6 +168,7 @@ test("shopping recognition is authorized and returns translated structured produ
   assert.match(openAiRequests[0].input[0].content, /繁體中文、簡體中文、日文、韓文、英文、泰文/);
   assert.doesNotMatch(JSON.stringify(openAiRequests[0]), /image_generation|gpt-image|純白背景/i);
   assert.match(openAiRequests[0].input[0].content, /禁止出現網址/);
+  assert.match(openAiRequests[0].input[0].content, /priceAmount/);
 });
 
 test("shopping recognition rejects invalid images before calling AI", async () => {

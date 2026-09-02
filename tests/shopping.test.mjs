@@ -74,7 +74,7 @@ test("shopping lists are private per member and per trip", async () => {
       "photo-1": { dataUrl: `data:image/jpeg;base64,${"A".repeat(200000)}`, createdAt: "2026-08-09T00:00:00.000Z" },
     },
     items: [{
-      id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", categoryId: "souvenir",
+      id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", price: "1,280", currency: "jpy", categoryId: "souvenir",
       recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1",
       preferredProductImageUrl: "data:image/jpeg;base64,QUJDRA==",
       aiAnnotation: {
@@ -91,6 +91,8 @@ test("shopping lists are private per member and per trip", async () => {
   assert.equal(saved.payload.items[0].name, "東京香蕉");
   assert.equal(saved.payload.items[0].brand, "東京ばな奈");
   assert.equal(saved.payload.items[0].benefits, "旅行伴手禮");
+  assert.equal(saved.payload.items[0].price, 1280);
+  assert.equal(saved.payload.items[0].currency, "JPY");
   assert.equal(saved.payload.items[0].preferredProductImageUrl, "data:image/jpeg;base64,QUJDRA==");
   assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].sourceTitle, "品牌官方商品頁");
   assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].kind, "web-product");

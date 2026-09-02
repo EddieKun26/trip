@@ -11,6 +11,7 @@ const MAX_PHOTO_LENGTH = 480000;
 const MAX_PHOTO_TOTAL = 3800000;
 const MAX_PRODUCT_IMAGE_LENGTH = 140000;
 const MAX_PRODUCT_IMAGE_TOTAL = 1600000;
+const SHOPPING_CURRENCIES = new Set(["JPY", "TWD", "KRW", "USD", "EUR", "GBP", "CNY", "HKD", "THB", "SGD", "CAD", "AUD"]);
 
 const defaultCategories = [
   { id: "souvenir", name: "伴手禮", builtIn: true },
@@ -83,6 +84,16 @@ function requestedTripId(request) {
 
 function cleanText(value, length) {
   return String(value || "").normalize("NFKC").trim().slice(0, length);
+}
+
+function cleanPrice(value) {
+  const amount = Number(String(value ?? "").normalize("NFKC").replace(/[,，\s]/g, ""));
+  return Number.isFinite(amount) && amount > 0 ? Math.min(amount, 1_000_000_000) : 0;
+}
+
+function cleanCurrency(value) {
+  const currency = cleanText(value, 3).toUpperCase();
+  return SHOPPING_CURRENCIES.has(currency) ? currency : "";
 }
 
 function cleanTextList(value, limit, itemLength) {
@@ -212,6 +223,8 @@ function cleanShopping(input, previous) {
         brand: cleanText(item?.brand, 100),
         name: cleanText(item?.name, 100),
         benefits: cleanDisplayText(item?.benefits, 500),
+        price: cleanPrice(item?.price),
+        currency: cleanCurrency(item?.currency),
         categoryId: categoryIds.has(item?.categoryId) ? item.categoryId : "daily",
         recipientTagIds: (Array.isArray(item?.recipientTagIds) ? item.recipientTagIds : [])
           .filter((id) => tagIds.has(id))

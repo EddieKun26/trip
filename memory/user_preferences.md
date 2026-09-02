@@ -10,17 +10,20 @@
 - Provide a simple one-step undo for recent edits.
 - Show undo consistently on every main page and editable sheet.
 - Keep planning maps and day maps functionally separate.
+- Prefer compact map markers that first open a photo-based bottom preview card, with smooth pan/selection motion, before the full place detail sheet.
 - Keep custom map controls outside the map canvas when possible so they do not cover Google Maps controls.
 - Use Chinese display names while retaining local-language place/area names where helpful.
 - Deletion actions appear only after a left swipe and require confirmation.
 - Time changes require explicit confirm/cancel and itinerary order follows confirmed times.
 - Keep itinerary time text at its current size; use a wider symmetric pill with centered text.
 - Flight entry should offer outbound, return, and round-trip modes, with city-aware airport choices.
+- Flights must support ordered transfer legs for long-haul trips in both outbound and return directions.
 - Flight city fields should be narrower than airport fields so full airport names remain visible, and all date/time values must be centered both horizontally and vertically.
 - Keep Overview flight rows compact, place outbound/return at the far left, and show passenger notes with larger vertically centered text.
 - Flight ticket photos should prefill fields after recognition but must not save without user confirmation.
 - Keep Shopping as a fourth bottom tab. Shopping lists are private per member and per trip even when Places and Itinerary are shared with travel companions.
 - Shopping supports screenshot recognition, item photos, purchased checkmarks, default/custom categories, reusable recipient tags, and free-form notes.
+- Shopping items need an editable local price and currency. AI should prefill it only when visible in the screenshot, and estimates must keep mixed currencies explicit.
 - Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
 - A single-product screenshot should create one main shopping item, not separate items for benefits, ingredients, or descriptive copy.
 - Shopping supports both confirmed left-swipe deletion and explicit batch selection/deletion; saved reference images must remain readable in item details.

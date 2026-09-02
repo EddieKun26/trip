@@ -10,11 +10,12 @@
 ## Data
 
 - Each trip owns flights, places, votes, itinerary, transports, and members.
-- Flights remain one persisted record per leg. "Round trip" is a creation mode that saves one outbound and one return record so itinerary and map behavior remain compatible.
+- Flights remain one persisted record per leg. Multi-leg submissions group records with `journeyId`, `segmentIndex`, and `segmentCount`; "round trip" is still a creation mode, now with independent ordered legs in both directions. This preserves existing itinerary/map behavior and legacy records while supporting transfers.
 - Itinerary items have stable IDs. Transport segments connect two adjacent item IDs and are flagged for review when reordering breaks adjacency.
 - Place categories use the shared top-level groups attraction, restaurant, and lodging.
 - Undo is intentionally one level. It snapshots the last reversible trip-content edit, is shown consistently on all main pages and editable sheets, and does not attempt to reverse authentication, membership, or remote invitation actions.
 - Shopping data is keyed by member ID plus trip ID and is authorized server-side against current trip membership. It is deliberately excluded from shared trip state, votes, invitations, and guest views.
+- Shopping prices are stored as a positive numeric amount plus an allowlisted ISO currency. AI may copy only a clearly visible single-item price from the submitted screenshot; it must not substitute a web price. Totals stay separated by currency because silent conversion would make the estimate look more precise than it is.
 - Shopping screenshots are compressed client-side and stored with private shopping records in Redis for this web prototype; each screenshot creates one independent product with editable brand, product name, benefits, and category fields. Up to 16 higher-resolution original screenshots may be retained, subject to the existing total payload ceiling. Leaving or being removed from a trip deletes that member's private shopping record for the trip.
 
 ## Maps and external data

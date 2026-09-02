@@ -109,6 +109,16 @@ function cleanCategory(value) {
   return ["souvenir", "appliance", "daily", "medicine", "skincare"].includes(category) ? category : "daily";
 }
 
+function cleanRecognizedPrice(value) {
+  const amount = Number(String(value ?? "").normalize("NFKC").replace(/[,，\s]/g, ""));
+  return Number.isFinite(amount) && amount > 0 ? Math.min(amount, 1_000_000_000) : 0;
+}
+
+function cleanRecognizedCurrency(value) {
+  const currency = cleanText(value, 3).toUpperCase();
+  return ["JPY", "TWD", "KRW", "USD", "EUR", "GBP", "CNY", "HKD", "THB", "SGD", "CAD", "AUD"].includes(currency) ? currency : "";
+}
+
 function cleanList(value, limit = 4, itemLength = 180) {
   return (Array.isArray(value) ? value : [])
     .map((item) => stripSourceReferences(item, itemLength))
@@ -128,6 +138,8 @@ function cleanRecognition(value, productImages = []) {
       brand: translatedLabel(value?.brandZh, value?.brandOriginal),
       name: translatedLabel(value?.productNameZh, value?.productNameOriginal),
       benefits: benefits.join("、").slice(0, 500),
+      price: cleanRecognizedPrice(value?.priceAmount),
+      currency: cleanRecognizedCurrency(value?.priceCurrency),
       categoryId: cleanCategory(value?.category),
     },
     source: {
@@ -164,7 +176,8 @@ function recognitionPrompt() {
 7. summaryZh 用一至兩句說明商品；featuresZh 整理商品特色；usageZh 整理一般使用方式；cautionsZh 整理重要注意事項。這四欄必須由圖片與查證來源支持，使用自然繁體中文，避免重複。
 8. 請實際開啟完全相符的商品頁查證，不可只參考首頁、搜尋結果頁、泛用文章或同系列其他商品。但結構化文字中禁止出現網址、網域、Markdown 連結、引用標記或「資料來源」段落。
 9. 為了讓系統提供三張商品圖候選，請在回答中引用至少六個完全相符的品牌官方頁或可信零售商品頁；優先選擇有清晰正面商品照的頁面。不要呼叫或要求圖片生成。
-10. 所有欄位都必須有值；真的無法辨識品牌時 brandOriginal 與 brandZh 可填空字串。藥品與保健品不得提供個人化醫療建議。`;
+10. 如果圖片清楚標示這項商品的單件售價，priceAmount 回傳純數字、priceCurrency 回傳 ISO 4217 幣別（例如 JPY、KRW、USD）；促銷組合價或無法確認單件價格時，priceAmount 回傳 0、priceCurrency 回傳空字串。不可從網路查價代替圖片上的標價。
+11. 除了允許空白的品牌與無法確認的價格外，所有欄位都必須有值。藥品與保健品不得提供個人化醫療建議。`;
 }
 
 const responseSchema = {
@@ -175,6 +188,8 @@ const responseSchema = {
     productNameOriginal: { type: "string" },
     productNameZh: { type: "string" },
     benefitsZh: { type: "array", items: { type: "string" } },
+    priceAmount: { type: "number" },
+    priceCurrency: { type: "string" },
     category: { type: "string", enum: ["souvenir", "appliance", "daily", "medicine", "skincare"] },
     summaryZh: { type: "string" },
     featuresZh: { type: "array", items: { type: "string" } },
@@ -183,7 +198,7 @@ const responseSchema = {
     language: { type: "string" },
     confidence: { type: "number" },
   },
-  required: ["brandOriginal", "brandZh", "productNameOriginal", "productNameZh", "benefitsZh", "category", "summaryZh", "featuresZh", "usageZh", "cautionsZh", "language", "confidence"],
+  required: ["brandOriginal", "brandZh", "productNameOriginal", "productNameZh", "benefitsZh", "priceAmount", "priceCurrency", "category", "summaryZh", "featuresZh", "usageZh", "cautionsZh", "language", "confidence"],
   additionalProperties: false,
 };
 

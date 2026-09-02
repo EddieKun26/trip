@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-02
+
+- Reworked planning/day map selection into a compact-marker → bottom preview card → full place-detail flow. Marker and rail selection now animate/pan without rebuilding the map; the preview shows a Google place photo when available and enriches missing photos in the background.
+- Flights now support up to six ordered legs per direction. Outbound, return, and round-trip submissions can append transfer legs; each leg keeps a compatible flight record plus `journeyId`, `segmentIndex`, and `segmentCount`. Added common Europe, Middle East, and North America hubs.
+- Private Shopping items now store an editable numeric price and ISO currency. Screenshot recognition copies only a clearly visible single-item price, all review/edit surfaces expose it, and the list totals each currency separately without automatic exchange-rate conversion.
+- Frontend assets advanced to 20260902.1. The deployment mirror passes all 96 tests. The canonical source also passes these 96 relevant checks; its separate pre-existing Shortcut packaging assertion remains unavailable because `shortcuts/旅伴匯入.shortcut` is absent, so that unfinished Shortcut UI/test change was intentionally excluded from publication. A 393×852 smoke pass verified all three new flows without Shopping horizontal overflow.
+
 ## 2026-08-27
 
 - Added a standards-based PWA Web Share Target for links. The manifest sends GET `title`, `text`, and `url` fields to a no-cache `/share-target` route; the receiver bounds and validates shared content, rejects deceptive lookalike hosts, preserves a valid payload through login/trip loading, strips it from browser history, and opens the existing import sheet with automatic recognition and the same explicit Google-candidate confirmation used by pasted links. Agoda, Booking.com, Airbnb, Instagram, Threads, and existing Google Maps links are covered, while the manual paste and screenshot fallbacks remain intact. Frontend assets advanced to 20260827.1; `node --check app.js` and all 95 tests pass.
