@@ -915,12 +915,31 @@ test("shopping supports left-swipe deletion, batch deletion, and clearer stored 
   assert.match(stylesSource, /\.shopping-detail-photo\s*{[^}]*object-fit:\s*contain/s);
 });
 
+test("manual shopping items can select preview replace and remove a private photo", () => {
+  const form = sourceSection("function openShoppingItemSheet", "function openShoppingCategorySheet");
+  const photoFlow = sourceSection("function renderManualShoppingPhotoPreview", "async function handlePlaceImportScreenshotFile");
+  assert.match(form, /data-shopping-manual-photo-input/);
+  assert.match(form, /type="file" accept="image\/\*"/);
+  assert.match(form, /從相簿或相機選擇/);
+  assert.match(form, /data-remove-shopping-manual-photo/);
+  assert.match(form, /data-shopping-manual-photo-preview/);
+  assert.match(photoFlow, /compressShoppingScreenshot\(file\)/);
+  assert.match(photoFlow, /pendingManualShoppingPhoto/);
+  assert.match(appSource, /photoKind = photoId \? "manual" : ""/);
+  assert.match(appSource, /photoKind: "recognition"/);
+  assert.match(appSource, /removeUnusedShoppingPhotos\(\)/);
+  assert.match(stylesSource, /\.shopping-manual-photo-preview\.has-photo\s*{[^}]*height:\s*210px/s);
+  assert.match(stylesSource, /\.shopping-manual-photo-actions[\s\S]*min-height:\s*44px/s);
+});
+
 test("shopping detail uses the selected web product photo and readable annotations", () => {
   const detail = sourceSection("function openShoppingDetailSheet", "function openShoppingItemSheet");
   assert.match(detail, /原始推薦截圖/);
   assert.match(detail, /你從網路候選圖片中選擇的商品圖/);
   assert.match(detail, /搜尋商品資料與圖片/);
   assert.match(detail, /shopping-ai-product-photo/);
+  assert.match(detail, /你自行加入的商品參考圖片/);
+  assert.match(detail, /photoKind === "recognition"/);
   assert.doesNotMatch(detail, /data-set-shopping-product-image/);
   assert.doesNotMatch(detail, /查看來源/);
   assert.doesNotMatch(detail, /data-shopping-product-photo-input/);

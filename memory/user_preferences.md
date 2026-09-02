@@ -24,6 +24,7 @@
 - Keep Shopping as a fourth bottom tab. Shopping lists are private per member and per trip even when Places and Itinerary are shared with travel companions.
 - Shopping supports screenshot recognition, item photos, purchased checkmarks, default/custom categories, reusable recipient tags, and free-form notes.
 - Shopping items need an editable local price and currency. AI should prefill it only when visible in the screenshot, and estimates must keep mixed currencies explicit.
+- Manually added Shopping items should let the user choose a photo from the library or camera, preview it before saving, and replace or remove it later.
 - Screenshot recognition results must remain editable and require explicit confirmation before items are saved.
 - A single-product screenshot should create one main shopping item, not separate items for benefits, ingredients, or descriptive copy.
 - Shopping supports both confirmed left-swipe deletion and explicit batch selection/deletion; saved reference images must remain readable in item details.

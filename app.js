@@ -313,6 +313,8 @@ let shoppingUndoSnapshot = null;
 let shoppingSelectionMode = false;
 let shoppingSelectedIds = new Set();
 let pendingShoppingBatchDeleteIds = [];
+let pendingManualShoppingPhoto = "";
+let removeManualShoppingPhoto = false;
 let undoSnapshot = null;
 let undoBaseline = "";
 let offerUndoWithNextToast = false;
@@ -2947,6 +2949,12 @@ function shoppingPhoto(photoId) {
   return photoId ? state.shopping.photos?.[photoId]?.dataUrl || "" : "";
 }
 
+function shoppingPhotoKind(item) {
+  if (!item?.photoId) return "";
+  if (item.photoKind === "manual" || item.photoKind === "recognition") return item.photoKind;
+  return item.aiAnnotation ? "recognition" : "manual";
+}
+
 function shoppingAiProductImages(item) {
   return (Array.isArray(item?.aiAnnotation?.productImages) ? item.aiAnnotation.productImages : [])
     .filter((image) => /^data:image\/(?:jpeg|png|webp);base64,/i.test(String(image?.url || "")))
@@ -2955,6 +2963,8 @@ function shoppingAiProductImages(item) {
 }
 
 function shoppingPreferredPhoto(item) {
+  const manualPhoto = shoppingPhotoKind(item) === "manual" ? shoppingPhoto(item?.photoId) : "";
+  if (manualPhoto) return manualPhoto;
   const productImages = shoppingAiProductImages(item);
   const selected = productImages.find((image) => image.url === item?.preferredProductImageUrl) || productImages[0];
   return selected?.url || shoppingPhoto(item?.photoId);
@@ -3150,6 +3160,7 @@ function openShoppingDetailSheet(itemId) {
   const item = state.shopping.items.find((candidate) => candidate.id === itemId);
   if (!item) return;
   const sourcePhoto = shoppingPhoto(item.photoId);
+  const photoKind = shoppingPhotoKind(item);
   const tags = item.recipientTagIds.map(shoppingTagName).filter(Boolean);
   const annotation = item.aiAnnotation;
   const productImages = shoppingAiProductImages(item);
@@ -3158,6 +3169,7 @@ function openShoppingDetailSheet(itemId) {
     ? `<div><b>${title}</b><ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul></div>`
     : "";
   const aiProductPhoto = productImage ? `<figure class="shopping-ai-product-photo"><img src="${escapeHtml(productImage.url)}" alt="${escapeHtml(item.name)}商品圖" /><figcaption>你從網路候選圖片中選擇的商品圖</figcaption></figure>` : "";
+  const manualProductPhoto = sourcePhoto && photoKind === "manual" ? `<figure class="shopping-ai-product-photo shopping-manual-detail-photo"><img src="${escapeHtml(sourcePhoto)}" alt="${escapeHtml(item.name)}商品參考圖片" /><figcaption>你自行加入的商品參考圖片</figcaption></figure>` : "";
   const aiAnnotation = annotation
     ? `<section class="shopping-ai-annotation">
         <div class="shopping-ai-heading"><div><small>AI 商品註解</small><strong>商品資訊</strong></div></div>
@@ -3179,14 +3191,14 @@ function openShoppingDetailSheet(itemId) {
           <div><p class="section-kicker">${escapeHtml(shoppingCategoryName(item.categoryId))}</p><h2 id="shopping-detail-title">${escapeHtml(item.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        ${aiProductPhoto || `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
+        ${manualProductPhoto || aiProductPhoto || `<div class="shopping-detail-photo placeholder"><span>${escapeHtml(item.name.slice(0, 1))}</span></div>`}
         <div class="shopping-detail-state ${item.purchased ? "done" : ""}"><span>${item.purchased ? "✓" : "○"}</span><strong>${item.purchased ? "已經買到了" : "還沒有購買"}</strong></div>
         <section class="shopping-detail-facts"><div><small>品牌</small><strong>${escapeHtml(item.brand || "尚未辨識")}</strong></div><div><small>分類</small><strong>${escapeHtml(shoppingCategoryName(item.categoryId))}</strong></div><div><small>參考價格</small><strong>${escapeHtml(shoppingMoneyLabel(item) || "尚未填寫")}</strong></div></section>
         <section class="shopping-detail-block"><small>功效／推薦重點</small><p>${item.benefits ? escapeHtml(item.benefits) : "尚未辨識功效"}</p></section>
         <section class="shopping-detail-block"><small>購買對象</small><div class="shopping-recipient-tags">${tags.length ? tags.map((name) => `<span>${escapeHtml(name)}</span>`).join("") : `<em>尚未標記</em>`}</div></section>
         <section class="shopping-detail-block"><small>備註</small><p>${item.note ? escapeHtml(item.note) : "尚未新增備註"}</p></section>
         ${aiAnnotation}
-        ${sourcePhoto ? `<details class="shopping-source-photo"><summary>查看原始辨識圖片</summary><img class="shopping-detail-photo" src="${escapeHtml(sourcePhoto)}" alt="${escapeHtml(item.name)}原始推薦截圖" /></details>` : ""}
+        ${sourcePhoto && photoKind === "recognition" ? `<details class="shopping-source-photo"><summary>查看原始辨識圖片</summary><img class="shopping-detail-photo" src="${escapeHtml(sourcePhoto)}" alt="${escapeHtml(item.name)}原始推薦截圖" /></details>` : ""}
         <div class="shopping-privacy-note"><b>鎖</b><span>這筆採買只屬於你的「${escapeHtml(state.tripTitle)}」清單，旅伴無法查看。</span></div>
         <div class="modal-actions shopping-detail-actions"><button class="secondary-button" type="button" data-request-delete-shopping="${escapeHtml(item.id)}">刪除</button><button class="primary-button" type="button" data-edit-shopping-item="${escapeHtml(item.id)}">編輯資料</button></div>
       </section>
@@ -3197,15 +3209,28 @@ function openShoppingItemSheet(itemId = "") {
   const existing = state.shopping.items.find((item) => item.id === itemId);
   const item = existing || { id: "", brand: "", name: "", benefits: "", price: 0, currency: defaultShoppingCurrency(), categoryId: state.shoppingFilter === "all" ? "souvenir" : state.shoppingFilter, recipientTagIds: [], note: "", purchased: false, photoId: "", preferredProductImageUrl: "", aiAnnotation: null };
   const photo = shoppingPhoto(item.photoId);
+  const manualPhotoEnabled = !existing || shoppingPhotoKind(item) !== "recognition";
+  pendingManualShoppingPhoto = "";
+  removeManualShoppingPhoto = false;
   sheetRoot.innerHTML = `
     <div class="modal-backdrop shopping-backdrop" data-dismiss-sheet>
-      <form id="shopping-item-form" class="modal-sheet shopping-form-sheet" data-shopping-sheet data-shopping-item-id="${escapeHtml(item.id)}" data-shopping-photo-id="${escapeHtml(item.photoId)}">
+      <form id="shopping-item-form" class="modal-sheet shopping-form-sheet" data-shopping-sheet data-shopping-item-id="${escapeHtml(item.id)}" data-shopping-photo-id="${escapeHtml(item.photoId)}" data-shopping-manual-photo-enabled="${manualPhotoEnabled}">
         <div class="section-row shopping-sheet-header">
           <div><p class="section-kicker">私人採買</p><h2>${existing ? "編輯採買項目" : "新增採買項目"}</h2></div>
           <div class="header-actions">${shoppingUndoButtonMarkup("sheet-undo-button")}<button class="icon-button" type="button" data-close-sheet>×</button></div>
         </div>
         <div class="shopping-sheet-body">
-          ${photo ? `<img class="shopping-form-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}截圖" />` : ""}
+          ${manualPhotoEnabled ? `<section class="shopping-manual-photo-card">
+            <div class="shopping-manual-photo-preview ${photo ? "has-photo" : ""}" data-shopping-manual-photo-preview>
+              ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(item.name || "採買物品")}商品參考圖片" />` : `<span aria-hidden="true">▧</span><strong>加入商品參考圖片</strong><small>方便到店時快速比對包裝、顏色或款式</small>`}
+            </div>
+            <div class="shopping-manual-photo-actions">
+              <label class="secondary-button" for="shopping-manual-photo-input">${photo ? "更換圖片" : "從相簿或相機選擇"}</label>
+              <input id="shopping-manual-photo-input" class="shopping-file-input" type="file" accept="image/*" data-shopping-manual-photo-input />
+              <button class="shopping-manual-photo-remove" type="button" data-remove-shopping-manual-photo ${photo ? "" : "hidden"}>移除圖片</button>
+            </div>
+            <small class="shopping-manual-photo-status" data-shopping-manual-photo-status>${photo ? "目前已附上一張商品圖片" : "支援相簿圖片或直接拍照，儲存前會先壓縮"}</small>
+          </section>` : photo ? `<img class="shopping-form-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(item.name)}原始辨識截圖" />` : ""}
           <div class="field"><label>品牌名稱</label><input name="brand" maxlength="100" value="${escapeHtml(item.brand || "")}" placeholder="例如 興和製藥" /></div>
           <div class="field"><label>物品名稱</label><input name="name" required maxlength="100" value="${escapeHtml(item.name)}" placeholder="例如 東京香蕉" /></div>
           <div class="shopping-price-fields"><div class="field"><label>參考價格</label><input name="price" inputmode="decimal" maxlength="14" value="${item.price ? escapeHtml(item.price) : ""}" placeholder="例如 1280" /></div><div class="field"><label>幣別</label><select name="currency">${shoppingCurrencyOptions(item.currency)}</select></div></div>
@@ -3358,6 +3383,49 @@ async function compressShoppingScreenshot(file) {
   }
   if (dataUrl.length > 480000) throw new Error("IMAGE_TOO_COMPLEX");
   return dataUrl;
+}
+
+function renderManualShoppingPhotoPreview(form) {
+  if (!form) return;
+  const preview = form.querySelector("[data-shopping-manual-photo-preview]");
+  const removeButton = form.querySelector("[data-remove-shopping-manual-photo]");
+  const status = form.querySelector("[data-shopping-manual-photo-status]");
+  const currentPhoto = removeManualShoppingPhoto ? "" : pendingManualShoppingPhoto || shoppingPhoto(form.dataset.shoppingPhotoId);
+  if (preview) {
+    preview.classList.toggle("has-photo", Boolean(currentPhoto));
+    preview.innerHTML = currentPhoto
+      ? `<img src="${escapeHtml(currentPhoto)}" alt="商品參考圖片預覽" />`
+      : `<span aria-hidden="true">▧</span><strong>加入商品參考圖片</strong><small>方便到店時快速比對包裝、顏色或款式</small>`;
+  }
+  if (removeButton) removeButton.hidden = !currentPhoto;
+  if (status && form.dataset.shoppingPhotoBusy !== "true") {
+    status.textContent = currentPhoto ? "圖片已準備好，儲存項目後就會套用" : "支援相簿圖片或直接拍照，儲存前會先壓縮";
+  }
+}
+
+async function handleManualShoppingPhotoFile(input) {
+  const form = input.closest("#shopping-item-form");
+  const status = form?.querySelector("[data-shopping-manual-photo-status]");
+  const file = input.files?.[0];
+  if (!form || !file) return;
+  if (!String(file.type || "").startsWith("image/")) {
+    input.value = "";
+    if (status) status.textContent = "請選擇圖片檔案";
+    return;
+  }
+  form.dataset.shoppingPhotoBusy = "true";
+  if (status) status.textContent = "正在準備圖片…";
+  try {
+    pendingManualShoppingPhoto = await compressShoppingScreenshot(file);
+    removeManualShoppingPhoto = false;
+    if (status) status.textContent = `已選擇：${file.name}`;
+    renderManualShoppingPhotoPreview(form);
+  } catch {
+    input.value = "";
+    if (status) status.textContent = "圖片太大或無法讀取，請換一張圖片";
+  } finally {
+    form.dataset.shoppingPhotoBusy = "false";
+  }
 }
 
 async function handlePlaceImportScreenshotFile(input) {
@@ -5920,6 +5988,17 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-add-shopping-item]")) return canManageShopping() ? openShoppingItemSheet() : guestOnlyMessage();
   if (event.target.closest("[data-import-shopping-screenshot]")) return canManageShopping() ? openShoppingImportSheet() : guestOnlyMessage();
 
+  const removeManualPhoto = event.target.closest("[data-remove-shopping-manual-photo]");
+  if (removeManualPhoto) {
+    const form = removeManualPhoto.closest("#shopping-item-form");
+    pendingManualShoppingPhoto = "";
+    removeManualShoppingPhoto = true;
+    const input = form?.querySelector("[data-shopping-manual-photo-input]");
+    if (input) input.value = "";
+    renderManualShoppingPhotoPreview(form);
+    return;
+  }
+
   const removeShoppingTag = event.target.closest("[data-remove-shopping-tag]");
   if (removeShoppingTag) {
     if (!canManageShopping()) return guestOnlyMessage();
@@ -6581,6 +6660,11 @@ document.addEventListener("change", (event) => {
     return;
   }
 
+  if (event.target.matches("[data-shopping-manual-photo-input]")) {
+    handleManualShoppingPhotoFile(event.target);
+    return;
+  }
+
   if (event.target.matches("[data-flight-ticket-input]")) {
     handleFlightTicketFile(event.target);
     return;
@@ -6780,6 +6864,7 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "shopping-item-form") {
     event.preventDefault();
     if (!canManageShopping()) return guestOnlyMessage();
+    if (event.target.dataset.shoppingPhotoBusy === "true") return showToast("圖片還在準備中，請稍候再儲存");
     const form = new FormData(event.target);
     const name = String(form.get("name") || "").normalize("NFKC").trim().slice(0, 100);
     if (!name) return showToast("請輸入採買物品名稱");
@@ -6791,6 +6876,17 @@ document.addEventListener("submit", async (event) => {
     const itemId = event.target.dataset.shoppingItemId || `shopping-${crypto.randomUUID?.() || Date.now()}`;
     const index = state.shopping.items.findIndex((item) => item.id === itemId);
     const previous = index >= 0 ? state.shopping.items[index] : null;
+    const manualPhotoEnabled = event.target.dataset.shoppingManualPhotoEnabled === "true";
+    let photoId = event.target.dataset.shoppingPhotoId || "";
+    let photoKind = previous ? shoppingPhotoKind(previous) : "";
+    if (manualPhotoEnabled) {
+      if (removeManualShoppingPhoto) photoId = "";
+      if (pendingManualShoppingPhoto) {
+        photoId = `shopping-photo-${crypto.randomUUID?.() || Date.now()}`;
+        state.shopping.photos[photoId] = { dataUrl: pendingManualShoppingPhoto, createdAt: now };
+      }
+      photoKind = photoId ? "manual" : "";
+    }
     const item = {
       id: itemId,
       brand: String(form.get("brand") || "").normalize("NFKC").trim().slice(0, 100),
@@ -6802,7 +6898,8 @@ document.addEventListener("submit", async (event) => {
       recipientTagIds: shoppingRecipientTagIds(form),
       note: String(form.get("note") || "").normalize("NFKC").trim().slice(0, 800),
       purchased: form.get("purchased") === "on",
-      photoId: event.target.dataset.shoppingPhotoId || "",
+      photoId,
+      photoKind,
       preferredProductImageUrl: previous?.preferredProductImageUrl || "",
       aiAnnotation: previous?.aiAnnotation || null,
       createdAt: previous?.createdAt || now,
@@ -6810,10 +6907,16 @@ document.addEventListener("submit", async (event) => {
     };
     if (index >= 0) state.shopping.items[index] = item;
     else state.shopping.items.unshift(item);
+    removeUnusedShoppingPhotos();
+    pruneShoppingPhotos();
     state.shoppingFilter = item.categoryId;
     closeSheet();
     render();
-    await saveShopping();
+    const savedShopping = await saveShopping();
+    if (savedShopping?.items && savedShopping?.photos) {
+      applyPrivateShopping(savedShopping);
+      render({ preserveScroll: true });
+    }
     return showToast(index >= 0 ? "採買資料已更新" : "已加入私人採買清單", { allowUndo: false });
   }
 
@@ -6849,6 +6952,7 @@ document.addEventListener("submit", async (event) => {
         note,
         purchased: false,
         photoId,
+        photoKind: "recognition",
         preferredProductImageUrl: productImages[0]?.url || "",
         aiAnnotation,
         createdAt: now,

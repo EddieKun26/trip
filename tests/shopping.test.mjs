@@ -75,7 +75,7 @@ test("shopping lists are private per member and per trip", async () => {
     },
     items: [{
       id: "item-1", brand: "東京ばな奈", name: "東京香蕉", benefits: "旅行伴手禮", price: "1,280", currency: "jpy", categoryId: "souvenir",
-      recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1",
+      recipientTagIds: ["tag-mom"], note: "一盒", purchased: false, photoId: "photo-1", photoKind: "manual",
       preferredProductImageUrl: "data:image/jpeg;base64,QUJDRA==",
       aiAnnotation: {
         summary: "東京常見伴手禮。", features: ["獨立包裝"], usage: ["依包裝保存"], cautions: ["留意保存期限"],
@@ -93,6 +93,7 @@ test("shopping lists are private per member and per trip", async () => {
   assert.equal(saved.payload.items[0].benefits, "旅行伴手禮");
   assert.equal(saved.payload.items[0].price, 1280);
   assert.equal(saved.payload.items[0].currency, "JPY");
+  assert.equal(saved.payload.items[0].photoKind, "manual");
   assert.equal(saved.payload.items[0].preferredProductImageUrl, "data:image/jpeg;base64,QUJDRA==");
   assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].sourceTitle, "品牌官方商品頁");
   assert.equal(saved.payload.items[0].aiAnnotation.productImages[0].kind, "web-product");

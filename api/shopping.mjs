@@ -218,6 +218,11 @@ function cleanShopping(input, previous) {
       const preferredProductImageUrl = aiAnnotation?.productImages.some((image) => image.url === requestedProductImage)
         ? requestedProductImage
         : aiAnnotation?.productImages[0]?.url || "";
+      const validPhotoId = photos[photoId] ? photoId : "";
+      const requestedPhotoKind = cleanText(item?.photoKind, 20);
+      const photoKind = validPhotoId
+        ? (["manual", "recognition"].includes(requestedPhotoKind) ? requestedPhotoKind : aiAnnotation ? "recognition" : "manual")
+        : "";
       return {
         id: cleanText(item?.id, 80),
         brand: cleanText(item?.brand, 100),
@@ -231,7 +236,8 @@ function cleanShopping(input, previous) {
           .slice(0, 20),
         note: cleanText(item?.note, 800),
         purchased: Boolean(item?.purchased),
-        photoId: photos[photoId] ? photoId : "",
+        photoId: validPhotoId,
+        photoKind,
         preferredProductImageUrl,
         aiAnnotation,
         createdAt: cleanText(item?.createdAt, 40) || new Date().toISOString(),
