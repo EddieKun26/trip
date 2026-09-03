@@ -24,7 +24,11 @@ test("persisted romanized Tokyo areas display as Chinese and Japanese", () => {
   assert.equal(areaDisplayName("Azabujuban", "Azabujuban"), "麻布十番（麻布十番）");
   assert.equal(areaDisplayName("Yoyogi", "Yoyogi"), "代代木（代々木）");
   assert.equal(areaDisplayName("Asakusa", "Asakusa"), "淺草（浅草）");
-  assert.equal(areaDisplayName("Unmappedromaji", "Unmappedromaji"), "待確認區域（待確認區域）");
+  assert.equal(areaDisplayName("Unmappedromaji", "Unmappedromaji"), "正在辨識地區");
+  assert.equal(areaDisplayName("Montmartre", "Montmartre", true), "Montmartre（Montmartre）");
+  assert.match(appSource, /async function localizeStoredPlaceAreas/);
+  assert.match(appSource, /localizeArea: true/);
+  assert.match(appSource, /areaResolvedByGoogle/);
 });
 
 test("places can be manually added and later edited with an exact address and personal photo", () => {

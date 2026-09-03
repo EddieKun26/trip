@@ -2,10 +2,11 @@
 
 ## 2026-09-03
 
-- Fixed persisted romanized area headings. Known Tokyo/Fujisawa aliases including Jingumae, Jinnan, Azabujuban, Yoyogi, Asakusa, Hyakunincho, and Katase now render as Traditional Chinese with the Japanese local name; unknown romanization is suppressed as `待確認區域` instead of leaking pinyin into the list.
+- Replaced the finite romanized-area fallback with Google structured-address localization. The App now resolves Traditional Chinese plus a country-derived local language, falls back through broader administrative levels when needed, accepts legitimate local Latin-script names, and automatically repairs legacy records by Place ID, full address, coordinates, or saved Maps link. `待確認區域` is no longer a final stored/display label; unresolved legacy data shows a transient `正在辨識地區` state while it is refreshed.
 - Added a manual lodging/custom-place path beside link recognition. Editors can paste a host-provided address and optional Google Maps link, choose their own display name/type/area, and attach, replace, or remove a compressed shared photo. Exact addresses use Google Geocoding rather than nearby-business Places search.
 - Added editor controls to every saved place detail. Name, category, type, address, Maps link, area labels, and personal photo can be corrected later; renaming a place also updates votes, itinerary references, transport labels, and active map selection.
 - Advanced frontend assets to `20260903.1`. Source and deployment suites pass 99/99 available checks; the canonical source still has the separate pre-existing unsigned iOS Shortcut packaging failure. A 393×852 layout pass confirmed 16px inputs, 44–54px actions, and no document-level horizontal overflow.
+- Advanced frontend assets to `20260903.2`. All 100 deployment checks pass, including Japanese exact-address, Korean, and Latin-script area localization coverage.
 
 ## 2026-09-02
 

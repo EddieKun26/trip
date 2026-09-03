@@ -91,12 +91,39 @@ function nameFromMapsUrl(value) {
 }
 
 function geocodeArea(addressComponents = []) {
-  const priorities = ["neighborhood", "sublocality_level_2", "sublocality_level_1", "administrative_area_level_3", "locality"];
+  const priorities = [
+    "neighborhood",
+    "sublocality_level_2",
+    "sublocality_level_1",
+    "administrative_area_level_3",
+    "locality",
+    "postal_town",
+    "administrative_area_level_2",
+    "administrative_area_level_1",
+  ];
   for (const type of priorities) {
     const component = addressComponents.find((item) => item.types?.includes(type));
     if (component?.long_name) return component.long_name;
   }
   return "";
+}
+
+function geocodeCountryCode(addressComponents = []) {
+  return String(addressComponents.find((item) => item.types?.includes("country"))?.short_name || "").toUpperCase();
+}
+
+function localLanguageForCountry(countryCode = "") {
+  const languages = {
+    JP: "ja", KR: "ko", CN: "zh-CN", TW: "zh-TW", HK: "zh-HK", MO: "zh-HK",
+    TH: "th", VN: "vi", KH: "km", LA: "lo", MM: "my", MN: "mn", NP: "ne", BD: "bn", LK: "si",
+    IN: "hi", ID: "id", MY: "ms", PH: "fil", GE: "ka", AM: "hy", GR: "el", IL: "he", IR: "fa",
+    RU: "ru", UA: "uk", BY: "be", BG: "bg", RS: "sr", MK: "mk", TR: "tr", CZ: "cs", SK: "sk",
+    PL: "pl", HU: "hu", RO: "ro", DE: "de", AT: "de", CH: "de", FR: "fr", IT: "it", ES: "es",
+    PT: "pt", BR: "pt-BR", NL: "nl", SE: "sv", NO: "no", DK: "da", FI: "fi", IS: "is",
+    SA: "ar", AE: "ar", QA: "ar", KW: "ar", BH: "ar", OM: "ar", JO: "ar", LB: "ar", EG: "ar",
+    ET: "am", KE: "sw", TZ: "sw",
+  };
+  return languages[String(countryCode || "").toUpperCase()] || "";
 }
 
 function conciseAddress(value, latitude, longitude) {
@@ -108,24 +135,30 @@ function conciseAddress(value, latitude, longitude) {
 }
 
 async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
-  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-  url.searchParams.set("latlng", `${latitude},${longitude}`);
-  url.searchParams.set("language", "zh-TW");
-  url.searchParams.set("key", apiKey);
-  const response = await fetch(url);
-  const payload = response.ok ? await response.json() : {};
-  const result = payload.results?.[0];
+  const requestGeocode = async (language = "") => {
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    url.searchParams.set("latlng", `${latitude},${longitude}`);
+    if (language) url.searchParams.set("language", language);
+    url.searchParams.set("key", apiKey);
+    const response = await fetch(url);
+    return response.ok ? response.json() : {};
+  };
+  const localizedPayload = await requestGeocode("zh-TW");
+  const result = localizedPayload.results?.[0];
+  const localPayload = await requestGeocode(localLanguageForCountry(geocodeCountryCode(result?.address_components)));
   if (result) {
-    const areaOriginal = geocodeArea(result.address_components);
-    const area = chineseAreaName(areaOriginal, areaOriginal);
+    const localizedArea = geocodeArea(result.address_components);
+    const areaOriginal = geocodeArea(localPayload.results?.[0]?.address_components) || localizedArea;
+    const area = chineseAreaName(localizedArea, areaOriginal);
     const formattedAddress = result.formatted_address || "";
     const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
     return {
       requestUrl,
       placeId: result.place_id || `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
       name: `地址位置｜${addressLabel}`.slice(0, 160),
-      area: area || "待確認區域",
-      areaOriginal: areaOriginal || area || "待確認區域",
+      area: area || areaOriginal || "地址位置",
+      areaOriginal: areaOriginal || area || "地址位置",
+      areaResolvedByGoogle: true,
       category: "地址座標",
       formattedAddress,
       latitude,
@@ -166,8 +199,8 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
     requestUrl,
     placeId: osm.place_id ? `osm-${osm.place_id}` : `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
     name: `地址位置｜${addressLabel}`.slice(0, 160),
-    area: area || "待確認區域",
-    areaOriginal: areaOriginal || area || "待確認區域",
+    area: area || areaOriginal || "地址位置",
+    areaOriginal: areaOriginal || area || "地址位置",
     category: "地址座標",
     formattedAddress,
     latitude,
@@ -182,34 +215,32 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
 }
 
 async function geocodeAddress({ apiKey, address, requestUrl }) {
-  const requestGeocode = async (language) => {
+  const requestGeocode = async (language = "") => {
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
     url.searchParams.set("address", address);
-    url.searchParams.set("language", language);
-    url.searchParams.set("region", "jp");
+    if (language) url.searchParams.set("language", language);
     url.searchParams.set("key", apiKey);
     const response = await fetch(url);
     return response.ok ? response.json() : {};
   };
-  const [localizedPayload, originalPayload] = await Promise.all([
-    requestGeocode("zh-TW"),
-    requestGeocode("ja"),
-  ]);
+  const localizedPayload = await requestGeocode("zh-TW");
   const result = localizedPayload.results?.[0];
   if (!result || !validCoordinates(result.geometry?.location?.lat, result.geometry?.location?.lng)) {
     return { requestUrl, error: "找不到這個完整地址的位置" };
   }
-  const originalResult = originalPayload.results?.[0];
+  const localPayload = await requestGeocode(localLanguageForCountry(geocodeCountryCode(result.address_components)));
+  const localResult = localPayload.results?.[0];
   const localizedArea = geocodeArea(result.address_components);
-  const areaOriginal = geocodeArea(originalResult?.address_components) || localizedArea;
+  const areaOriginal = geocodeArea(localResult?.address_components) || localizedArea;
   const latitude = result.geometry.location.lat;
   const longitude = result.geometry.location.lng;
   return {
     requestUrl,
     placeId: result.place_id || `manual-address-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
     name: conciseAddress(result.formatted_address || address, latitude, longitude),
-    area: chineseAreaName(localizedArea, areaOriginal) || "待確認區域",
-    areaOriginal: areaOriginal || localizedArea || "待確認區域",
+    area: chineseAreaName(localizedArea, areaOriginal) || localizedArea || areaOriginal || "地址位置",
+    areaOriginal: areaOriginal || localizedArea || "地址位置",
+    areaResolvedByGoogle: true,
     category: "自訂地址",
     formattedAddress: result.formatted_address || address,
     latitude,
@@ -243,12 +274,19 @@ function pickArea(addressComponents = []) {
     "sublocality_level_1",
     "administrative_area_level_3",
     "locality",
+    "postal_town",
+    "administrative_area_level_2",
+    "administrative_area_level_1",
   ];
   for (const type of priorities) {
     const component = addressComponents.find((item) => item.types?.includes(type));
     if (component?.longText) return component.longText;
   }
   return "";
+}
+
+function pickCountryCode(addressComponents = []) {
+  return String(addressComponents.find((item) => item.types?.includes("country"))?.shortText || "").toUpperCase();
 }
 
 const chineseAreaOverrides = new Map([
@@ -287,37 +325,67 @@ function normalizedAreaKey(value) {
 }
 
 function chineseAreaName(localized, original) {
+  const localizedText = String(localized || "").trim();
   const local = String(original || localized || "").trim();
-  const override = chineseAreaOverrides.get(local)
-    || [...chineseAreaOverrides].find(([key]) => normalizedAreaKey(key) === normalizedAreaKey(local))?.[1];
+  const override = [localizedText, local]
+    .map((value) => chineseAreaOverrides.get(value)
+      || [...chineseAreaOverrides].find(([key]) => normalizedAreaKey(key) === normalizedAreaKey(value))?.[1])
+    .find(Boolean);
   if (override) return override;
-  if (/[一-龯々ヶ]/.test(local)) {
-    return local.replaceAll("恵", "惠").replaceAll("寿", "壽").replaceAll("渋", "澀").replaceAll("浅", "淺").replaceAll("豊", "豐").replaceAll("黒", "黑").replaceAll("区", "區").replaceAll("横", "橫").replaceAll("浜", "濱").replaceAll("瀬", "瀨");
-  }
-  const fallback = String(localized || original || "").trim();
-  return /[A-Za-z]/.test(fallback) && !/[\u3000-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(fallback)
-    ? "待確認區域"
-    : fallback;
+  const traditionalize = (value) => value.replaceAll("恵", "惠").replaceAll("寿", "壽").replaceAll("渋", "澀").replaceAll("浅", "淺").replaceAll("豊", "豐").replaceAll("黒", "黑").replaceAll("区", "區").replaceAll("横", "橫").replaceAll("浜", "濱").replaceAll("瀬", "瀨");
+  const isOnlyLatinScript = (value) => /[A-Za-z]/.test(value) && !/[^\p{Script=Latin}\p{N}\p{P}\p{Z}\p{M}]/u.test(value);
+  if (localizedText && !isOnlyLatinScript(localizedText)) return traditionalize(localizedText);
+  if (local && !isOnlyLatinScript(local)) return traditionalize(local);
+  return localizedText || local;
 }
 
-async function originalAreaForPlace(apiKey, placeId, fallback) {
+async function localAreaForPlace(apiKey, placeId, fallback, language = "") {
   if (!placeId) return fallback;
   try {
-    const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
-    url.searchParams.set("languageCode", "ja");
-    url.searchParams.set("regionCode", "JP");
-    const response = await fetch(url, {
-      headers: {
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "addressComponents",
-      },
-    });
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    url.searchParams.set("place_id", placeId);
+    if (language) url.searchParams.set("language", language);
+    url.searchParams.set("key", apiKey);
+    const response = await fetch(url);
     if (!response.ok) return fallback;
     const payload = await response.json();
-    return pickArea(payload.addressComponents) || fallback;
+    return geocodeArea(payload.results?.[0]?.address_components) || fallback;
   } catch {
     return fallback;
   }
+}
+
+async function localizeArea({ apiKey, placeId, address, latitude, longitude, requestUrl }) {
+  const requestGeocode = async (language = "") => {
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    if (placeId && !/^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)) url.searchParams.set("place_id", placeId);
+    else if (validCoordinates(latitude, longitude)) url.searchParams.set("latlng", `${latitude},${longitude}`);
+    else if (address) url.searchParams.set("address", address);
+    else return {};
+    if (language) url.searchParams.set("language", language);
+    url.searchParams.set("key", apiKey);
+    const response = await fetch(url);
+    return response.ok ? response.json() : {};
+  };
+  const localizedPayload = await requestGeocode("zh-TW");
+  const result = localizedPayload.results?.[0];
+  const localPayload = await requestGeocode(localLanguageForCountry(geocodeCountryCode(result?.address_components)));
+  const localResult = localPayload.results?.[0];
+  if (!result) return { requestUrl, error: "Google 地址中找不到可用的地區欄位" };
+  const localizedArea = geocodeArea(result.address_components);
+  const areaOriginal = geocodeArea(localResult?.address_components) || localizedArea;
+  const area = chineseAreaName(localizedArea, areaOriginal);
+  if (!area && !areaOriginal) return { requestUrl, error: "Google 地址中找不到可用的地區欄位" };
+  return {
+    requestUrl,
+    placeId: result.place_id || placeId || "",
+    area: area || areaOriginal,
+    areaOriginal: areaOriginal || area,
+    areaResolvedByGoogle: true,
+    formattedAddress: result.formatted_address || address || "",
+    latitude: result.geometry?.location?.lat ?? latitude ?? null,
+    longitude: result.geometry?.location?.lng ?? longitude ?? null,
+  };
 }
 
 async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false, latitude = null, longitude = null }) {
@@ -372,7 +440,12 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
   const place = payload.places?.[0];
   if (!place) return { requestUrl, error: "找不到符合的 Google Maps 地點" };
   const localizedArea = pickArea(place.addressComponents);
-  const areaOriginal = await originalAreaForPlace(apiKey, place.id, localizedArea);
+  const areaOriginal = await localAreaForPlace(
+    apiKey,
+    place.id,
+    localizedArea,
+    localLanguageForCountry(pickCountryCode(place.addressComponents)),
+  );
   const area = chineseAreaName(localizedArea, areaOriginal);
 
   return {
@@ -381,6 +454,7 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
     name: place.displayName?.text || textQuery,
     area,
     areaOriginal,
+    areaResolvedByGoogle: true,
     category: place.primaryTypeDisplayName?.text || "景點",
     formattedAddress: place.formattedAddress || "",
     latitude: place.location?.latitude ?? null,
@@ -412,11 +486,48 @@ export default async function placesHandler(request, response) {
       const originalUrl = safeMapsUrl(item.sourceUrl);
       const hintName = String(item.hintName || "").trim().slice(0, 160);
       const manualAddress = String(item.manualAddress || "").normalize("NFKC").trim().slice(0, 300);
+      const formattedAddress = String(item.formattedAddress || "").normalize("NFKC").trim().slice(0, 300);
+      const placeId = String(item.placeId || "").trim().slice(0, 180);
+      const shouldLocalizeArea = item.localizeArea === true;
       const globalSearch = item.globalSearch === true;
       const latitude = item.latitude === null || item.latitude === undefined || item.latitude === "" ? NaN : Number(item.latitude);
       const longitude = item.longitude === null || item.longitude === undefined || item.longitude === "" ? NaN : Number(item.longitude);
-      if (!originalUrl && !hintName && !manualAddress) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
+      if (!originalUrl && !hintName && !manualAddress && !(shouldLocalizeArea && (placeId || formattedAddress || validCoordinates(latitude, longitude)))) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
       try {
+        if (shouldLocalizeArea) {
+          if (placeId || formattedAddress || validCoordinates(latitude, longitude)) {
+            return await localizeArea({
+              apiKey,
+              placeId,
+              address: formattedAddress,
+              latitude,
+              longitude,
+              requestUrl: originalUrl?.toString() || item.sourceUrl || "",
+            });
+          }
+          const expandedUrl = await expandShortMapsUrl(originalUrl);
+          const urlCoordinates = coordinatesFromMapsUrl(expandedUrl);
+          if (validCoordinates(urlCoordinates?.latitude, urlCoordinates?.longitude)) {
+            return await localizeArea({
+              apiKey,
+              placeId: "",
+              address: "",
+              latitude: urlCoordinates.latitude,
+              longitude: urlCoordinates.longitude,
+              requestUrl: originalUrl?.toString() || item.sourceUrl || "",
+            });
+          }
+          const textQuery = hintName || nameFromMapsUrl(expandedUrl);
+          if (textQuery) {
+            return await searchPlace({
+              apiKey,
+              textQuery,
+              requestUrl: originalUrl?.toString() || item.sourceUrl || "",
+              globalSearch: true,
+            });
+          }
+          return { requestUrl: originalUrl?.toString() || "", error: "Google 連結中找不到可辨識的地址資料" };
+        }
         if (manualAddress) {
           return await geocodeAddress({
             apiKey,

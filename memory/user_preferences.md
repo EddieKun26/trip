@@ -13,7 +13,7 @@
 - Prefer compact map markers that first open a photo-based bottom preview card, with smooth pan/selection motion, before the full place detail sheet.
 - Keep custom map controls outside the map canvas when possible so they do not cover Google Maps controls.
 - Use Chinese display names while retaining local-language place/area names where helpful.
-- Never display romanized/pinyin area headings. Use a known Traditional Chinese name with the Japanese local name; if conversion is unavailable, show `待確認區域` instead of the romanization.
+- Area recognition must work from Google address data regardless of the input language. Prefer Traditional Chinese plus the true local-language name, automatically repair legacy romanized/pinyin values from Place ID/address/coordinates/Maps links, and never persist or present `待確認區域` as the final area. A Latin-script name remains valid when Latin is the location's actual local script.
 - Private lodging must be addable from a host-provided exact address and optional Google Maps link without accepting a nearby business as the lodging. Saved places need editable names, addresses, categories, area labels, Maps links, and a user-supplied photo, including after the place has already been added to an itinerary.
 - Deletion actions appear only after a left swipe and require confirmation.
 - Time changes require explicit confirm/cancel and itinerary order follows confirmed times.

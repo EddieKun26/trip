@@ -299,6 +299,8 @@ let googleMapsLoader = null;
 let mapInteractionUntil = 0;
 let mapCoordinatesLoading = false;
 let airportCoordinatesLoading = false;
+let areaLocalizationBusy = false;
+const areaLocalizationAttempts = new Set();
 let mapFullscreen = false;
 let mapSidebarOpen = true;
 let pendingTimePicker = null;
@@ -592,18 +594,20 @@ function isRomanizedArea(value) {
   return /[A-Za-z]/.test(text) && !/[\u3000-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(text);
 }
 
-function areaDisplayName(area = "", original = "") {
-  const value = String(area || "待確認區域").trim();
+function areaDisplayName(area = "", original = "", resolvedByGoogle = false) {
+  const value = String(area || "").trim();
   const known = knownAreaLabel(value) || knownAreaLabel(original);
-  const chinese = known?.[0] || (isRomanizedArea(value) ? "待確認區域" : value);
+  if (!known && (!value || value === "待確認區域" || (isRomanizedArea(value) && !resolvedByGoogle))) return "正在辨識地區";
+  const chinese = known?.[0] || value;
   const localCandidate = String(known?.[1] || original || chinese).trim();
-  const local = isRomanizedArea(localCandidate) ? chinese : localCandidate;
+  const local = localCandidate || chinese;
   return `${chinese}（${local}）`;
 }
 
-function areaChineseName(area = "") {
+function areaChineseName(area = "", resolvedByGoogle = false) {
   const value = String(area || "行程").trim();
-  return knownAreaLabel(value)?.[0] || (isRomanizedArea(value) ? "待確認區域" : value);
+  return knownAreaLabel(value)?.[0]
+    || (value === "待確認區域" || (isRomanizedArea(value) && !resolvedByGoogle) ? "正在辨識地區" : value);
 }
 
 function placeVoters(name) {
@@ -1695,6 +1699,7 @@ async function loadSharedTrip({ quiet = false, force = false } = {}) {
     if (applySharedTrip(payload)) {
       persist({ sync: false, resetUndo: true });
       render({ preserveScroll: true });
+      window.setTimeout(localizeStoredPlaceAreas, 0);
     }
   } catch {
     if (!quiet) showToast("目前顯示離線資料");
@@ -1916,9 +1921,11 @@ function placesScreen() {
             </div>`;
         })
         .join("");
+      const representative = visiblePlaces.find((place) => place.area === area && place.areaOriginal)
+        || visiblePlaces.find((place) => place.area === area);
       return `
         <section class="place-group">
-          <h2 class="group-title">⌖ ${escapeHtml(areaDisplayName(area, visiblePlaces.find((place) => place.area === area && place.areaOriginal)?.areaOriginal))}</h2>
+          <h2 class="group-title">⌖ ${escapeHtml(areaDisplayName(area, representative?.areaOriginal, representative?.areaResolvedByGoogle === true))}</h2>
           <div class="place-list">${rows}</div>
         </section>`;
     })
@@ -2821,6 +2828,7 @@ async function ensureMapCoordinates() {
       place.longitude = resolved.longitude;
       place.area = resolved.area || place.area;
       place.areaOriginal = resolved.areaOriginal || place.areaOriginal || place.area;
+      place.areaResolvedByGoogle = resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true;
       updated = true;
     });
     if (updated) persist({ recordUndo: false });
@@ -2829,6 +2837,79 @@ async function ensureMapCoordinates() {
     return false;
   } finally {
     mapCoordinatesLoading = false;
+  }
+}
+
+function areaLocalizationKey(place) {
+  return `${state.tripId}|${place.placeId || place.sourceUrl || place.formattedAddress || place.name}`;
+}
+
+function needsAreaLocalization(place) {
+  if (!place || place.areaResolvedByGoogle === true) return false;
+  const unresolved = !place.area
+    || place.area === "待確認區域"
+    || isRomanizedArea(place.area)
+    || isRomanizedArea(place.areaOriginal);
+  const hasAddressEvidence = place.placeId
+    || place.formattedAddress
+    || (Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
+    || (place.sourceUrl && place.name);
+  return Boolean(unresolved && hasAddressEvidence && !areaLocalizationAttempts.has(areaLocalizationKey(place)));
+}
+
+async function localizeStoredPlaceAreas() {
+  if (!state.tripId || areaLocalizationBusy) return false;
+  const tripId = state.tripId;
+  const targets = state.places.filter(needsAreaLocalization).slice(0, 10);
+  if (!targets.length) return false;
+  areaLocalizationBusy = true;
+  targets.forEach((place) => areaLocalizationAttempts.add(areaLocalizationKey(place)));
+  let updated = false;
+  try {
+    const response = await fetch("/api/places", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        places: targets.map((place) => ({
+          localizeArea: true,
+          placeId: place.placeId || "",
+          hintName: place.name || "",
+          sourceUrl: place.sourceUrl || "",
+          formattedAddress: place.formattedAddress || "",
+          latitude: place.latitude,
+          longitude: place.longitude,
+        })),
+      }),
+    });
+    if (!response.ok || state.tripId !== tripId) return false;
+    const resolvedPlaces = (await response.json()).places || [];
+    targets.forEach((target, index) => {
+      const resolved = resolvedPlaces[index];
+      const current = state.places.find((place) => areaLocalizationKey(place) === areaLocalizationKey(target));
+      if (!current || !resolved || resolved.error || !resolved.area) {
+        window.setTimeout(() => areaLocalizationAttempts.delete(areaLocalizationKey(target)), 60000);
+        return;
+      }
+      current.area = resolved.area;
+      current.areaOriginal = resolved.areaOriginal || resolved.area;
+      current.areaResolvedByGoogle = true;
+      current.formattedAddress = resolved.formattedAddress || current.formattedAddress || "";
+      current.placeId = resolved.placeId || current.placeId;
+      current.latitude = Number.isFinite(resolved.latitude) ? resolved.latitude : current.latitude;
+      current.longitude = Number.isFinite(resolved.longitude) ? resolved.longitude : current.longitude;
+      updated = true;
+    });
+    if (updated) {
+      persist({ sync: canEdit(), recordUndo: false });
+      render({ preserveScroll: true });
+    }
+    return updated;
+  } catch {
+    targets.forEach((place) => window.setTimeout(() => areaLocalizationAttempts.delete(areaLocalizationKey(place)), 60000));
+    return false;
+  } finally {
+    areaLocalizationBusy = false;
+    if (state.tripId === tripId && state.places.some(needsAreaLocalization)) window.setTimeout(localizeStoredPlaceAreas, 0);
   }
 }
 
@@ -4151,6 +4232,7 @@ async function ensurePlaceDetails(place) {
       fullName: resolved.name || place.fullName,
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
+      areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
       category: resolved.category || place.category,
       kind: normalizedPlaceKind({ ...place, category: resolved.category || place.category }),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
@@ -5073,6 +5155,7 @@ async function enrichPlaceImportsFromApi(entries) {
         fullName: resolved.name,
         area: resolved.area || place.area,
         areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
+        areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
         category: resolved.category || place.category,
         kind: inferPlaceKind(resolved.category || place.category),
         formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
@@ -7098,6 +7181,7 @@ document.addEventListener("submit", async (event) => {
       kind,
       area: enteredArea || resolved?.area || existing?.area || placeAreaFromAddress(address, name),
       areaOriginal: enteredAreaOriginal || resolved?.areaOriginal || enteredArea || existing?.areaOriginal || "",
+      areaResolvedByGoogle: Boolean(enteredArea || resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
       formattedAddress: address,
       sourceUrl: sourceUrl || resolved?.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
       placeId: resolved?.placeId || (addressUnchanged ? existing?.placeId : "") || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
