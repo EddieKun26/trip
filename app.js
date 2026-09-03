@@ -4677,7 +4677,7 @@ function isSocialPlaceUrl(value) {
   try {
     const host = new URL(value).hostname.toLowerCase();
     return ["instagram.com", "www.instagram.com", "threads.net", "www.threads.net", "threads.com", "www.threads.com", "abnb.me"].includes(host)
-      || ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+      || ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw", "trip.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
   } catch {
     return false;
   }
@@ -4686,7 +4686,7 @@ function isSocialPlaceUrl(value) {
 function isLodgingShareUrl(value) {
   try {
     const host = new URL(value).hostname.toLowerCase();
-    return host === "abnb.me" || ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+    return host === "abnb.me" || ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw", "trip.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
   } catch {
     return false;
   }
@@ -4708,6 +4708,8 @@ function placeReferenceMeta(place) {
             ? "Booking.com"
             : host.includes("airbnb") || host === "abnb.me"
               ? "Airbnb"
+              : host.includes("trip.com")
+                ? "Trip.com"
               : "";
     return platform ? { url: url.toString(), platform } : null;
   } catch {
@@ -4802,6 +4804,19 @@ function mergeLodgingMapEvidence(entries, sourceText) {
   if (!matchingMap) return entries;
 
   const name = details.name || preferredSocial?.name || matchingMap.name;
+  let lodgingPlatform = "住宿平台";
+  try {
+    const lodgingHost = new URL(details.bookingUrl).hostname.toLowerCase();
+    lodgingPlatform = lodgingHost.includes("agoda")
+      ? "Agoda"
+      : lodgingHost.includes("booking")
+        ? "Booking.com"
+        : lodgingHost.includes("airbnb") || lodgingHost === "abnb.me"
+          ? "Airbnb"
+          : lodgingHost.includes("trip.com")
+            ? "Trip.com"
+            : lodgingPlatform;
+  } catch {}
   const merged = {
     ...(preferredSocial || matchingMap),
     name,
@@ -4811,7 +4826,7 @@ function mergeLodgingMapEvidence(entries, sourceText) {
     formattedAddress: details.address || matchingMap.formattedAddress || preferredSocial?.formattedAddress || "",
     sourceUrl: matchingMap.sourceUrl,
     referenceUrl: details.bookingUrl,
-    sourcePlatform: "Booking.com",
+    sourcePlatform: lodgingPlatform,
     latitude: Number(matchingMap.latitude),
     longitude: Number(matchingMap.longitude),
     coordinateFallback: true,
@@ -4820,7 +4835,7 @@ function mergeLodgingMapEvidence(entries, sourceText) {
     canImport: true,
     selected: preferredSocial ? true : undefined,
     isExisting: importAlreadyExists({ name, sourceUrl: matchingMap.sourceUrl }),
-    description: "已將 Booking 住宿資料與你提供的 Google Maps 地址合併；請核對門牌後再加入。",
+    description: `已將 ${lodgingPlatform} 住宿資料與你提供的 Google Maps 地址合併；請核對門牌後再加入。`,
   };
   const groupId = preferredSocial?.candidateGroupId;
   return [
@@ -5214,6 +5229,7 @@ function socialImportErrorMessage(error) {
   if (code === "SOCIAL_MEDIA_SCREENSHOT_REQUIRED") return "貼文只公開了封面或部分內容，完整影片、輪播圖片與留言無法直接讀取；請上傳含店名的截圖後再辨識。";
   if (code === "PLACE_NOT_RECOGNIZED") return "AI 還無法確認貼文中的地點，請上傳更清楚的截圖後再試。";
   if (code === "GOOGLE_PLACE_NOT_FOUND") return "已讀到地點資訊，但目前無法建立可靠的地圖位置；請補上完整地址或 Google Maps 連結。";
+  if (code === "LODGING_DETAILS_REQUIRED") return "住宿頁沒有公開足以確認的完整地址。請再貼上訂單／房東提供的地址或 Google Maps 連結；系統不會改抓附近餐廳。";
   if (code === "DAILY_RECOGNITION_LIMIT") return "今天的社群地點辨識次數已達上限，請稍後再試。";
   if (code === "AI_RECOGNITION_NOT_CONFIGURED") return "AI 辨識服務尚未啟用。";
   if (code === "PLACES_API_NOT_CONFIGURED") return "Google Places 服務尚未啟用。";
@@ -5598,8 +5614,8 @@ function openImportCandidatePreview(identity) {
           <button class="icon-button" type="button" data-close-import-candidate aria-label="關閉候選預覽">×</button>
         </div>
         ${fullName}
-        ${place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
-        ${place.coordinateLocation && !place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是地址座標，不是住宿名稱</strong><span>請核對地圖與完整地址；若要保留住宿名稱，請改貼 Booking、Agoda 或 Airbnb 原始連結。</span></p>` : ""}
+        ${place.locationApproximate ? `<p class="coordinate-fallback-notice"><strong>這是住宿大約位置，不是入住地址</strong><span>Airbnb 等平台可能在預訂前隱藏門牌；預訂後請用房東提供的完整地址更新。</span></p>` : place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
+        ${place.coordinateLocation && !place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是地址座標，不是住宿名稱</strong><span>請核對地圖與完整地址；若要保留住宿名稱，請改貼 Booking、Agoda、Trip.com 或 Airbnb 原始連結。</span></p>` : ""}
         ${mapPreview}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${importCandidateGalleryMarkup(place)}</div>
         <div class="gallery-caption"><span>${place.photos?.length ? "Google Maps 地點照片" : "可到 Google Maps 查看更多照片"}</span><button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">查看完整地圖 ↗</button></div>
@@ -5712,7 +5728,7 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
         <button class="manual-place-entry" type="button" data-manual-place><span>找不到正確地點？</span><strong>手動新增住宿／自訂地點</strong><small>名稱、完整地址、Maps 連結與照片都由你確認</small></button>
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
-          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結">${escapeHtml(initialText)}</textarea>
+          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Trip.com、Airbnb 或社群連結">${escapeHtml(initialText)}</textarea>
           <p class="field-hint">訂房平台常擋住自動讀取。住宿請連同房東訊息或訂單確認信一起貼上（含「公寓名稱：…」「地址：…」），才能用正確名稱與門牌定位。</p>
         </div>
         <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
@@ -5894,7 +5910,7 @@ async function analyzePlaceImportSheet(analyzePlaces) {
       }
     }
     if (!mapImports.length && !socialSources.length && textarea.value.trim()) {
-      notices.push("沒有找到支援的連結，請貼上 Google Maps、Agoda、Booking.com、Airbnb、Instagram 或 Threads 分享網址。");
+      notices.push("沒有找到支援的連結，請貼上 Google Maps、Agoda、Booking.com、Trip.com、Airbnb、Instagram 或 Threads 分享網址。");
     }
   } catch {
     notices.push("地點資料暫時無法辨識，請稍後再試。");

@@ -670,7 +670,7 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
 
 test("place import accepts social links with a confirmation-only Google candidate flow", () => {
   assert.match(appSource, /fetch\("\/api\/social-place-import"/);
-  assert.match(appSource, /Agoda、Booking\.com、Airbnb 或社群連結/);
+  assert.match(appSource, /Agoda、Booking\.com、Trip\.com、Airbnb 或社群連結/);
   assert.match(appSource, /data-social-place-screenshot/);
   assert.match(appSource, /截圖／照片/);
   assert.doesNotMatch(appSource, /id="social-share-text"/);
@@ -756,6 +756,7 @@ test("PWA share target routes supported links into the existing confirmed place-
     "https://www.agoda.com/example-hotel/hotel/tokyo-jp.html",
     "https://www.booking.com/hotel/jp/example.html",
     "https://www.airbnb.com/rooms/123456",
+    "https://tw.trip.com/hotels/w/detail/?hotelid=56737637",
     "https://www.instagram.com/reel/ABC123/",
     "https://www.threads.com/@traveler/post/ABC123",
     "https://maps.app.goo.gl/ABC123",
@@ -896,7 +897,7 @@ test("flight ticket images are recognized locally and used to prefill the form",
 test("place import placeholder is neutral", () => {
   const section = sourceSection("function openAddPlaceSheet", "function openDateSheet");
   assert.doesNotMatch(section, /高雄合菜 · Eddie/);
-  assert.match(section, /Google Maps、Agoda、Booking\.com、Airbnb 或社群連結/);
+  assert.match(section, /Google Maps、Agoda、Booking\.com、Trip\.com、Airbnb 或社群連結/);
 });
 
 test("shopping is a fourth private tab with categories reusable tags and completion state", () => {

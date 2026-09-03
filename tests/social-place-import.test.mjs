@@ -88,6 +88,7 @@ globalThis.fetch = async (url, options = {}) => {
   if (target.includes("places.googleapis.com/v1/places:searchText")) {
     const requestBody = JSON.parse(options.body);
     googleRequests.push({ body: requestBody, headers: options.headers });
+    const returnsNamedLodging = /Mitsui Garden Hotel|THE KUKUNA/i.test(requestBody.textQuery);
     if (googleRejectLocationBias && requestBody.locationBias) {
       return new Response(JSON.stringify({ error: { message: "locationBias.circle.radius must be at most 50000" } }), {
         status: 400,
@@ -143,7 +144,9 @@ globalThis.fetch = async (url, options = {}) => {
           displayName: { text: "Cafe Mugi 新宿" },
           formattedAddress: "東京都新宿區西新宿 1-2-3",
           addressComponents: [{ longText: "新宿區", types: ["sublocality_level_1"] }],
-          primaryTypeDisplayName: { text: "咖啡廳" },
+          primaryType: returnsNamedLodging ? "lodging" : "cafe",
+          types: [returnsNamedLodging ? "lodging" : "cafe"],
+          primaryTypeDisplayName: { text: returnsNamedLodging ? "住宿" : "咖啡廳" },
           location: { latitude: 35.69, longitude: 139.70 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=Cafe+Mugi",
           regularOpeningHours: { weekdayDescriptions: ["星期一: 10:00-20:00"] },
@@ -239,6 +242,7 @@ test("social metadata parser reads Open Graph content without accepting arbitrar
   assert.equal(safeSocialUrl("https://www.agoda.com/example-hotel/hotel/tokyo-jp.html")?.hostname, "www.agoda.com");
   assert.equal(safeSocialUrl("https://www.booking.com/hotel/jp/example.html")?.hostname, "www.booking.com");
   assert.equal(safeSocialUrl("https://www.airbnb.com/rooms/123")?.hostname, "www.airbnb.com");
+  assert.equal(safeSocialUrl("https://tw.trip.com/hotels/w/detail/?hotelid=56737637")?.hostname, "tw.trip.com");
   assert.equal(isLodgingShareUrl(safeSocialUrl("https://abnb.me/example")), true);
   assert.equal(safeSocialMediaUrl("https://scontent.cdninstagram.com/photo.jpg")?.hostname, "scontent.cdninstagram.com");
   assert.equal(safeSocialMediaUrl("https://example.com/photo.jpg"), null);
@@ -493,6 +497,40 @@ test("Agoda Booking.com and Airbnb links are accepted as lodging sources and kee
   assert.deepEqual(openAiRequests[0].tools, [{ type: "web_search" }]);
   assert.match(openAiRequests[0].input[1].content[0].text, /"requestedKind":"lodging"/);
   recognitionPlaceOverride = null;
+});
+
+test("lodging imports never turn restaurant search results into accommodation candidates", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  socialHtmlOverride = "<!doctype html><html><head><title>Private stay</title></head></html>";
+  recognitionPlaceOverride = {
+    nameOriginal: "Private stay without a map listing",
+    nameZh: "私人住宿",
+    city: "東京",
+    area: "",
+    country: "日本",
+    category: "lodging",
+    address: "",
+    nameHidden: false,
+    searchClues: "private stay",
+    searchQuery: "Private stay without a map listing Tokyo",
+    evidence: "住宿頁名稱",
+    sourceImageIndexes: [],
+    confidence: 0.7,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    sourceUrl: "https://www.booking.com/hotel/jp/private-stay.html",
+  });
+  socialHtmlOverride = "";
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 422);
+  assert.equal(response.payload.error, "LODGING_DETAILS_REQUIRED");
+  assert.equal(googleRequests.length, 1);
 });
 
 test("a Booking apartment uses its exact postal address and rejects a nearby lodging", async () => {

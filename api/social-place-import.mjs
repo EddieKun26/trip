@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { extractStructuredLodgingMetadata } from "./lodging-page.mjs";
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
@@ -23,7 +24,7 @@ const SOCIAL_HOSTS = new Set([
   "www.threads.com",
   "abnb.me",
 ]);
-const LODGING_HOST_SUFFIXES = ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw"];
+const LODGING_HOST_SUFFIXES = ["agoda.com", "booking.com", "airbnb.com", "airbnb.com.tw", "trip.com"];
 const SOCIAL_MEDIA_HOST_SUFFIXES = [".cdninstagram.com", ".fbcdn.net"];
 
 function sendJson(response, status, payload) {
@@ -139,6 +140,7 @@ function socialPlatform(url) {
   if (host.includes("agoda")) return "Agoda";
   if (host.includes("booking")) return "Booking.com";
   if (host.includes("airbnb") || host === "abnb.me") return "Airbnb";
+  if (host.includes("trip.com")) return "Trip.com";
   return "社群貼文";
 }
 
@@ -214,7 +216,7 @@ function lodgingNameFromTitle(value) {
   return looksLikeRoomDescription && /[\p{L}]/u.test(candidate) && candidate.length <= 80 ? candidate : "";
 }
 
-function publicMetadataFromHtml(html) {
+function publicMetadataFromHtml(html, sourceUrl = "") {
   const metadata = {};
   for (const tag of String(html || "").match(/<meta\b[^>]*>/gi) || []) {
     const attributes = tagAttributes(tag);
@@ -247,14 +249,22 @@ function publicMetadataFromHtml(html) {
   const publicTitle = metadata["og:title"] || title;
   const structuredAddress = structuredLodgingAddressFromHtml(html);
   const lodgingName = lodgingNameFromTitle(publicTitle);
+  const structuredLodging = isLodgingShareUrl(sourceUrl) || !sourceUrl
+    ? extractStructuredLodgingMetadata(html)
+    : {};
   return {
-    title: publicTitle,
-    description: metadata["og:description"] || metadata.description || "",
+    title: publicTitle || structuredLodging.lodgingName || "",
+    description: metadata["og:description"] || metadata.description || structuredLodging.structuredDescription || "",
     imageUrl: imageUrls[0] || "",
     imageUrls,
     videoUrl: metadata.videoUrl || "",
-    ...(structuredAddress ? { address: structuredAddress } : {}),
-    ...(lodgingName ? { lodgingName } : {}),
+    ...(structuredAddress || structuredLodging.address ? { address: structuredAddress || structuredLodging.address } : {}),
+    ...(lodgingName || structuredLodging.lodgingName ? { lodgingName: lodgingName || structuredLodging.lodgingName } : {}),
+    ...(structuredLodging.locationLabel ? { locationLabel: structuredLodging.locationLabel } : {}),
+    ...(validPlaceCoordinates(structuredLodging.latitude, structuredLodging.longitude)
+      ? { latitude: structuredLodging.latitude, longitude: structuredLodging.longitude }
+      : {}),
+    ...(structuredLodging.locationApproximate ? { locationApproximate: true } : {}),
   };
 }
 
@@ -387,7 +397,7 @@ async function fetchPublicMetadata(initialUrl) {
       return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
     }
     const html = (await result.text()).slice(0, MAX_PUBLIC_HTML_BYTES);
-    const metadata = publicMetadataFromHtml(html);
+    const metadata = publicMetadataFromHtml(html, current);
     return {
       ...metadata,
       available: Boolean(metadata.title || metadata.description || metadata.imageUrls.length || metadata.videoUrl),
@@ -567,6 +577,10 @@ async function callOpenAi(apiKey, {
     publicDescription: metadata.description || "",
     publicAddress: metadata.address || "",
     publicLodgingName: metadata.lodgingName || "",
+    publicLocationLabel: metadata.locationLabel || "",
+    publicLatitude: Number.isFinite(metadata.latitude) ? metadata.latitude : null,
+    publicLongitude: Number.isFinite(metadata.longitude) ? metadata.longitude : null,
+    publicLocationApproximate: metadata.locationApproximate === true,
     publicPageUnavailable: metadata.available === false,
     lodgingUrlSlug: lodgingUrlSlug(sourceUrl),
     linkedMediaKind: metadata.videoUrl ? "video" : metadata.imageUrls?.length ? "image_carousel" : "none",
@@ -589,7 +603,7 @@ async function callOpenAi(apiKey, {
       detail: image.detail === "high" ? "high" : "original",
     });
   }
-  const useWebSearch = Boolean((addressHint && nameHiddenHint) || (sourceUrl && ["Agoda", "Booking.com", "Airbnb"].includes(platform)));
+  const useWebSearch = Boolean((addressHint && nameHiddenHint) || (sourceUrl && ["Agoda", "Booking.com", "Airbnb", "Trip.com"].includes(platform)));
   const requestPayload = {
     model: OPENAI_MODEL,
     input: [
@@ -653,9 +667,9 @@ function cleanRecognition(value, options = {}) {
         ? "shopping"
         : "attraction";
   const sourcePlaces = Array.isArray(value?.places) ? [...value.places] : [];
-  if (!sourcePlaces.length && addressHint) {
+  if (!sourcePlaces.length && (addressHint || lodgingNameHint)) {
     sourcePlaces.push({
-      nameOriginal: "",
+      nameOriginal: lodgingNameHint,
       nameZh: "",
       city: "",
       area: "",
@@ -664,8 +678,8 @@ function cleanRecognition(value, options = {}) {
       address: addressHint,
       nameHidden: nameHiddenHint,
       searchClues: "",
-      searchQuery: `${addressHint} ${categorySearchLabel(fallbackCategory)}`,
-      evidence: "貼文提供地址，但未能確認正式地點名稱。",
+      searchQuery: [lodgingNameHint, addressHint, categorySearchLabel(fallbackCategory)].filter(Boolean).join(" "),
+      evidence: addressHint ? "住宿頁提供地址，但未能確認 Google Maps 正式地點。" : "住宿頁提供名稱，但未公開完整地址。",
       sourceImageIndexes: [],
       confidence: 0.4,
     });
@@ -863,15 +877,18 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
   const lodgingMatches = kind === "lodging"
     ? places.filter((place) => [place.primaryType, ...(place.types || [])].some((type) => lodgingTypes.has(type)))
     : [];
-  const rankedPlaces = lodgingMatches.length
-    ? [...lodgingMatches, ...places.filter((place) => !lodgingMatches.includes(place))]
+  const sourceHasApproximateLocation = kind === "lodging"
+    && mention.sourceLocationApproximate === true
+    && validPlaceCoordinates(mention.sourceLatitude, mention.sourceLongitude);
+  const rankedPlaces = kind === "lodging"
+    ? sourceHasApproximateLocation ? [] : lodgingMatches
     : places;
   const preciseAddress = kind === "lodging" && hasPreciseAddress(mention.address);
   const addressMatchedPlaces = preciseAddress
     ? rankedPlaces.filter((place) => matchesPreciseAddress(mention.address, place.formattedAddress))
     : rankedPlaces;
   let addressCoordinatePlace = null;
-  if (kind === "lodging" && mention.address) {
+  if (kind === "lodging" && hasPreciseAddress(mention.address)) {
     const addressRequest = {
       textQuery: mention.address,
       languageCode: "zh-TW",
@@ -901,6 +918,19 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
         addressCoordinatePlace = null;
       }
     }
+  }
+  if (kind === "lodging" && !addressCoordinatePlace
+    && validPlaceCoordinates(mention.sourceLatitude, mention.sourceLongitude)) {
+    const latitude = Number(mention.sourceLatitude);
+    const longitude = Number(mention.sourceLongitude);
+    addressCoordinatePlace = {
+      id: `lodging-source-${source.platform || "platform"}-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+      formattedAddress: cleanText(mention.sourceLocationLabel || mention.address || `${source.platform || "住宿平台"}公開的位置`, 300),
+      addressComponents: [],
+      location: { latitude, longitude },
+      addressProvider: source.platform || "住宿平台",
+      approximateLocation: mention.sourceLocationApproximate === true,
+    };
   }
   const excludedPlaceIds = new Set((Array.isArray(options.excludePlaceIds) ? options.excludePlaceIds : [])
     .map((value) => cleanText(value, 200))
@@ -952,14 +982,15 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
     const longitude = Number(addressCoordinatePlace.location.longitude);
     const placeId = cleanText(addressCoordinatePlace.id, 200) || `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`;
     if (!excludedPlaceIds.has(placeId)) {
-      const name = cleanText(mention.name, 160) || "Booking.com 住宿位置";
+      const approximateLocation = addressCoordinatePlace.approximateLocation === true;
+      const name = cleanText(mention.name, 160) || `${source.platform || "住宿平台"}住宿位置`;
       const area = pickArea(addressCoordinatePlace.addressComponents) || mention.area || mention.city || "待確認區域";
       const coordinateQuery = encodeURIComponent(`${latitude.toFixed(6)},${longitude.toFixed(6)}`);
       const coordinateCandidate = {
         placeId,
         name,
         fullName: name,
-        category: "住宿座標",
+        category: approximateLocation ? "住宿大約位置" : "住宿座標",
         kind: "lodging",
         area,
         areaOriginal: area,
@@ -980,12 +1011,17 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
         ratingCount: 0,
         photos: [],
         photosLoaded: true,
-        description: `此住宿在 Google Maps 沒有獨立商家頁，已依 ${source.platform || "住宿平台"} 提供的地址建立導航座標。加入前請核對完整地址。`,
-        highlights: [source.platform || "住宿平台", "地址定位"],
-        galleryLabels: ["住宿地址座標", "請核對門牌", "可開啟地圖確認"],
+        description: approximateLocation
+          ? `${source.platform || "住宿平台"}只公開訂房前可見的大約位置；此座標不能當作入住地址。預訂後請用房東提供的完整地址更新。`
+          : `此住宿在 Google Maps 沒有獨立商家頁，已依 ${source.platform || "住宿平台"} 提供的地址建立導航座標。加入前請核對完整地址。`,
+        highlights: [source.platform || "住宿平台", approximateLocation ? "大約位置" : "地址定位"],
+        galleryLabels: approximateLocation
+          ? ["住宿大約位置", "不是入住門牌", "預訂後請更新"]
+          : ["住宿地址座標", "請核對門牌", "可開啟地圖確認"],
         candidateRank: candidates.length + 1,
         matchConfidence: mention.confidence,
         coordinateFallback: true,
+        locationApproximate: approximateLocation,
         addressProvider: addressCoordinatePlace.addressProvider || "Google Maps",
         isCustom: true,
       };
@@ -1145,6 +1181,14 @@ export default async function socialPlaceImportHandler(request, response) {
       requestedKind: recognitionKind,
       sourceText,
     });
+    if (recognitionKind === "lodging" && validPlaceCoordinates(metadata.latitude, metadata.longitude)) {
+      for (const mention of recognition.places) {
+        mention.sourceLatitude = Number(metadata.latitude);
+        mention.sourceLongitude = Number(metadata.longitude);
+        mention.sourceLocationLabel = cleanText(metadata.locationLabel, 160);
+        mention.sourceLocationApproximate = metadata.locationApproximate === true;
+      }
+    }
     if (!recognition.places.length) {
       return sendJson(response, 422, {
         error: !imageDataUrl && (metadata.imageUrls?.length || metadata.videoUrl)
@@ -1182,7 +1226,11 @@ export default async function socialPlaceImportHandler(request, response) {
     );
     if (lookupErrors.length === recognition.places.length) throw lookupErrors[0];
     if (!groups.some((group) => group.candidates.length)) {
-      return sendJson(response, 422, { error: "GOOGLE_PLACE_NOT_FOUND", source });
+      return sendJson(response, 422, {
+        error: recognitionKind === "lodging" ? "LODGING_DETAILS_REQUIRED" : "GOOGLE_PLACE_NOT_FOUND",
+        platform,
+        source,
+      });
     }
     return sendJson(response, 200, { source, groups });
   } catch (error) {
