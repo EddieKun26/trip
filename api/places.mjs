@@ -5,6 +5,7 @@ const ALLOWED_MAP_HOSTS = new Set([
   "www.google.com",
   "maps.google.com",
 ]);
+const AREA_RESOLUTION_VERSION = 2;
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -92,14 +93,14 @@ function nameFromMapsUrl(value) {
 
 function geocodeArea(addressComponents = []) {
   const priorities = [
-    "neighborhood",
-    "sublocality_level_2",
-    "sublocality_level_1",
     "administrative_area_level_3",
     "locality",
     "postal_town",
+    "sublocality_level_1",
     "administrative_area_level_2",
     "administrative_area_level_1",
+    "sublocality_level_2",
+    "neighborhood",
   ];
   for (const type of priorities) {
     const component = addressComponents.find((item) => item.types?.includes(type));
@@ -159,6 +160,7 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
       area: area || areaOriginal || "地址位置",
       areaOriginal: areaOriginal || area || "地址位置",
       areaResolvedByGoogle: true,
+      areaResolutionVersion: AREA_RESOLUTION_VERSION,
       category: "地址座標",
       formattedAddress,
       latitude,
@@ -192,7 +194,7 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
   const formattedAddress = String(osm.display_name || "").trim();
   if (!formattedAddress) return { requestUrl, error: "這組座標暫時查不到完整地址" };
   const address = osm.address || {};
-  const areaOriginal = address.neighbourhood || address.suburb || address.quarter || address.city_district || address.city || "";
+  const areaOriginal = address.city_district || address.city || address.town || address.municipality || address.county || address.suburb || address.quarter || address.neighbourhood || "";
   const area = chineseAreaName(areaOriginal, areaOriginal);
   const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
   return {
@@ -201,6 +203,7 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
     name: `地址位置｜${addressLabel}`.slice(0, 160),
     area: area || areaOriginal || "地址位置",
     areaOriginal: areaOriginal || area || "地址位置",
+    areaResolutionVersion: AREA_RESOLUTION_VERSION,
     category: "地址座標",
     formattedAddress,
     latitude,
@@ -241,6 +244,7 @@ async function geocodeAddress({ apiKey, address, requestUrl }) {
     area: chineseAreaName(localizedArea, areaOriginal) || localizedArea || areaOriginal || "地址位置",
     areaOriginal: areaOriginal || localizedArea || "地址位置",
     areaResolvedByGoogle: true,
+    areaResolutionVersion: AREA_RESOLUTION_VERSION,
     category: "自訂地址",
     formattedAddress: result.formatted_address || address,
     latitude,
@@ -269,14 +273,14 @@ async function expandShortMapsUrl(url) {
 
 function pickArea(addressComponents = []) {
   const priorities = [
-    "neighborhood",
-    "sublocality_level_2",
-    "sublocality_level_1",
     "administrative_area_level_3",
     "locality",
     "postal_town",
+    "sublocality_level_1",
     "administrative_area_level_2",
     "administrative_area_level_1",
+    "sublocality_level_2",
+    "neighborhood",
   ];
   for (const type of priorities) {
     const component = addressComponents.find((item) => item.types?.includes(type));
@@ -382,6 +386,7 @@ async function localizeArea({ apiKey, placeId, address, latitude, longitude, req
     area: area || areaOriginal,
     areaOriginal: areaOriginal || area,
     areaResolvedByGoogle: true,
+    areaResolutionVersion: AREA_RESOLUTION_VERSION,
     formattedAddress: result.formatted_address || address || "",
     latitude: result.geometry?.location?.lat ?? latitude ?? null,
     longitude: result.geometry?.location?.lng ?? longitude ?? null,
@@ -455,6 +460,7 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
     area,
     areaOriginal,
     areaResolvedByGoogle: true,
+    areaResolutionVersion: AREA_RESOLUTION_VERSION,
     category: place.primaryTypeDisplayName?.text || "景點",
     formattedAddress: place.formattedAddress || "",
     latitude: place.location?.latitude ?? null,

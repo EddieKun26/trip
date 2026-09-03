@@ -536,6 +536,8 @@ function formatOpeningHoursForDay(value = "", weekday = "") {
   return escapeHtml(raw).replace(/([（(][^）)]*最晚[^）)]*[）)])/g, '<br><span class="last-entry-time">$1</span>');
 }
 
+const AREA_RESOLUTION_VERSION = 2;
+
 const knownAreaLabels = {
   "銀座": ["銀座", "銀座"],
   "Ginza": ["銀座", "銀座"],
@@ -604,10 +606,11 @@ function areaDisplayName(area = "", original = "", resolvedByGoogle = false) {
   return `${chinese}（${local}）`;
 }
 
-function areaChineseName(area = "", resolvedByGoogle = false) {
+function areaChineseName(area = "", resolutionIsCurrent = true) {
   const value = String(area || "行程").trim();
+  if (!resolutionIsCurrent) return "正在辨識地區";
   return knownAreaLabel(value)?.[0]
-    || (value === "待確認區域" || (isRomanizedArea(value) && !resolvedByGoogle) ? "正在辨識地區" : value);
+    || (value === "待確認區域" ? "正在辨識地區" : value);
 }
 
 function placeVoters(name) {
@@ -1923,9 +1926,12 @@ function placesScreen() {
         .join("");
       const representative = visiblePlaces.find((place) => place.area === area && place.areaOriginal)
         || visiblePlaces.find((place) => place.area === area);
+      const areaLabel = shouldUpgradeAreaResolution(representative)
+        ? "正在辨識地區"
+        : areaDisplayName(area, representative?.areaOriginal, isAreaResolutionCurrent(representative));
       return `
         <section class="place-group">
-          <h2 class="group-title">⌖ ${escapeHtml(areaDisplayName(area, representative?.areaOriginal, representative?.areaResolvedByGoogle === true))}</h2>
+          <h2 class="group-title">⌖ ${escapeHtml(areaLabel)}</h2>
           <div class="place-list">${rows}</div>
         </section>`;
     })
@@ -2336,7 +2342,7 @@ function mapScreen() {
     ? projectedPlaces.map((place) => `
         <button class="map-sidebar-place ${state.selectedMapPlace === place.name ? "active" : ""}" type="button" data-focus-map-place="${escapeHtml(place.name)}">
           <i style="--place-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</i>
-          <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area || "待確認區域"))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
+          <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area || "待確認區域", isAreaResolutionCurrent(place)))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
         </button>`).join("")
     : `<div class="map-sidebar-empty">目前沒有符合篩選的地點</div>`;
   const selectedPreviewPlace = projectedPlaces.find((place) => place.name === state.selectedMapPlace);
@@ -2584,7 +2590,7 @@ function mapPlacePreviewMarkup(place) {
     <article class="map-place-preview-card" aria-label="${escapeHtml(place.name)}地點預覽">
       <button class="map-place-preview-main" type="button" data-open-map-place-detail="${escapeHtml(place.name)}">
         <span class="map-place-preview-photo">${photo}</span>
-        <span class="map-place-preview-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(rating)} · ${escapeHtml(kindLabel(place.kind))}</small><em>${escapeHtml(areaChineseName(place.area || "待確認區域"))}</em></span>
+        <span class="map-place-preview-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(rating)} · ${escapeHtml(kindLabel(place.kind))}</small><em>${escapeHtml(areaChineseName(place.area || "待確認區域", isAreaResolutionCurrent(place)))}</em></span>
         <b aria-hidden="true">›</b>
       </button>
       <button class="map-place-preview-close" type="button" data-close-map-preview aria-label="關閉地點預覽">×</button>
@@ -2829,6 +2835,7 @@ async function ensureMapCoordinates() {
       place.area = resolved.area || place.area;
       place.areaOriginal = resolved.areaOriginal || place.areaOriginal || place.area;
       place.areaResolvedByGoogle = resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true;
+      place.areaResolutionVersion = Number(resolved.areaResolutionVersion) || place.areaResolutionVersion || 0;
       updated = true;
     });
     if (updated) persist({ recordUndo: false });
@@ -2844,17 +2851,32 @@ function areaLocalizationKey(place) {
   return `${state.tripId}|${place.placeId || place.sourceUrl || place.formattedAddress || place.name}`;
 }
 
+function hasAreaResolutionEvidence(place) {
+  return Boolean(place && (place.placeId
+    || place.formattedAddress
+    || (Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
+    || (place.sourceUrl && place.name)));
+}
+
+function isAreaResolutionCurrent(place) {
+  return Boolean(place?.areaManuallySet || Number(place?.areaResolutionVersion) >= AREA_RESOLUTION_VERSION);
+}
+
+function shouldUpgradeAreaResolution(place) {
+  return Boolean(place && !place.areaManuallySet && Number(place.areaResolutionVersion) < AREA_RESOLUTION_VERSION && hasAreaResolutionEvidence(place));
+}
+
 function needsAreaLocalization(place) {
-  if (!place || place.areaResolvedByGoogle === true) return false;
+  if (!place) return false;
   const unresolved = !place.area
     || place.area === "待確認區域"
     || isRomanizedArea(place.area)
     || isRomanizedArea(place.areaOriginal);
-  const hasAddressEvidence = place.placeId
-    || place.formattedAddress
-    || (Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
-    || (place.sourceUrl && place.name);
-  return Boolean(unresolved && hasAddressEvidence && !areaLocalizationAttempts.has(areaLocalizationKey(place)));
+  return Boolean(
+    hasAreaResolutionEvidence(place)
+    && (unresolved || shouldUpgradeAreaResolution(place))
+    && !areaLocalizationAttempts.has(areaLocalizationKey(place)),
+  );
 }
 
 async function localizeStoredPlaceAreas() {
@@ -2893,6 +2915,7 @@ async function localizeStoredPlaceAreas() {
       current.area = resolved.area;
       current.areaOriginal = resolved.areaOriginal || resolved.area;
       current.areaResolvedByGoogle = true;
+      current.areaResolutionVersion = Number(resolved.areaResolutionVersion) || AREA_RESOLUTION_VERSION;
       current.formattedAddress = resolved.formattedAddress || current.formattedAddress || "";
       current.placeId = resolved.placeId || current.placeId;
       current.latitude = Number.isFinite(resolved.latitude) ? resolved.latitude : current.latitude;
@@ -4052,7 +4075,10 @@ function itineraryScreen() {
 
   const placeItems = dayItems.filter((item) => item.type !== "flight");
   const area = placeItems.length
-    ? [...new Set(placeItems.map((item) => areaChineseName(state.places.find((place) => place.name === item.name)?.area || "行程")))].join("／")
+    ? [...new Set(placeItems.map((item) => {
+        const place = state.places.find((candidate) => candidate.name === item.name);
+        return areaChineseName(place?.area || "行程", isAreaResolutionCurrent(place));
+      }))].join("／")
     : "尚未安排";
   const dayCountLabel = [placeItems.length ? `${placeItems.length} 個地點` : "", dayItems.length - placeItems.length ? `${dayItems.length - placeItems.length} 個航班` : ""].filter(Boolean).join(" · ");
 
@@ -4150,7 +4176,7 @@ function openPlaceSheet(name) {
     <div class="modal-backdrop" data-dismiss-sheet>
       <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(place.name)}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(areaChineseName(place.area))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
+          <div><p class="section-kicker">${escapeHtml(areaChineseName(place.area, isAreaResolutionCurrent(place)))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
@@ -4233,6 +4259,7 @@ async function ensurePlaceDetails(place) {
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
       areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
+      areaResolutionVersion: Number(resolved.areaResolutionVersion) || place.areaResolutionVersion || 0,
       category: resolved.category || place.category,
       kind: normalizedPlaceKind({ ...place, category: resolved.category || place.category }),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
@@ -5156,6 +5183,7 @@ async function enrichPlaceImportsFromApi(entries) {
         area: resolved.area || place.area,
         areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
         areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
+        areaResolutionVersion: Number(resolved.areaResolutionVersion) || place.areaResolutionVersion || 0,
         category: resolved.category || place.category,
         kind: inferPlaceKind(resolved.category || place.category),
         formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
@@ -5998,7 +6026,7 @@ function openItineraryPlacesSheet({ reset = false } = {}) {
       <label class="itinerary-place-option ${current ? "already-added" : ""}">
         <input type="checkbox" name="places" value="${escapeHtml(place.name)}" ${current ? "checked disabled" : itineraryPlaceSelection.has(place.name) ? "checked" : ""} />
         <span class="itinerary-place-check" aria-hidden="true">✓</span>
-        <span class="itinerary-place-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
+        <span class="itinerary-place-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area, isAreaResolutionCurrent(place)))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
         <b>${escapeHtml(status)}</b>
       </label>`;
   }).join("");
@@ -7182,6 +7210,10 @@ document.addEventListener("submit", async (event) => {
       area: enteredArea || resolved?.area || existing?.area || placeAreaFromAddress(address, name),
       areaOriginal: enteredAreaOriginal || resolved?.areaOriginal || enteredArea || existing?.areaOriginal || "",
       areaResolvedByGoogle: Boolean(enteredArea || resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
+      areaManuallySet: Boolean(enteredArea || enteredAreaOriginal),
+      areaResolutionVersion: enteredArea || enteredAreaOriginal
+        ? AREA_RESOLUTION_VERSION
+        : Number(resolved?.areaResolutionVersion) || (addressUnchanged ? Number(existing?.areaResolutionVersion) : 0),
       formattedAddress: address,
       sourceUrl: sourceUrl || resolved?.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
       placeId: resolved?.placeId || (addressUnchanged ? existing?.placeId : "") || `custom-place-${crypto.randomUUID?.() || Date.now()}`,

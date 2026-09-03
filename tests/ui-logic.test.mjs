@@ -29,6 +29,10 @@ test("persisted romanized Tokyo areas display as Chinese and Japanese", () => {
   assert.match(appSource, /async function localizeStoredPlaceAreas/);
   assert.match(appSource, /localizeArea: true/);
   assert.match(appSource, /areaResolvedByGoogle/);
+  assert.match(appSource, /const AREA_RESOLUTION_VERSION = 2/);
+  assert.match(appSource, /function shouldUpgradeAreaResolution/);
+  assert.match(appSource, /Number\(place\.areaResolutionVersion\) < AREA_RESOLUTION_VERSION/);
+  assert.match(appSource, /shouldUpgradeAreaResolution\(representative\)/);
 });
 
 test("places can be manually added and later edited with an exact address and personal photo", () => {

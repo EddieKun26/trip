@@ -23,7 +23,7 @@ function responseMock() {
   };
 }
 
-test("Google Places converts romanized areas to Chinese and keeps the local original", async () => {
+test("Google Places groups a Jingumae shop under Shibuya ward instead of its neighborhood", async () => {
   process.env.GOOGLE_MAPS_API_KEY = "test-key";
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
@@ -34,7 +34,8 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
           id: "test-place-id",
           displayName: { text: "測試景點" },
           addressComponents: [
-            { longText: "Ginza", types: ["neighborhood"] },
+            { longText: "Jingumae", types: ["neighborhood"] },
+            { longText: "Shibuya", types: ["locality"] },
             { longText: "Japan", shortText: "JP", types: ["country"] },
           ],
           primaryTypeDisplayName: { text: "景點" },
@@ -44,7 +45,10 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response(JSON.stringify({
-      results: [{ address_components: [{ long_name: "銀座", types: ["neighborhood"] }] }],
+      results: [{ address_components: [
+        { long_name: "神宮前", types: ["neighborhood"] },
+        { long_name: "渋谷区", types: ["locality"] },
+      ] }],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
 
@@ -56,8 +60,9 @@ test("Google Places converts romanized areas to Chinese and keeps the local orig
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.payload.places[0].placeId, "test-place-id");
-  assert.equal(response.payload.places[0].area, "銀座");
-  assert.equal(response.payload.places[0].areaOriginal, "銀座");
+  assert.equal(response.payload.places[0].area, "澀谷區");
+  assert.equal(response.payload.places[0].areaOriginal, "渋谷区");
+  assert.equal(response.payload.places[0].areaResolutionVersion, 2);
   assert.equal(calls.length, 2);
   assert.match(calls[1].url, /maps\/api\/geocode\/json/);
   assert.equal(new URL(calls[1].url).searchParams.get("language"), "ja");
@@ -137,6 +142,7 @@ test("manual lodging addresses are geocoded directly instead of matched to a nea
         formatted_address: isJapanese ? "日本、〒251-0032 神奈川県藤沢市片瀬3丁目8-12" : "日本神奈川縣藤澤市片瀨 3 丁目 8-12",
         address_components: [
           { long_name: isJapanese ? "片瀬" : "片瀨", types: ["neighborhood"] },
+          { long_name: isJapanese ? "藤沢市" : "藤澤市", types: ["locality"] },
           { long_name: isJapanese ? "日本" : "日本", short_name: "JP", types: ["country"] },
         ],
         geometry: { location: { lat: 35.3131, lng: 139.4872 } },
@@ -159,8 +165,8 @@ test("manual lodging addresses are geocoded directly instead of matched to a nea
   assert.equal(new URL(calls[1]).searchParams.get("language"), "ja");
   assert.equal(calls.every((url) => !new URL(url).searchParams.has("region")), true);
   assert.equal(response.payload.places[0].placeId, "exact-address-id");
-  assert.equal(response.payload.places[0].area, "片瀨");
-  assert.equal(response.payload.places[0].areaOriginal, "片瀬");
+  assert.equal(response.payload.places[0].area, "藤澤市");
+  assert.equal(response.payload.places[0].areaOriginal, "藤沢市");
   assert.equal(response.payload.places[0].latitude, 35.3131);
   assert.equal(response.payload.places[0].longitude, 139.4872);
   assert.equal(response.payload.places[0].manualLocation, true);
@@ -177,13 +183,15 @@ test("stored areas are relocalized from Google address components across writing
     const language = requestUrl.searchParams.get("language");
     const placeId = requestUrl.searchParams.get("place_id");
     const korean = placeId === "korean-place";
-    const area = korean ? (language === "zh-TW" ? "明洞" : "명동") : "Montmartre";
+    const neighborhood = korean ? (language === "zh-TW" ? "明洞" : "명동") : "Montmartre";
+    const district = korean ? (language === "zh-TW" ? "中區" : "중구") : "Paris";
     return new Response(JSON.stringify({
       results: [{
         place_id: placeId,
         formatted_address: korean ? "韓國首爾特別市中區明洞" : "Montmartre, Paris, France",
         address_components: [
-          { long_name: area, types: ["neighborhood"] },
+          { long_name: neighborhood, types: ["neighborhood"] },
+          { long_name: district, types: [korean ? "sublocality_level_1" : "locality"] },
           { long_name: korean ? "韓國" : "法國", short_name: korean ? "KR" : "FR", types: ["country"] },
         ],
         geometry: { location: korean ? { lat: 37.5636, lng: 126.9869 } : { lat: 48.8867, lng: 2.3431 } },
@@ -204,10 +212,10 @@ test("stored areas are relocalized from Google address components across writing
   assert.equal(calls.length, 4);
   assert.deepEqual(calls.map((url) => url.searchParams.get("language")), ["zh-TW", "zh-TW", "ko", "fr"]);
   assert.deepEqual(
-    response.payload.places.map(({ area, areaOriginal, areaResolvedByGoogle }) => ({ area, areaOriginal, areaResolvedByGoogle })),
+    response.payload.places.map(({ area, areaOriginal, areaResolvedByGoogle, areaResolutionVersion }) => ({ area, areaOriginal, areaResolvedByGoogle, areaResolutionVersion })),
     [
-      { area: "明洞", areaOriginal: "명동", areaResolvedByGoogle: true },
-      { area: "Montmartre", areaOriginal: "Montmartre", areaResolvedByGoogle: true },
+      { area: "中區", areaOriginal: "중구", areaResolvedByGoogle: true, areaResolutionVersion: 2 },
+      { area: "Paris", areaOriginal: "Paris", areaResolvedByGoogle: true, areaResolutionVersion: 2 },
     ],
   );
 });
