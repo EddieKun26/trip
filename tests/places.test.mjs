@@ -117,3 +117,40 @@ test("coordinate-only Google Maps links become readable address locations", asyn
   assert.equal(response.payload.places[0].coordinateLocation, true);
   assert.equal(response.payload.places[0].addressProvider, "OpenStreetMap");
 });
+
+test("manual lodging addresses are geocoded directly instead of matched to a nearby business", async () => {
+  process.env.GOOGLE_MAPS_API_KEY = "test-key";
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    const language = new URL(String(url)).searchParams.get("language");
+    const isJapanese = language === "ja";
+    return new Response(JSON.stringify({
+      results: [{
+        place_id: "exact-address-id",
+        formatted_address: isJapanese ? "日本、〒251-0032 神奈川県藤沢市片瀬3丁目8-12" : "日本神奈川縣藤澤市片瀨 3 丁目 8-12",
+        address_components: [{ long_name: isJapanese ? "片瀬" : "片瀨", types: ["neighborhood"] }],
+        geometry: { location: { lat: 35.3131, lng: 139.4872 } },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const response = responseMock();
+  await placesHandler({
+    method: "POST",
+    body: { places: [{
+      sourceUrl: "https://maps.app.goo.gl/iXpNE6SznKgZD4Kq5",
+      manualAddress: "神奈川縣藤澤市片瀨3-8-12",
+    }] },
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((url) => url.includes("maps/api/geocode/json")));
+  assert.equal(response.payload.places[0].placeId, "exact-address-id");
+  assert.equal(response.payload.places[0].area, "片瀨");
+  assert.equal(response.payload.places[0].areaOriginal, "片瀬");
+  assert.equal(response.payload.places[0].latitude, 35.3131);
+  assert.equal(response.payload.places[0].longitude, 139.4872);
+  assert.equal(response.payload.places[0].manualLocation, true);
+  assert.equal(response.payload.places[0].googleMapsUrl, "https://maps.app.goo.gl/iXpNE6SznKgZD4Kq5");
+});

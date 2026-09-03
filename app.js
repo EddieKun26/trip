@@ -279,6 +279,8 @@ const toastRoot = document.querySelector("#toast-root");
 let pendingPlaceImports = [];
 let pendingPlaceImportScreenshot = "";
 let pendingPlaceImportNotice = "";
+let pendingPlacePhoto = "";
+let removePendingPlacePhoto = false;
 let sharedSaveTimer = 0;
 let sharedSyncBusy = false;
 let mapRenderToken = 0;
@@ -555,19 +557,53 @@ const knownAreaLabels = {
   "上野": ["上野", "上野"],
   "六本木": ["六本木", "六本木"],
   "秋葉原": ["秋葉原", "秋葉原"],
+  "Kaminarimon": ["雷門", "雷門"],
+  "Jingumae": ["神宮前", "神宮前"],
+  "Jingūmae": ["神宮前", "神宮前"],
+  "Jinnan": ["神南", "神南"],
+  "Azabujuban": ["麻布十番", "麻布十番"],
+  "Azabu-juban": ["麻布十番", "麻布十番"],
+  "Yoyogi": ["代代木", "代々木"],
+  "Asakusa": ["淺草", "浅草"],
+  "Hyakunincho": ["百人町", "百人町"],
+  "Hyakuninchō": ["百人町", "百人町"],
+  "Jinbocho": ["神保町", "神保町"],
+  "Jinbōchō": ["神保町", "神保町"],
+  "Katase": ["片瀨", "片瀬"],
 };
+
+function normalizedAreaKey(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .toLocaleLowerCase("en");
+}
+
+function knownAreaLabel(value) {
+  const direct = knownAreaLabels[value];
+  if (direct) return direct;
+  const normalized = normalizedAreaKey(value);
+  return Object.entries(knownAreaLabels).find(([key]) => normalizedAreaKey(key) === normalized)?.[1];
+}
+
+function isRomanizedArea(value) {
+  const text = String(value || "").trim();
+  return /[A-Za-z]/.test(text) && !/[\u3000-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(text);
+}
 
 function areaDisplayName(area = "", original = "") {
   const value = String(area || "待確認區域").trim();
-  const known = knownAreaLabels[value];
-  const chinese = known?.[0] || value;
-  const local = String(known?.[1] || original || value).trim();
+  const known = knownAreaLabel(value) || knownAreaLabel(original);
+  const chinese = known?.[0] || (isRomanizedArea(value) ? "待確認區域" : value);
+  const localCandidate = String(known?.[1] || original || chinese).trim();
+  const local = isRomanizedArea(localCandidate) ? chinese : localCandidate;
   return `${chinese}（${local}）`;
 }
 
 function areaChineseName(area = "") {
   const value = String(area || "行程").trim();
-  return knownAreaLabels[value]?.[0] || value;
+  return knownAreaLabel(value)?.[0] || (isRomanizedArea(value) ? "待確認區域" : value);
 }
 
 function placeVoters(name) {
@@ -2530,9 +2566,11 @@ function markerHtml(place) {
 
 function mapPlacePreviewMarkup(place) {
   if (!place || place.isAirport) return "";
-  const photo = place.photos?.[0]?.name
-    ? `<img src="/api/place-photo?name=${encodeURIComponent(place.photos[0].name)}" alt="${escapeHtml(place.name)}照片" loading="eager" />`
-    : `<span style="--preview-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</span>`;
+  const photo = place.customPhotoDataUrl
+    ? `<img src="${escapeHtml(place.customPhotoDataUrl)}" alt="${escapeHtml(place.name)}自行加入的照片" loading="eager" />`
+    : place.photos?.[0]?.name
+      ? `<img src="/api/place-photo?name=${encodeURIComponent(place.photos[0].name)}" alt="${escapeHtml(place.name)}照片" loading="eager" />`
+      : `<span style="--preview-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</span>`;
   const voters = placeVoters(place.name).length;
   const rating = Number(place.rating) > 0 ? `★ ${Number(place.rating).toFixed(1)}` : voters ? `★ ${voters} 人推薦` : "尚未有人推薦";
   return `
@@ -4009,25 +4047,20 @@ function openPlaceSheet(name) {
         )
         .join("")
     : `<span class="meta">還沒有人標記，成為第一個吧</span>`;
-  const gallery = place.photos?.length
-    ? place.photos
-        .slice(0, 3)
-        .map(
-          (photo, index) => `
-            <figure class="gallery-card gallery-${index + 1} real-photo">
-              <img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" />
-              <figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption>
-            </figure>`,
-        )
-        .join("")
-    : (place.galleryLabels || ["正在取得 Google Maps 照片", "環境照片", "附近街景"])
-        .map(
-          (label, index) => `
-            <div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch}">
-              <span>${escapeHtml(label)}</span>
-            </div>`,
-        )
-        .join("");
+  const galleryItems = [];
+  if (place.customPhotoDataUrl) galleryItems.push({ type: "custom", url: place.customPhotoDataUrl, caption: "自行加入的照片" });
+  (place.photos || []).slice(0, place.customPhotoDataUrl ? 2 : 3).forEach((photo) => galleryItems.push({ type: "google", ...photo }));
+  const fallbackLabels = place.galleryLabels || ["正在取得 Google Maps 照片", "環境照片", "附近街景"];
+  while (galleryItems.length < 3) galleryItems.push({ type: "placeholder", label: fallbackLabels[galleryItems.length] || "地點照片" });
+  const gallery = galleryItems.slice(0, 3).map((photo, index) => {
+    if (photo.type === "custom") {
+      return `<figure class="gallery-card gallery-${index + 1} real-photo custom-place-photo"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(place.name)}自行加入的照片" loading="lazy" /><figcaption>${escapeHtml(photo.caption)}</figcaption></figure>`;
+    }
+    if (photo.type === "google") {
+      return `<figure class="gallery-card gallery-${index + 1} real-photo"><img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" /><figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption></figure>`;
+    }
+    return `<div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch}"><span>${escapeHtml(photo.label)}</span></div>`;
+  }).join("");
   const highlights = (place.highlights || [])
     .map((highlight) => `<span class="highlight-tag">${escapeHtml(highlight)}</span>`)
     .join("");
@@ -4036,15 +4069,16 @@ function openPlaceSheet(name) {
     <div class="modal-backdrop" data-dismiss-sheet>
       <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(place.name)}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(place.area)}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
+          <div><p class="section-kicker">${escapeHtml(areaChineseName(place.area))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p class="place-byline">${escapeHtml(place.fullName)} · ${escapeHtml(place.category)}</p>
+        <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
-          <span>${place.photos?.length ? "Google Maps 景點照片" : "正在同步 Google Maps 照片"}</span>
+          <span>${place.customPhotoDataUrl ? "包含你自行加入的照片" : place.photos?.length ? "Google Maps 景點照片" : "尚未加入地點照片"}</span>
           <button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">到 Google Maps 看照片 ↗</button>
         </div>
+        ${place.formattedAddress ? `<div class="place-address-card"><small>完整地址</small><strong>${escapeHtml(place.formattedAddress)}</strong></div>` : ""}
         <p class="place-description">${escapeHtml(place.description)}</p>
         ${reference ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(reference.url)}">查看原始 ${escapeHtml(reference.platform)} 連結 ↗</button>` : ""}
         <div class="highlight-list">${highlights}</div>
@@ -4093,6 +4127,7 @@ function openPlaceSheet(name) {
           <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">開啟 Google Maps</button>
         </div>
+        ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址與照片</button>` : ""}
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
       </section>
     </div>`;
@@ -4100,7 +4135,7 @@ function openPlaceSheet(name) {
 }
 
 async function ensurePlaceDetails(place) {
-  if (!place || place.photosLoaded || place.detailsLoading) return;
+  if (!place || place.detailsLocked || place.photosLoaded || place.detailsLoading) return;
   place.detailsLoading = true;
   try {
     const response = await fetch("/api/places", {
@@ -5563,6 +5598,7 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option><option value="shopping">購物</option></select></div>
+        <button class="manual-place-entry" type="button" data-manual-place><span>找不到正確地點？</span><strong>手動新增住宿／自訂地點</strong><small>名稱、完整地址、Maps 連結與照片都由你確認</small></button>
         <div class="field">
           <label for="google-maps-list">貼上連結</label>
           <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Airbnb 或社群連結">${escapeHtml(initialText)}</textarea>
@@ -5579,6 +5615,112 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
     const analyzeButton = sheetRoot.querySelector("[data-analyze-places]");
     window.setTimeout(() => analyzePlaceImportSheet(analyzeButton), 0);
   }
+}
+
+function manualPlaceSeed(value = "") {
+  const lines = String(value).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const urls = lines.flatMap((line) => line.match(/https?:\/\/[^\s<>"']+/g) || []);
+  const sourceUrl = urls.find(isGoogleMapsUrl) || "";
+  const textLines = lines.map((line) => urls.reduce((text, url) => text.replace(url, ""), line).trim()).filter(Boolean);
+  const labelledName = textLines.map((line) => line.match(/^(?:公寓|住宿|飯店|酒店|民宿|房源)名稱\s*[：:]\s*(.+)$/u)?.[1]).find(Boolean) || "";
+  const labelledAddress = textLines.map((line) => line.match(/^(?:公寓|住宿|飯店|酒店|民宿|房源)?地址\s*[：:]\s*(.+)$/u)?.[1]).find(Boolean) || "";
+  const address = labelledAddress || textLines.find((line) => /\d/.test(line) && /(?:縣|県|市|區|区|町|村|路|街|丁目|番|號|号)/u.test(line)) || "";
+  return { name: labelledName, address, sourceUrl };
+}
+
+async function compressPlacePhoto(file) {
+  const source = await imageFileDataUrl(file);
+  const image = await loadImageElement(source);
+  const canvas = document.createElement("canvas");
+  const drawAtMaxEdge = (maxEdge) => {
+    const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
+  };
+  drawAtMaxEdge(1200);
+  let quality = 0.82;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > 240000 && quality > 0.5) {
+    quality -= 0.07;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+  if (dataUrl.length > 250000) {
+    drawAtMaxEdge(900);
+    dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+  }
+  if (dataUrl.length > 260000) throw new Error("IMAGE_TOO_COMPLEX");
+  return dataUrl;
+}
+
+function renderPlacePhotoEditor(form) {
+  if (!form) return;
+  const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
+  const photo = pendingPlacePhoto || (!removePendingPlacePhoto ? existing?.customPhotoDataUrl || "" : "");
+  const preview = form.querySelector("[data-place-photo-preview]");
+  const removeButton = form.querySelector("[data-remove-place-photo]");
+  const status = form.querySelector("[data-place-photo-status]");
+  if (preview) {
+    preview.classList.toggle("has-photo", Boolean(photo));
+    preview.innerHTML = photo
+      ? `<img src="${escapeHtml(photo)}" alt="地點照片預覽" />`
+      : `<span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small>`;
+  }
+  if (removeButton) removeButton.hidden = !photo;
+  if (status) status.textContent = photo ? "這張照片會顯示在地點詳情與地圖預覽" : "照片會壓縮後與旅伴共用";
+}
+
+function openPlaceEditSheet(name = "", seed = {}) {
+  const existing = name ? state.places.find((place) => place.name === name) : null;
+  if (name && !existing) return showToast("找不到這個地點");
+  pendingPlacePhoto = "";
+  removePendingPlacePhoto = false;
+  const kind = seed.kind && seed.kind !== "auto" ? seed.kind : existing?.kind || "lodging";
+  const address = seed.address || existing?.formattedAddress || "";
+  const sourceUrl = seed.sourceUrl || existing?.sourceUrl || "";
+  const displayName = seed.name || existing?.name || (kind === "lodging" ? "私人住宿" : "");
+  const category = existing?.category || (kind === "lodging" ? "私人住宿" : kindLabel(kind));
+  sheetRoot.innerHTML = `
+    <div class="modal-backdrop" data-dismiss-sheet>
+      <form class="modal-sheet place-editor-sheet" id="place-editor-form" data-original-place-name="${escapeHtml(existing?.name || "")}" data-original-address="${escapeHtml(existing?.formattedAddress || "")}">
+        <div class="section-row">
+          <div><p class="section-kicker">${existing ? "地點資料" : "不依賴商家搜尋"}</p><h2>${existing ? "編輯地點" : "手動新增地點"}</h2></div>
+          <button class="icon-button" type="button" data-close-sheet>×</button>
+        </div>
+        <p class="place-editor-intro">私人住宿不一定有 Google 商家頁面。這裡會用門牌定位，名稱、地址與照片則以你填寫的內容為準。</p>
+        <div class="place-editor-grid">
+          <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="例如：江之島私人住宿" required /></div>
+          <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
+          <div class="field"><label for="place-editor-category">分類</label><input id="place-editor-category" name="category" maxlength="60" value="${escapeHtml(category)}" placeholder="例如：私人住宿" /></div>
+          <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="請貼上房東提供的完整門牌地址" required>${escapeHtml(address)}</textarea><small>儲存時會以地址定位，不會改抓附近的餐廳或商店。</small></div>
+          <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
+          <div class="field"><label for="place-editor-area">地區（繁中）</label><input id="place-editor-area" name="area" maxlength="60" value="${escapeHtml(existing?.area || seed.area || "")}" placeholder="例如：片瀨（可留白自動定位）" /></div>
+          <div class="field"><label for="place-editor-area-original">當地名稱</label><input id="place-editor-area-original" name="areaOriginal" maxlength="60" value="${escapeHtml(existing?.areaOriginal || "")}" placeholder="例如：片瀬" /></div>
+        </div>
+        <section class="place-photo-editor">
+          <div class="place-photo-preview ${existing?.customPhotoDataUrl ? "has-photo" : ""}" data-place-photo-preview>${existing?.customPhotoDataUrl ? `<img src="${escapeHtml(existing.customPhotoDataUrl)}" alt="${escapeHtml(existing.name)}地點照片" />` : `<span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small>`}</div>
+          <div class="place-photo-actions"><label class="secondary-button" for="place-photo-input">${existing?.customPhotoDataUrl ? "更換照片" : "從相簿或相機選擇"}</label><input class="visually-hidden" id="place-photo-input" type="file" accept="image/*" data-place-photo-input /><button type="button" data-remove-place-photo ${existing?.customPhotoDataUrl ? "" : "hidden"}>移除照片</button></div>
+          <small data-place-photo-status>${existing?.customPhotoDataUrl ? "這張照片會顯示在地點詳情與地圖預覽" : "照片會壓縮後與旅伴共用"}</small>
+        </section>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : "確認新增"}</button></div>
+      </form>
+    </div>`;
+}
+
+function renamePlaceReferences(previousName, nextName) {
+  if (!previousName || previousName === nextName) return;
+  if (state.votes[previousName]) {
+    state.votes[nextName] = state.votes[previousName];
+    delete state.votes[previousName];
+  }
+  Object.values(state.itinerary || {}).forEach((items) => items.forEach((item) => {
+    if (item.name === previousName) item.name = nextName;
+  }));
+  (state.transports || []).forEach((transport) => {
+    if (transport.fromLabel === previousName) transport.fromLabel = nextName;
+    if (transport.toLabel === previousName) transport.toLabel = nextName;
+  });
+  if (state.selectedMapPlace === previousName) state.selectedMapPlace = nextName;
 }
 
 function maybeOpenShareTargetImport() {
@@ -5823,6 +5965,8 @@ function closeSheet() {
   shoppingRecognitionToken += 1;
   pendingShoppingImports = [];
   pendingShoppingBatchDeleteIds = [];
+  pendingPlacePhoto = "";
+  removePendingPlacePhoto = false;
   if (flightTicketPreviewUrl) URL.revokeObjectURL(flightTicketPreviewUrl);
   flightTicketPreviewUrl = "";
   sheetRoot.innerHTML = "";
@@ -6382,6 +6526,29 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("[data-add-place]")) return canEdit() ? openAddPlaceSheet() : guestOnlyMessage();
 
+  const manualPlace = event.target.closest("[data-manual-place]");
+  if (manualPlace) {
+    if (!canEdit()) return guestOnlyMessage();
+    const importForm = manualPlace.closest("#import-places-form");
+    const seed = manualPlaceSeed(importForm?.elements.mapsList?.value || "");
+    seed.kind = String(importForm?.elements.placeKind?.value || "lodging");
+    return openPlaceEditSheet("", seed);
+  }
+
+  const editPlace = event.target.closest("[data-edit-place]");
+  if (editPlace) return canEdit() ? openPlaceEditSheet(editPlace.dataset.editPlace) : guestOnlyMessage();
+
+  const removePlacePhoto = event.target.closest("[data-remove-place-photo]");
+  if (removePlacePhoto) {
+    pendingPlacePhoto = "";
+    removePendingPlacePhoto = true;
+    const form = removePlacePhoto.closest("#place-editor-form");
+    const input = form?.querySelector("[data-place-photo-input]");
+    if (input) input.value = "";
+    renderPlacePhotoEditor(form);
+    return;
+  }
+
   const analyzePlaces = event.target.closest("[data-analyze-places]");
   if (analyzePlaces) {
     await analyzePlaceImportSheet(analyzePlaces);
@@ -6635,7 +6802,7 @@ document.addEventListener("scroll", (event) => {
   if (column) updateTimeWheelColumn(column);
 }, true);
 
-document.addEventListener("change", (event) => {
+document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-shopping-category-select]")) {
     const owner = event.target.closest("[data-shopping-import-row], #shopping-item-form");
     const customField = owner?.querySelector("[data-shopping-custom-category]");
@@ -6645,6 +6812,29 @@ document.addEventListener("change", (event) => {
 
   if (event.target.matches("[data-social-place-screenshot]")) {
     handlePlaceImportScreenshotFile(event.target);
+    return;
+  }
+
+  if (event.target.matches("[data-place-photo-input]")) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return showToast("請選擇照片格式的圖片");
+    const form = input.closest("#place-editor-form");
+    const status = form?.querySelector("[data-place-photo-status]");
+    input.disabled = true;
+    if (status) status.textContent = "正在準備照片…";
+    try {
+      pendingPlacePhoto = await compressPlacePhoto(file);
+      removePendingPlacePhoto = false;
+      renderPlacePhotoEditor(form);
+    } catch {
+      input.value = "";
+      showToast("這張照片太大或無法讀取，請換一張再試");
+      renderPlacePhotoEditor(form);
+    } finally {
+      input.disabled = false;
+    }
     return;
   }
 
@@ -6861,6 +7051,89 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "place-editor-form") {
+    event.preventDefault();
+    if (!canEdit()) return guestOnlyMessage();
+    const form = new FormData(event.target);
+    const originalName = event.target.dataset.originalPlaceName || "";
+    const existing = originalName ? state.places.find((place) => place.name === originalName) : null;
+    const name = String(form.get("name") || "").normalize("NFKC").trim().slice(0, 100);
+    const address = String(form.get("address") || "").normalize("NFKC").trim().slice(0, 300);
+    const sourceUrl = String(form.get("sourceUrl") || "").trim().slice(0, 500);
+    if (!name) return showToast("請輸入地點名稱");
+    if (!address) return showToast("請輸入房東或訂單提供的完整地址");
+    if (sourceUrl && !isGoogleMapsUrl(sourceUrl)) return showToast("請貼上有效的 Google Maps 連結");
+    if (state.places.some((place) => place !== existing && place.name === name)) return showToast("已有同名地點，請換一個顯示名稱");
+    const customPhotoCount = state.places.filter((place) => place.customPhotoDataUrl).length;
+    if (pendingPlacePhoto && !existing?.customPhotoDataUrl && customPhotoCount >= 12) return showToast("每趟旅程最多保存 12 張自訂地點照片");
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = "正在確認地址…";
+    let resolved = null;
+    try {
+      const response = await fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ places: [{ sourceUrl, manualAddress: address }] }),
+      });
+      if (response.ok) {
+        const candidate = (await response.json()).places?.[0];
+        if (candidate && !candidate.error) resolved = candidate;
+      }
+    } catch {
+      // The user's exact address and Maps link are still more useful than a nearby business match.
+    }
+    const kind = String(form.get("kind") || "lodging");
+    const category = String(form.get("category") || "").normalize("NFKC").trim().slice(0, 60) || kindLabel(kind);
+    const enteredArea = String(form.get("area") || "").normalize("NFKC").trim().slice(0, 60);
+    const enteredAreaOriginal = String(form.get("areaOriginal") || "").normalize("NFKC").trim().slice(0, 60);
+    const addressUnchanged = Boolean(existing && address === event.target.dataset.originalAddress);
+    const customPhotoDataUrl = pendingPlacePhoto || (!removePendingPlacePhoto ? existing?.customPhotoDataUrl || "" : "");
+    const nextPlace = {
+      ...(existing || {}),
+      id: existing?.id || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
+      name,
+      fullName: name,
+      category,
+      kind,
+      area: enteredArea || resolved?.area || existing?.area || placeAreaFromAddress(address, name),
+      areaOriginal: enteredAreaOriginal || resolved?.areaOriginal || enteredArea || existing?.areaOriginal || "",
+      formattedAddress: address,
+      sourceUrl: sourceUrl || resolved?.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
+      placeId: resolved?.placeId || (addressUnchanged ? existing?.placeId : "") || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
+      latitude: Number.isFinite(resolved?.latitude) ? resolved.latitude : addressUnchanged ? existing?.latitude ?? null : null,
+      longitude: Number.isFinite(resolved?.longitude) ? resolved.longitude : addressUnchanged ? existing?.longitude ?? null : null,
+      addressProvider: resolved?.addressProvider || (addressUnchanged ? existing?.addressProvider : "") || "自行確認地址",
+      customPhotoDataUrl,
+      swatch: existing?.swatch || (kind === "lodging" ? "#9d5d43" : "#587a73"),
+      mark: name.slice(0, 1),
+      openingHours: existing?.openingHours || (kind === "lodging" ? "私人住宿不提供營業時間" : "自訂地點未提供營業時間"),
+      phone: existing?.phone || "自訂地點未提供電話",
+      description: existing?.description || `${name}由旅伴依照完整地址自行建立，定位不依賴附近商家名稱。`,
+      highlights: existing?.highlights || ["自訂地點", "地址已自行確認"],
+      galleryLabels: existing?.galleryLabels || ["自行加入照片", "建築外觀", "附近街景"],
+      addedBy: existing?.addedBy || currentMemberId(),
+      addedByName: existing?.addedByName || state.profile?.nickname || "我",
+      isCustom: true,
+      manualLocation: true,
+      detailsLocked: true,
+      photosLoaded: true,
+    };
+    if (existing) {
+      const index = state.places.indexOf(existing);
+      state.places[index] = nextPlace;
+      renamePlaceReferences(originalName, name);
+    } else {
+      state.places.push(nextPlace);
+    }
+    state.placeKind = kind;
+    state.selectedArea = "";
+    persist();
+    closeSheet();
+    render();
+    return showToast(resolved ? (existing ? "地點資料已更新" : "已加入自訂地點") : (existing ? "資料已更新；地址暫時無法定位" : "已加入；地址暫時無法定位"));
+  }
+
   if (event.target.id === "shopping-item-form") {
     event.preventDefault();
     if (!canManageShopping()) return guestOnlyMessage();

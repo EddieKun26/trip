@@ -3351,6 +3351,29 @@ body.transport-sheet-open .app {
   font-weight: 850;
 }
 
+.place-detail-edit-button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 12px;
+  border: 1px solid rgba(64, 119, 122, 0.34);
+  border-radius: 16px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+  transition: background 180ms ease, transform 180ms ease;
+}
+
+.place-detail-edit-button:hover,
+.place-detail-edit-button:focus-visible {
+  background: color-mix(in srgb, var(--mineral-soft) 72%, var(--mineral) 12%);
+}
+
+.place-detail-edit-button:active {
+  transform: translateY(1px);
+}
+
 .place-detail-delete-button:hover,
 .place-detail-delete-button:focus-visible {
   border-color: rgba(157, 46, 35, 0.58);
@@ -3363,6 +3386,28 @@ body.transport-sheet-open .app {
 
 .place-byline {
   margin-bottom: 14px;
+}
+
+.place-address-card {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 13px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(64, 119, 122, 0.08);
+}
+
+.place-address-card small {
+  color: var(--mineral);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.place-address-card strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .detail-gallery {
@@ -4007,6 +4052,178 @@ body.transport-sheet-open .app {
 
 .import-places-sheet > .modal-actions {
   margin-top: 12px;
+}
+
+.manual-place-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "question action" "hint hint";
+  align-items: center;
+  gap: 3px 10px;
+  width: 100%;
+  min-height: 58px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(200, 69, 45, 0.24);
+  border-radius: 14px;
+  background: rgba(200, 69, 45, 0.065);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: background 180ms ease, transform 180ms ease;
+}
+
+.manual-place-entry span {
+  grid-area: question;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.manual-place-entry strong {
+  grid-area: action;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.manual-place-entry small {
+  grid-area: hint;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.manual-place-entry:hover,
+.manual-place-entry:focus-visible {
+  background: rgba(200, 69, 45, 0.11);
+}
+
+.manual-place-entry:active {
+  transform: translateY(1px);
+}
+
+.place-editor-sheet {
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.place-editor-intro {
+  margin: 6px 0 13px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.place-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.place-editor-grid .field {
+  margin: 0;
+}
+
+.place-editor-grid .field.full {
+  grid-column: 1 / -1;
+}
+
+.place-editor-sheet .field input,
+.place-editor-sheet .field select,
+.place-editor-sheet .field textarea {
+  font-size: 16px;
+}
+
+.place-editor-sheet .field textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.place-editor-sheet .field small {
+  color: var(--mineral);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.place-photo-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.place-photo-preview {
+  display: grid;
+  place-items: center;
+  min-height: 128px;
+  padding: 16px;
+  border: 1px dashed rgba(64, 119, 122, 0.42);
+  border-radius: 16px;
+  background: var(--mineral-soft);
+  color: var(--mineral);
+  text-align: center;
+}
+
+.place-photo-preview > span {
+  font-size: 26px;
+}
+
+.place-photo-preview > strong {
+  margin-top: 5px;
+  font-size: 13px;
+}
+
+.place-photo-preview > small,
+.place-photo-editor > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.place-photo-preview.has-photo {
+  height: 190px;
+  padding: 0;
+  overflow: hidden;
+  border-style: solid;
+}
+
+.place-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.place-photo-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.place-photo-actions label {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  font-size: 12px;
+}
+
+.place-photo-actions button {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: #9d2e23;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 430px) {
+  .place-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .place-editor-grid .field.full {
+    grid-column: auto;
+  }
 }
 
 .analyze-button {

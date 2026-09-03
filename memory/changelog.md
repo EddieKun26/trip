@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-03
+
+- Fixed persisted romanized area headings. Known Tokyo/Fujisawa aliases including Jingumae, Jinnan, Azabujuban, Yoyogi, Asakusa, Hyakunincho, and Katase now render as Traditional Chinese with the Japanese local name; unknown romanization is suppressed as `待確認區域` instead of leaking pinyin into the list.
+- Added a manual lodging/custom-place path beside link recognition. Editors can paste a host-provided address and optional Google Maps link, choose their own display name/type/area, and attach, replace, or remove a compressed shared photo. Exact addresses use Google Geocoding rather than nearby-business Places search.
+- Added editor controls to every saved place detail. Name, category, type, address, Maps link, area labels, and personal photo can be corrected later; renaming a place also updates votes, itinerary references, transport labels, and active map selection.
+- Advanced frontend assets to `20260903.1`. Source and deployment suites pass 99/99 available checks; the canonical source still has the separate pre-existing unsigned iOS Shortcut packaging failure. A 393×852 layout pass confirmed 16px inputs, 44–54px actions, and no document-level horizontal overflow.
+
 ## 2026-09-02
 
 - Reworked planning/day map selection into a compact-marker → bottom preview card → full place-detail flow. Marker and rail selection now animate/pan without rebuilding the map; the preview shows a Google place photo when available and enriches missing photos in the background.

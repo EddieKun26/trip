@@ -19,6 +19,30 @@ test("persisted romanized Tokyo areas display as Chinese and Japanese", () => {
   const areaDisplayName = new Function(`${section}; return areaDisplayName;`)();
   assert.equal(areaDisplayName("Ginza", "Ginza"), "銀座（銀座）");
   assert.equal(areaDisplayName("Ebisunishi", "Ebisunishi"), "惠比壽西（恵比寿西）");
+  assert.equal(areaDisplayName("Jingumae", "Jingumae"), "神宮前（神宮前）");
+  assert.equal(areaDisplayName("Jinnan", "Jinnan"), "神南（神南）");
+  assert.equal(areaDisplayName("Azabujuban", "Azabujuban"), "麻布十番（麻布十番）");
+  assert.equal(areaDisplayName("Yoyogi", "Yoyogi"), "代代木（代々木）");
+  assert.equal(areaDisplayName("Asakusa", "Asakusa"), "淺草（浅草）");
+  assert.equal(areaDisplayName("Unmappedromaji", "Unmappedromaji"), "待確認區域（待確認區域）");
+});
+
+test("places can be manually added and later edited with an exact address and personal photo", () => {
+  const editor = sourceSection("function manualPlaceSeed", "function maybeOpenShareTargetImport");
+  const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
+  const submit = sourceSection('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
+  assert.match(appSource, /data-manual-place/);
+  assert.match(editor, /id="place-editor-form"/);
+  assert.match(editor, /data-place-photo-input/);
+  assert.match(editor, /function renamePlaceReferences/);
+  assert.match(details, /data-edit-place=/);
+  assert.match(details, /place\.formattedAddress/);
+  assert.match(details, /place\.customPhotoDataUrl/);
+  assert.match(submit, /manualAddress: address/);
+  assert.match(submit, /detailsLocked: true/);
+  assert.match(submit, /renamePlaceReferences\(originalName, name\)/);
+  assert.match(stylesSource, /\.place-photo-preview\.has-photo\s*{[^}]*height:\s*190px/s);
+  assert.match(stylesSource, /\.place-editor-sheet \.field textarea/);
 });
 
 test("day map follows itinerary order and represents flights with the relevant airport", () => {
