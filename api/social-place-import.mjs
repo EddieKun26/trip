@@ -5,7 +5,7 @@ import {
   normalizeAddressComponents,
   resolveTravelArea,
 } from "../lib/planning-region.mjs";
-import { extractStructuredLodgingMetadata } from "./lodging-page.mjs";
+import { extractStructuredLodgingMetadata } from "../lib/lodging-page.mjs";
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";

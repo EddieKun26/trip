@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { extractStructuredLodgingMetadata } from "../api/lodging-page.mjs";
+import { extractStructuredLodgingMetadata } from "../lib/lodging-page.mjs";
 
 test("Airbnb JSON-LD keeps the listing name and marks locality-only coordinates as approximate", () => {
   const result = extractStructuredLodgingMetadata(`
