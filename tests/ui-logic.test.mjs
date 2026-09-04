@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
@@ -508,6 +508,45 @@ test("place references hide misclassified Google Maps URLs and derive labels fro
   assert.match(appSource, /if \(mapLink\) return openGoogleMaps\(mapLink\.dataset\.openMaps\)/);
   assert.match(appSource, /window\.location\.assign\(url\)/);
   assert.doesNotMatch(appSource, /window\.open\(mapLink\.dataset\.openMaps/);
+});
+
+test("place navigation prefers coordinates, then an address, then an existing Maps URL", () => {
+  const section = sourceSection("function isGoogleMapsUrl", "function isSocialPlaceUrl");
+  const { placeNavigationUrl } = new Function(
+    "validMapCoordinates",
+    `${section}; return { placeNavigationUrl };`,
+  )((latitude, longitude) => Number.isFinite(latitude) && Number.isFinite(longitude) && (latitude !== 0 || longitude !== 0));
+  const coordinateUrl = placeNavigationUrl({ latitude: 35.3131, longitude: 139.4872, formattedAddress: "ignored" });
+  const addressUrl = placeNavigationUrl({ latitude: null, longitude: null, formattedAddress: "神奈川縣藤澤市片瀨3-8-12" });
+  const fallbackUrl = placeNavigationUrl({ sourceUrl: "https://maps.app.goo.gl/example" });
+
+  assert.match(coordinateUrl, /destination=35\.3131%2C139\.4872/);
+  assert.match(addressUrl, /destination=.*%E7%A5%9E%E5%A5%88%E5%B7%9D/);
+  assert.equal(fallbackUrl, "https://maps.app.goo.gl/example");
+});
+
+test("lodging imports always expose a self-create draft and require successful address geocoding", () => {
+  const importer = sourceSection("function socialGroupsToImports", "function openDateSheet");
+  const submit = sourceSection('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
+  assert.match(importer, /pendingLodgingDrafts/);
+  assert.match(importer, /data-create-lodging-draft/);
+  assert.match(importer, /自行建立住宿/);
+  assert.match(importer, /這是住宿大約位置，不是入住地址/);
+  assert.match(importer, /candidate\.recommended === true/);
+  assert.match(submit, /if \(!resolved \|\| !validMapCoordinates/);
+  assert.match(submit, /地址無法解析，尚未建立住宿/);
+  assert.match(submit, /referenceUrl/);
+  assert.match(submit, /sourceLodgingName/);
+  assert.match(submit, /sourceListingId/);
+  assert.match(submit, /locationSource: "address_geocode"/);
+  assert.match(submit, /locationPrecision: "exact"/);
+  assert.match(submit, /placeId: existing && !existing\.manualLocation \? existing\.placeId \|\| "" : ""/);
+  assert.match(stylesSource, /\.lodging-draft-card/);
+});
+
+test("the deployment surface stays within the twelve-function Vercel limit", () => {
+  const apiFiles = readdirSync(new URL("../api/", import.meta.url)).filter((name) => name.endsWith(".mjs"));
+  assert.ok(apiFiles.length <= 12, `expected at most 12 API functions, found ${apiFiles.length}`);
 });
 
 test("Google Maps links navigate in place on phones and open a new tab on desktop", () => {

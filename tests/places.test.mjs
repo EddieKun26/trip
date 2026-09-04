@@ -207,6 +207,24 @@ test("manual lodging addresses are geocoded directly instead of matched to a nea
   assert.equal(response.payload.places[0].googleMapsUrl, "https://maps.app.goo.gl/iXpNE6SznKgZD4Kq5");
 });
 
+test("an invalid manual lodging address returns an error without a fake coordinate", async () => {
+  process.env.GOOGLE_MAPS_API_KEY = "test-key";
+  globalThis.fetch = async () => new Response(JSON.stringify({ results: [] }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+  const response = responseMock();
+  await placesHandler({
+    method: "POST",
+    body: { places: [{ sourceUrl: "", manualAddress: "不存在的住宿地址 99999" }] },
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.places[0].error, "找不到這個完整地址的位置");
+  assert.equal("latitude" in response.payload.places[0], false);
+  assert.equal("longitude" in response.payload.places[0], false);
+});
+
 test("stored areas are relocalized from Google address components across writing systems", async () => {
   process.env.GOOGLE_MAPS_API_KEY = "test-key";
   const calls = [];

@@ -168,6 +168,52 @@ test("members see only their own trips until they join with an invite code", asy
   assert.deepEqual(mingAfterJoin.payload.trips.map((trip) => trip.title), ["小明東京旅行"]);
 });
 
+test("self-created lodging fields survive a shared trip save and reload", async () => {
+  store.clear();
+  const login = responseMock();
+  await memberHandler({
+    method: "POST",
+    body: { nickname: "住宿測試", pin: "3141" },
+    headers: { "x-forwarded-for": "203.0.113.41" },
+  }, login);
+  const cookie = login.headers["set-cookie"].split(";")[0];
+  const created = responseMock();
+  await tripsHandler({
+    method: "POST",
+    headers: { cookie },
+    body: { action: "create", destination: "藤澤", title: "住宿測試", startDate: "2026-09-23", endDate: "2026-09-25" },
+  }, created);
+  const place = {
+    id: "custom-place-lodging-1",
+    name: "江之島私人住宿",
+    sourceLodgingName: "Private Enoshima Stay",
+    formattedAddress: "神奈川縣藤澤市片瀨3-8-12",
+    latitude: 35.3131,
+    longitude: 139.4872,
+    referenceUrl: "https://www.airbnb.com/rooms/123456",
+    sourcePlatform: "Airbnb",
+    sourceListingId: "123456",
+    locationSource: "address_geocode",
+    locationPrecision: "exact",
+    customPhotoDataUrl: "data:image/jpeg;base64,QUJDRA==",
+    photoOrigin: "lodging_source",
+    placeId: "",
+    kind: "lodging",
+  };
+  const saved = responseMock();
+  await tripHandler({
+    method: "PUT",
+    url: `/api/trip?id=${created.payload.trip.id}`,
+    headers: { cookie },
+    body: { ...created.payload.trip, places: [place] },
+  }, saved);
+  assert.equal(saved.statusCode, 200);
+
+  const reloaded = responseMock();
+  await tripHandler({ method: "GET", url: `/api/trip?id=${created.payload.trip.id}`, headers: { cookie } }, reloaded);
+  assert.deepEqual(reloaded.payload.places[0], place);
+});
+
 test("owners can remove members, stale clients cannot restore access, and ownership transfers on leave", async () => {
   store.clear();
   const login = async (nickname, pin, ip) => {

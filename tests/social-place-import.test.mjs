@@ -6,11 +6,15 @@ import socialPlaceImportHandler, {
   cleanRecognition,
   extractAddressHint,
   extractLodgingNameHint,
+  lodgingCandidateMatch,
+  lodgingDraft,
+  lodgingListingId,
   lodgingUrlSlug,
   publicMetadataFromHtml,
   responseSchema,
   isLodgingShareUrl,
   safeSocialMediaUrl,
+  safeImportMediaUrl,
   safeSocialUrl,
   sourceHidesPlaceName,
 } from "../api/social-place-import.mjs";
@@ -26,6 +30,8 @@ let googleRomanizedAddresses = false;
 let googleInvalidAddressCoordinates = false;
 let recognitionPlaceOverride = null;
 let socialHtmlOverride = "";
+let bookingBlocked = false;
+let forceNearbyLodgings = false;
 
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
@@ -35,12 +41,19 @@ process.env.GOOGLE_MAPS_API_KEY = "test-google-key";
 globalThis.fetch = async (url, options = {}) => {
   const target = String(url);
   if (target.includes("booking.com")) {
+    if (bookingBlocked) return new Response("challenge", { status: 202, headers: { "Content-Type": "text/html" } });
     return new Response(socialHtmlOverride || `<!doctype html><html><head>
       <meta property="og:title" content="Mitsui Garden Hotel Jingugaien Tokyo Premier" />
       <meta property="og:description" content="Hotel at 11-3 Kasumigaokamachi, Shinjuku City, Tokyo" />
     </head></html>`, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
   if (target.includes("cdninstagram.com")) {
+    return new Response(new Uint8Array([255, 216, 255, 217]), {
+      status: 200,
+      headers: { "Content-Type": "image/jpeg", "Content-Length": "4" },
+    });
+  }
+  if (target.includes("muscache.com")) {
     return new Response(new Uint8Array([255, 216, 255, 217]), {
       status: 200,
       headers: { "Content-Type": "image/jpeg", "Content-Length": "4" },
@@ -160,9 +173,9 @@ globalThis.fetch = async (url, options = {}) => {
             { longText: "東京都", types: ["administrative_area_level_1"] },
             { longText: "日本", shortText: "JP", types: ["country"] },
           ],
-          primaryType: returnsNamedLodging ? "lodging" : "cafe",
-          types: [returnsNamedLodging ? "lodging" : "cafe"],
-          primaryTypeDisplayName: { text: returnsNamedLodging ? "住宿" : "咖啡廳" },
+          primaryType: returnsNamedLodging || forceNearbyLodgings ? "lodging" : "cafe",
+          types: [returnsNamedLodging || forceNearbyLodgings ? "lodging" : "cafe"],
+          primaryTypeDisplayName: { text: returnsNamedLodging || forceNearbyLodgings ? "住宿" : "咖啡廳" },
           location: { latitude: 35.69, longitude: 139.70 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=Cafe+Mugi",
           regularOpeningHours: { weekdayDescriptions: ["星期一: 10:00-20:00"] },
@@ -181,6 +194,8 @@ globalThis.fetch = async (url, options = {}) => {
             { longText: "日本", shortText: "JP", types: ["country"] },
           ],
           primaryTypeDisplayName: { text: "咖啡廳" },
+          primaryType: forceNearbyLodgings ? "hotel" : "cafe",
+          types: [forceNearbyLodgings ? "hotel" : "cafe"],
           location: { latitude: 35.66, longitude: 139.70 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=Mugi+Cafe",
           rating: 4.2,
@@ -302,6 +317,99 @@ test("social metadata parser collects only main-post carousel images and exclude
     "https://scontent.cdninstagram.com/v/t51.82787-15/ginza-brazil.jpg",
     "https://scontent.cdninstagram.com/v/t51.82787-15/restaurant-two.jpg",
   ]);
+});
+
+test("lodging metadata keeps only allowlisted source images and listing identities", () => {
+  const airbnbUrl = "https://www.airbnb.com.tw/rooms/864737495568855964";
+  const metadata = publicMetadataFromHtml(`<!doctype html><html><head>
+    <script type="application/ld+json">{
+      "@type":"Product",
+      "name":"海景、風景如畫的露臺、溫泉、烤肉",
+      "image":"https://a0.muscache.com/im/pictures/listing.jpg"
+    }</script>
+    <script type="application/ld+json">{
+      "@type":"VacationRental",
+      "latitude":35.03297,
+      "longitude":139.07494,
+      "address":{"addressLocality":"熱海市"}
+    }</script>
+    <meta property="og:image" content="https://example.com/not-allowed.jpg" />
+  </head></html>`, airbnbUrl);
+  assert.equal(metadata.lodgingName, "海景、風景如畫的露臺、溫泉、烤肉");
+  assert.deepEqual(metadata.imageUrls, ["https://a0.muscache.com/im/pictures/listing.jpg"]);
+  assert.equal(metadata.locationApproximate, true);
+  assert.equal(safeImportMediaUrl("https://a0.muscache.com/im/pictures/listing.jpg")?.hostname, "a0.muscache.com");
+  assert.equal(safeImportMediaUrl("https://example.com/not-allowed.jpg"), null);
+  assert.equal(lodgingListingId(airbnbUrl), "864737495568855964");
+  assert.equal(lodgingListingId("https://tw.trip.com/hotels/w/detail/?hotelid=56737637"), "56737637");
+});
+
+test("lodging draft separates source evidence from Google candidate matching", () => {
+  const draft = lodgingDraft({
+    metadata: {
+      lodgingName: "湘南藤澤微笑飯店(Smile Hotel Shonan Fujisawa)",
+      address: "19-12 Minamifujisawa, 251-0055 藤澤市",
+      finalUrl: "https://tw.trip.com/hotels/w/detail/?hotelid=56737637",
+    },
+    platform: "Trip.com",
+    sourceImageEntry: { url: "https://ak-d.tripcdn.com/example.jpg", dataUrl: "data:image/jpeg;base64,AA==" },
+  });
+  assert.equal(draft.sourcePlatform, "Trip.com");
+  assert.equal(draft.sourceListingId, "56737637");
+  assert.equal(draft.locationPrecision, "exact");
+  assert.equal(draft.sourceImageDataUrl, "data:image/jpeg;base64,AA==");
+});
+
+test("lodging candidate scoring rejects a conflicting Agoda branch and unrelated nearby hotels", () => {
+  const mention = {
+    name: "河堤漫旅自立館",
+    nameZh: "河堤漫旅自立館",
+    nameOriginal: "River inn ZihLi",
+    city: "高雄市",
+    area: "三民區",
+    address: "",
+  };
+  const wrongBranch = lodgingCandidateMatch(mention, {
+    displayName: { text: "河堤漫旅 站前館" },
+    formattedAddress: "高雄市三民區建國二路",
+  });
+  const correctBranch = lodgingCandidateMatch(mention, {
+    displayName: { text: "河堤漫旅 自立館" },
+    formattedAddress: "高雄市三民區自立一路",
+  });
+  const unrelated = lodgingCandidateMatch(mention, {
+    displayName: { text: "高雄站前商務飯店" },
+    formattedAddress: "高雄市三民區",
+  });
+  assert.equal(wrongBranch.branchConflict, true);
+  assert.equal(wrongBranch.eligibleForRecommendation, false);
+  assert.equal(correctBranch.eligibleForRecommendation, true);
+  assert.equal(unrelated.eligibleForRecommendation, false);
+});
+
+test("Trip.com bilingual names are not wrapped in duplicate parentheses", () => {
+  const result = cleanRecognition({
+    sourceSummary: "Trip.com 住宿頁",
+    sourceLanguage: "繁體中文",
+    needsMoreContext: false,
+    places: [{
+      nameOriginal: "湘南藤澤微笑飯店(Smile Hotel Shonan Fujisawa)",
+      nameZh: "湘南藤澤微笑飯店",
+      city: "藤澤市",
+      area: "",
+      country: "日本",
+      category: "lodging",
+      address: "19-12 Minamifujisawa, 251-0055 藤澤市",
+      nameHidden: false,
+      searchClues: "",
+      searchQuery: "Smile Hotel Shonan Fujisawa",
+      evidence: "Hotel JSON-LD",
+      sourceImageIndexes: [],
+      confidence: 0.99,
+    }],
+  }, { requestedKind: "lodging" });
+  assert.equal(result.places[0].name, "湘南藤澤微笑飯店(Smile Hotel Shonan Fujisawa)");
+  assert.doesNotMatch(result.places[0].name, /（湘南藤澤微笑飯店\(/u);
 });
 
 test("social address helpers retain explicit lodging addresses and detect hidden profile names", () => {
@@ -524,7 +632,7 @@ test("Agoda Booking.com and Airbnb links are accepted as lodging sources and kee
   recognitionPlaceOverride = null;
 });
 
-test("lodging imports never turn restaurant search results into accommodation candidates", async () => {
+test("lodging imports keep a self-create draft when restaurant results are excluded", async () => {
   store.clear();
   openAiRequests.length = 0;
   googleRequests.length = 0;
@@ -553,9 +661,69 @@ test("lodging imports never turn restaurant search results into accommodation ca
   socialHtmlOverride = "";
   recognitionPlaceOverride = null;
 
-  assert.equal(response.statusCode, 422);
-  assert.equal(response.payload.error, "LODGING_DETAILS_REQUIRED");
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.groups[0].candidates.length, 0);
+  assert.equal(response.payload.lodgingDraft.sourceLodgingName, "Private stay without a map listing");
+  assert.equal(response.payload.lodgingDraft.referenceUrl, "https://www.booking.com/hotel/jp/private-stay.html");
   assert.equal(googleRequests.length, 1);
+});
+
+test("a blocked Booking page returns an empty self-create draft without searching nearby hotels", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  bookingBlocked = true;
+  const { cookie, trip } = await loginAndCreateTrip();
+  const bookingUrl = "https://www.booking.com/hotel/jp/private-apartment.html?app_hotel_id=9589860";
+  const response = await recognize({ cookie, tripId: trip.id, sourceUrl: bookingUrl });
+  bookingBlocked = false;
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.payload.groups, []);
+  assert.equal(response.payload.lodgingDraft.sourcePlatform, "Booking.com");
+  assert.equal(response.payload.lodgingDraft.referenceUrl, bookingUrl);
+  assert.equal(response.payload.lodgingDraft.sourceListingId, "9589860");
+  assert.equal(response.payload.lodgingDraft.requiresName, true);
+  assert.equal(response.payload.lodgingDraft.requiresAddress, true);
+  assert.equal(openAiRequests.length, 0);
+  assert.equal(googleRequests.length, 0);
+});
+
+test("nearby lodging with an unrelated name is returned unselected and not recommended", async () => {
+  store.clear();
+  openAiRequests.length = 0;
+  googleRequests.length = 0;
+  forceNearbyLodgings = true;
+  socialHtmlOverride = "<!doctype html><html><head><title>Private stay</title></head></html>";
+  recognitionPlaceOverride = {
+    nameOriginal: "Private stay without a map listing",
+    nameZh: "私人住宿",
+    city: "東京",
+    area: "新宿",
+    country: "日本",
+    category: "lodging",
+    address: "",
+    nameHidden: false,
+    searchClues: "",
+    searchQuery: "Private stay without a map listing Tokyo",
+    evidence: "住宿頁名稱",
+    sourceImageIndexes: [],
+    confidence: 0.8,
+  };
+  const { cookie, trip } = await loginAndCreateTrip();
+  const response = await recognize({
+    cookie,
+    tripId: trip.id,
+    sourceUrl: "https://www.airbnb.com/rooms/123456",
+  });
+  forceNearbyLodgings = false;
+  socialHtmlOverride = "";
+  recognitionPlaceOverride = null;
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.payload.groups[0].candidates.length >= 1);
+  assert.equal(response.payload.groups[0].candidates.some((candidate) => candidate.recommended), false);
+  assert.ok(response.payload.lodgingDraft);
 });
 
 test("a Booking apartment uses its exact postal address and rejects a nearby lodging", async () => {
