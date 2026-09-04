@@ -3,7 +3,7 @@ import {
   countryCodeFromAddressComponents,
   normalizeAddressComponents,
   resolveTravelArea,
-} from "./planning-region.mjs";
+} from "../lib/planning-region.mjs";
 
 const ALLOWED_MAP_HOSTS = new Set([
   "maps.app.goo.gl",

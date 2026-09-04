@@ -4,7 +4,7 @@ import {
   countryCodeFromAddressComponents,
   normalizeAddressComponents,
   resolveTravelArea,
-} from "./planning-region.mjs";
+} from "../lib/planning-region.mjs";
 import { extractStructuredLodgingMetadata } from "./lodging-page.mjs";
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";

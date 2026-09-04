@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TRAVEL_AREA_RESOLUTION_VERSION, resolveTravelArea, administrativeInfoFromAddressComponents } from "../api/planning-region.mjs";
+import { TRAVEL_AREA_RESOLUTION_VERSION, resolveTravelArea, administrativeInfoFromAddressComponents } from "../lib/planning-region.mjs";
 
 const component = (longText, type, shortText = "") => ({ longText, shortText, types: [type] });
 const address = (countryCode, entries) => ({
