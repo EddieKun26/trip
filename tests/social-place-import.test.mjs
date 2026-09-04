@@ -85,6 +85,18 @@ globalThis.fetch = async (url, options = {}) => {
       }],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
+  if (target.includes("places.googleapis.com/v1/places/")) {
+    const requestUrl = new URL(target);
+    const placeId = decodeURIComponent(requestUrl.pathname.split("/").at(-1));
+    const shibuya = placeId === "place-mugi-second";
+    return new Response(JSON.stringify({
+      addressComponents: [
+        { longText: shibuya ? "渋谷区" : "新宿区", types: ["locality"] },
+        { longText: "東京都", types: ["administrative_area_level_1"] },
+        { longText: "日本", shortText: "JP", types: ["country"] },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
   if (target.includes("places.googleapis.com/v1/places:searchText")) {
     const requestBody = JSON.parse(options.body);
     googleRequests.push({ body: requestBody, headers: options.headers });
@@ -143,7 +155,11 @@ globalThis.fetch = async (url, options = {}) => {
           id: "place-cafe-mugi",
           displayName: { text: "Cafe Mugi 新宿" },
           formattedAddress: "東京都新宿區西新宿 1-2-3",
-          addressComponents: [{ longText: "新宿區", types: ["sublocality_level_1"] }],
+          addressComponents: [
+            { longText: "新宿區", types: ["locality"] },
+            { longText: "東京都", types: ["administrative_area_level_1"] },
+            { longText: "日本", shortText: "JP", types: ["country"] },
+          ],
           primaryType: returnsNamedLodging ? "lodging" : "cafe",
           types: [returnsNamedLodging ? "lodging" : "cafe"],
           primaryTypeDisplayName: { text: returnsNamedLodging ? "住宿" : "咖啡廳" },
@@ -159,7 +175,11 @@ globalThis.fetch = async (url, options = {}) => {
           id: "place-mugi-second",
           displayName: { text: "Mugi Cafe" },
           formattedAddress: "東京都澀谷區 4-5-6",
-          addressComponents: [{ longText: "澀谷區", types: ["sublocality_level_1"] }],
+          addressComponents: [
+            { longText: "澀谷區", types: ["locality"] },
+            { longText: "東京都", types: ["administrative_area_level_1"] },
+            { longText: "日本", shortText: "JP", types: ["country"] },
+          ],
           primaryTypeDisplayName: { text: "咖啡廳" },
           location: { latitude: 35.66, longitude: 139.70 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=Mugi+Cafe",
@@ -447,6 +467,11 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(response.payload.groups[0].candidates[0].referenceUrl, "https://www.instagram.com/reel/ABC123/");
   assert.equal(response.payload.groups[0].candidates[0].sourceEvidence, "貼文寫明新宿一定要去 Cafe Mugi。");
   assert.deepEqual(response.payload.groups[0].candidates[0].sourceImageIndexes, [1]);
+  assert.equal(response.payload.groups[0].candidates[0].travelAreaKey, "shinjuku");
+  assert.equal(response.payload.groups[0].candidates[0].travelAreaZh, "新宿");
+  assert.equal(response.payload.groups[0].candidates[0].travelAreaLocal, "新宿");
+  assert.equal(response.payload.groups[0].candidates[0].travelAreaResolutionVersion, 5);
+  assert.equal(response.payload.groups[0].candidates[0].countryCode, "JP");
   assert.match(response.payload.source.originalText, /新宿一定要去 Cafe Mugi/);
   assert.equal(response.payload.groups[0].candidates[0].sourceUrl.includes("google.com/maps"), true);
 

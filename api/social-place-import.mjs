@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+import {
+  administrativeInfoFromAddressComponents,
+  countryCodeFromAddressComponents,
+  normalizeAddressComponents,
+  resolveTravelArea,
+} from "./planning-region.mjs";
 import { extractStructuredLodgingMetadata } from "./lodging-page.mjs";
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
@@ -777,6 +783,59 @@ function pickArea(addressComponents = []) {
   return "";
 }
 
+function localLanguageForCountry(countryCode = "") {
+  const languages = {
+    JP: "ja", KR: "ko", CN: "zh-CN", TW: "zh-TW", HK: "zh-HK", MO: "zh-HK",
+    TH: "th", VN: "vi", ID: "id", MY: "ms", PH: "fil", DE: "de", AT: "de", CH: "de",
+    FR: "fr", IT: "it", ES: "es", PT: "pt", BR: "pt-BR", NL: "nl", US: "en", GB: "en",
+  };
+  return languages[String(countryCode || "").toUpperCase()] || "";
+}
+
+async function localAddressComponentsForPlace(apiKey, placeId, countryCode) {
+  if (!placeId) return [];
+  const language = localLanguageForCountry(countryCode);
+  if (!language) return [];
+  try {
+    const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
+    url.searchParams.set("languageCode", language);
+    const response = await fetch(url, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "addressComponents",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return [];
+    return normalizeAddressComponents((await response.json()).addressComponents);
+  } catch {
+    return [];
+  }
+}
+
+function addressAndPlanningFields(localizedAddressComponents = [], originalAddressComponents = [], fallbackArea = "", countryCodeHint = "") {
+  const addressComponents = normalizeAddressComponents(localizedAddressComponents);
+  const addressComponentsOriginal = normalizeAddressComponents(originalAddressComponents?.length ? originalAddressComponents : localizedAddressComponents);
+  const area = pickArea(addressComponents) || fallbackArea || "待確認區域";
+  const areaOriginal = pickArea(addressComponentsOriginal) || area;
+  const countryCode = countryCodeFromAddressComponents(addressComponentsOriginal)
+    || countryCodeFromAddressComponents(addressComponents)
+    || String(countryCodeHint || "").toUpperCase();
+  return {
+    area,
+    areaOriginal,
+    addressComponents,
+    addressComponentsOriginal,
+    countryCode,
+    administrativeAreas: administrativeInfoFromAddressComponents(addressComponents, addressComponentsOriginal),
+    ...resolveTravelArea({
+      localizedAddressComponents: addressComponents,
+      originalAddressComponents: addressComponentsOriginal,
+      countryCode,
+    }),
+  };
+}
+
 async function searchAddressWithOpenStreetMap(address) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
@@ -796,11 +855,22 @@ async function searchAddressWithOpenStreetMap(address) {
   const payload = await result.json();
   const place = Array.isArray(payload) ? payload[0] : null;
   if (!place || !validPlaceCoordinates(place.lat, place.lon)) return null;
-  const area = cleanText(place.address?.neighbourhood || place.address?.suburb || place.address?.city_district || place.address?.city, 100);
+  const osmAddress = place.address || {};
+  const addressComponents = [
+    osmAddress.neighbourhood ? { longText: cleanText(osmAddress.neighbourhood, 100), types: ["neighborhood"] } : null,
+    osmAddress.quarter ? { longText: cleanText(osmAddress.quarter, 100), types: ["sublocality_level_2"] } : null,
+    osmAddress.suburb ? { longText: cleanText(osmAddress.suburb, 100), types: ["sublocality_level_1"] } : null,
+    osmAddress.city_district ? { longText: cleanText(osmAddress.city_district, 100), types: ["sublocality_level_1"] } : null,
+    osmAddress.city ? { longText: cleanText(osmAddress.city, 100), types: ["locality"] } : null,
+    osmAddress.town ? { longText: cleanText(osmAddress.town, 100), types: ["postal_town"] } : null,
+    osmAddress.municipality ? { longText: cleanText(osmAddress.municipality, 100), types: ["administrative_area_level_2"] } : null,
+    osmAddress.state ? { longText: cleanText(osmAddress.state, 100), types: ["administrative_area_level_1"] } : null,
+    osmAddress.country ? { longText: cleanText(osmAddress.country, 100), shortText: cleanText(osmAddress.country_code, 2).toUpperCase(), types: ["country"] } : null,
+  ].filter(Boolean);
   return {
     id: `osm-${cleanText(place.place_id, 80) || `${Number(place.lat).toFixed(6)}-${Number(place.lon).toFixed(6)}`}`,
     formattedAddress: cleanText(address || place.display_name, 300),
-    addressComponents: area ? [{ longText: area, types: ["neighborhood"] }] : [],
+    addressComponents,
     location: { latitude: Number(place.lat), longitude: Number(place.lon) },
     addressProvider: "OpenStreetMap",
   };
@@ -936,20 +1006,26 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
     .map((value) => cleanText(value, 200))
     .filter(Boolean));
   const standardLimit = addressCoordinatePlace ? Math.max(0, returnLimit - 1) : returnLimit;
-  const candidates = addressMatchedPlaces
+  const candidatePlaces = addressMatchedPlaces
     .filter((place) => !excludedPlaceIds.has(cleanText(place.id, 200)))
-    .slice(0, standardLimit)
-    .map((place, index) => {
+    .slice(0, standardLimit);
+  const candidates = await Promise.all(candidatePlaces.map(async (place, index) => {
     const name = cleanText(place.displayName?.text || mention.name, 160);
-    const area = pickArea(place.addressComponents) || mention.area || mention.city || "待確認區域";
+    const countryCode = countryCodeFromAddressComponents(place.addressComponents) || regionCode;
+    const originalAddressComponents = await localAddressComponentsForPlace(apiKey, place.id, countryCode);
+    const addressFields = addressAndPlanningFields(
+      place.addressComponents,
+      originalAddressComponents,
+      mention.area || mention.city,
+      countryCode,
+    );
     return {
       placeId: cleanText(place.id, 200),
       name,
       fullName: name,
       category: cleanText(place.primaryTypeDisplayName?.text, 100) || (kind === "restaurant" ? "餐廳" : kind === "lodging" ? "住宿" : kind === "shopping" ? "購物" : "景點"),
       kind,
-      area,
-      areaOriginal: area,
+      ...addressFields,
       formattedAddress: cleanText(place.formattedAddress, 300),
       sourceUrl: cleanText(place.googleMapsUri, 1000),
       referenceUrl: source.url,
@@ -976,7 +1052,7 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
       matchConfidence: mention.confidence,
       isCustom: true,
     };
-    });
+  }));
   if (addressCoordinatePlace) {
     const latitude = Number(addressCoordinatePlace.location.latitude);
     const longitude = Number(addressCoordinatePlace.location.longitude);
@@ -984,7 +1060,16 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
     if (!excludedPlaceIds.has(placeId)) {
       const approximateLocation = addressCoordinatePlace.approximateLocation === true;
       const name = cleanText(mention.name, 160) || `${source.platform || "住宿平台"}住宿位置`;
-      const area = pickArea(addressCoordinatePlace.addressComponents) || mention.area || mention.city || "待確認區域";
+      const countryCode = countryCodeFromAddressComponents(addressCoordinatePlace.addressComponents) || regionCode;
+      const originalAddressComponents = String(addressCoordinatePlace.id || "").startsWith("osm-")
+        ? addressCoordinatePlace.addressComponents
+        : await localAddressComponentsForPlace(apiKey, addressCoordinatePlace.id, countryCode);
+      const addressFields = addressAndPlanningFields(
+        addressCoordinatePlace.addressComponents,
+        originalAddressComponents,
+        mention.area || mention.city,
+        countryCode,
+      );
       const coordinateQuery = encodeURIComponent(`${latitude.toFixed(6)},${longitude.toFixed(6)}`);
       const coordinateCandidate = {
         placeId,
@@ -992,8 +1077,7 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
         fullName: name,
         category: approximateLocation ? "住宿大約位置" : "住宿座標",
         kind: "lodging",
-        area,
-        areaOriginal: area,
+        ...addressFields,
         formattedAddress: cleanText(addressCoordinatePlace.formattedAddress || mention.address, 300),
         sourceUrl: `https://www.google.com/maps/search/?api=1&query=${coordinateQuery}`,
         referenceUrl: source.url,

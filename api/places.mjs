@@ -1,3 +1,10 @@
+import {
+  administrativeInfoFromAddressComponents,
+  countryCodeFromAddressComponents,
+  normalizeAddressComponents,
+  resolveTravelArea,
+} from "./planning-region.mjs";
+
 const ALLOWED_MAP_HOSTS = new Set([
   "maps.app.goo.gl",
   "goo.gl",
@@ -5,7 +12,6 @@ const ALLOWED_MAP_HOSTS = new Set([
   "www.google.com",
   "maps.google.com",
 ]);
-const AREA_RESOLUTION_VERSION = 2;
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -113,6 +119,40 @@ function geocodeCountryCode(addressComponents = []) {
   return String(addressComponents.find((item) => item.types?.includes("country"))?.short_name || "").toUpperCase();
 }
 
+function addressAndPlanningFields(localizedAddressComponents = [], originalAddressComponents = [], countryCodeHint = "") {
+  const addressComponents = normalizeAddressComponents(localizedAddressComponents);
+  const addressComponentsOriginal = normalizeAddressComponents(originalAddressComponents?.length ? originalAddressComponents : localizedAddressComponents);
+  const localizedArea = pickArea(addressComponents);
+  const areaOriginal = pickArea(addressComponentsOriginal) || localizedArea;
+  const area = chineseAreaName(localizedArea, areaOriginal) || localizedArea || areaOriginal;
+  const countryCode = countryCodeFromAddressComponents(addressComponentsOriginal)
+    || countryCodeFromAddressComponents(addressComponents)
+    || String(countryCodeHint || "").toUpperCase();
+  return {
+    area,
+    areaOriginal: areaOriginal || area,
+    areaResolvedByGoogle: Boolean(area || areaOriginal),
+    addressComponents,
+    addressComponentsOriginal,
+    countryCode,
+    administrativeAreas: administrativeInfoFromAddressComponents(addressComponents, addressComponentsOriginal),
+    ...resolveTravelArea({
+      localizedAddressComponents: addressComponents,
+      originalAddressComponents: addressComponentsOriginal,
+      countryCode,
+    }),
+  };
+}
+
+function countryCodeForDestination(value = "") {
+  const text = String(value || "").normalize("NFKC").toLocaleLowerCase();
+  if (/日本|東京|大阪|京都|沖繩|札幌|福岡|鎌倉|神奈川|japan|tokyo|osaka|kyoto|kamakura/.test(text)) return "JP";
+  if (/韓國|南韓|首爾|釜山|濟州|korea|seoul|busan|jeju/.test(text)) return "KR";
+  if (/美國|紐約|洛杉磯|舊金山|波士頓|芝加哥|united states|usa|new york|los angeles|san francisco|boston|chicago/.test(text)) return "US";
+  if (/台灣|臺灣|台北|臺北|高雄|台中|臺中|taiwan|taipei|kaohsiung|taichung/.test(text)) return "TW";
+  return "";
+}
+
 function localLanguageForCountry(countryCode = "") {
   const languages = {
     JP: "ja", KR: "ko", CN: "zh-CN", TW: "zh-TW", HK: "zh-HK", MO: "zh-HK",
@@ -148,19 +188,17 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
   const result = localizedPayload.results?.[0];
   const localPayload = await requestGeocode(localLanguageForCountry(geocodeCountryCode(result?.address_components)));
   if (result) {
-    const localizedArea = geocodeArea(result.address_components);
-    const areaOriginal = geocodeArea(localPayload.results?.[0]?.address_components) || localizedArea;
-    const area = chineseAreaName(localizedArea, areaOriginal);
+    const addressFields = addressAndPlanningFields(
+      result.address_components,
+      localPayload.results?.[0]?.address_components,
+    );
     const formattedAddress = result.formatted_address || "";
     const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
     return {
       requestUrl,
       placeId: result.place_id || `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
       name: `地址位置｜${addressLabel}`.slice(0, 160),
-      area: area || areaOriginal || "地址位置",
-      areaOriginal: areaOriginal || area || "地址位置",
-      areaResolvedByGoogle: true,
-      areaResolutionVersion: AREA_RESOLUTION_VERSION,
+      ...addressFields,
       category: "地址座標",
       formattedAddress,
       latitude,
@@ -194,16 +232,25 @@ async function reverseGeocode({ apiKey, latitude, longitude, requestUrl }) {
   const formattedAddress = String(osm.display_name || "").trim();
   if (!formattedAddress) return { requestUrl, error: "這組座標暫時查不到完整地址" };
   const address = osm.address || {};
-  const areaOriginal = address.city_district || address.city || address.town || address.municipality || address.county || address.suburb || address.quarter || address.neighbourhood || "";
-  const area = chineseAreaName(areaOriginal, areaOriginal);
+  const osmAddressComponents = [
+    address.neighbourhood ? { longText: address.neighbourhood, types: ["neighborhood"] } : null,
+    address.quarter ? { longText: address.quarter, types: ["sublocality_level_2"] } : null,
+    address.suburb ? { longText: address.suburb, types: ["sublocality_level_1"] } : null,
+    address.city_district ? { longText: address.city_district, types: ["sublocality_level_1"] } : null,
+    address.city ? { longText: address.city, types: ["locality"] } : null,
+    address.town ? { longText: address.town, types: ["postal_town"] } : null,
+    address.municipality ? { longText: address.municipality, types: ["administrative_area_level_2"] } : null,
+    address.county ? { longText: address.county, types: ["administrative_area_level_2"] } : null,
+    address.state ? { longText: address.state, types: ["administrative_area_level_1"] } : null,
+    address.country ? { longText: address.country, shortText: String(address.country_code || "").toUpperCase(), types: ["country"] } : null,
+  ].filter(Boolean);
+  const addressFields = addressAndPlanningFields(osmAddressComponents, osmAddressComponents);
   const addressLabel = conciseAddress(formattedAddress, latitude, longitude);
   return {
     requestUrl,
     placeId: osm.place_id ? `osm-${osm.place_id}` : `coordinate-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
     name: `地址位置｜${addressLabel}`.slice(0, 160),
-    area: area || areaOriginal || "地址位置",
-    areaOriginal: areaOriginal || area || "地址位置",
-    areaResolutionVersion: AREA_RESOLUTION_VERSION,
+    ...addressFields,
     category: "地址座標",
     formattedAddress,
     latitude,
@@ -233,18 +280,14 @@ async function geocodeAddress({ apiKey, address, requestUrl }) {
   }
   const localPayload = await requestGeocode(localLanguageForCountry(geocodeCountryCode(result.address_components)));
   const localResult = localPayload.results?.[0];
-  const localizedArea = geocodeArea(result.address_components);
-  const areaOriginal = geocodeArea(localResult?.address_components) || localizedArea;
+  const addressFields = addressAndPlanningFields(result.address_components, localResult?.address_components);
   const latitude = result.geometry.location.lat;
   const longitude = result.geometry.location.lng;
   return {
     requestUrl,
     placeId: result.place_id || `manual-address-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
     name: conciseAddress(result.formatted_address || address, latitude, longitude),
-    area: chineseAreaName(localizedArea, areaOriginal) || localizedArea || areaOriginal || "地址位置",
-    areaOriginal: areaOriginal || localizedArea || "地址位置",
-    areaResolvedByGoogle: true,
-    areaResolutionVersion: AREA_RESOLUTION_VERSION,
+    ...addressFields,
     category: "自訂地址",
     formattedAddress: result.formatted_address || address,
     latitude,
@@ -265,7 +308,7 @@ async function expandShortMapsUrl(url) {
   }
   const result = await fetch(url, {
     redirect: "follow",
-    headers: { "User-Agent": "TokyoTripPlanner/1.0" },
+    headers: { "User-Agent": "TripTravelPlanner/1.0" },
   });
   const expanded = safeMapsUrl(result.url);
   return expanded?.toString() || url.toString();
@@ -343,23 +386,41 @@ function chineseAreaName(localized, original) {
   return localizedText || local;
 }
 
-async function localAreaForPlace(apiKey, placeId, fallback, language = "") {
-  if (!placeId) return fallback;
+async function placeAreaDetails(apiKey, placeId, language = "") {
+  if (!placeId) return {};
   try {
-    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-    url.searchParams.set("place_id", placeId);
-    if (language) url.searchParams.set("language", language);
-    url.searchParams.set("key", apiKey);
-    const response = await fetch(url);
-    if (!response.ok) return fallback;
-    const payload = await response.json();
-    return geocodeArea(payload.results?.[0]?.address_components) || fallback;
+    const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
+    if (language) url.searchParams.set("languageCode", language);
+    const response = await fetch(url, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "id,addressComponents,formattedAddress,location",
+      },
+    });
+    return response.ok ? response.json() : {};
   } catch {
-    return fallback;
+    return {};
   }
 }
 
 async function localizeArea({ apiKey, placeId, address, latitude, longitude, requestUrl }) {
+  const isGooglePlaceId = placeId && !/^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId);
+  if (isGooglePlaceId) {
+    const localizedDetails = await placeAreaDetails(apiKey, placeId, "zh-TW");
+    const localLanguage = localLanguageForCountry(pickCountryCode(localizedDetails.addressComponents));
+    const localDetails = await placeAreaDetails(apiKey, placeId, localLanguage);
+    const addressFields = addressAndPlanningFields(localizedDetails.addressComponents, localDetails.addressComponents);
+    if (addressFields.addressComponents.length) {
+      return {
+        requestUrl,
+        placeId: localizedDetails.id || placeId,
+        ...addressFields,
+        formattedAddress: localizedDetails.formattedAddress || address || "",
+        latitude: localizedDetails.location?.latitude ?? latitude ?? null,
+        longitude: localizedDetails.location?.longitude ?? longitude ?? null,
+      };
+    }
+  }
   const requestGeocode = async (language = "") => {
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
     if (placeId && !/^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)) url.searchParams.set("place_id", placeId);
@@ -376,42 +437,33 @@ async function localizeArea({ apiKey, placeId, address, latitude, longitude, req
   const localPayload = await requestGeocode(localLanguageForCountry(geocodeCountryCode(result?.address_components)));
   const localResult = localPayload.results?.[0];
   if (!result) return { requestUrl, error: "Google 地址中找不到可用的地區欄位" };
-  const localizedArea = geocodeArea(result.address_components);
-  const areaOriginal = geocodeArea(localResult?.address_components) || localizedArea;
-  const area = chineseAreaName(localizedArea, areaOriginal);
-  if (!area && !areaOriginal) return { requestUrl, error: "Google 地址中找不到可用的地區欄位" };
+  const addressFields = addressAndPlanningFields(result.address_components, localResult?.address_components);
+  if (!addressFields.addressComponents.length) return { requestUrl, error: "Google 地址中找不到可用的地區欄位" };
   return {
     requestUrl,
     placeId: result.place_id || placeId || "",
-    area: area || areaOriginal,
-    areaOriginal: areaOriginal || area,
-    areaResolvedByGoogle: true,
-    areaResolutionVersion: AREA_RESOLUTION_VERSION,
+    ...addressFields,
     formattedAddress: result.formatted_address || address || "",
     latitude: result.geometry?.location?.lat ?? latitude ?? null,
     longitude: result.geometry?.location?.lng ?? longitude ?? null,
   };
 }
 
-async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false, latitude = null, longitude = null }) {
+async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false, latitude = null, longitude = null, destination = "", countryCode = "" }) {
   const requestBody = {
-    textQuery,
+    textQuery: !globalSearch && destination && !String(textQuery).toLocaleLowerCase().includes(String(destination).toLocaleLowerCase())
+      ? `${textQuery} ${destination}`
+      : textQuery,
     languageCode: "zh-TW",
     maxResultCount: 1,
   };
+  const searchCountryCode = String(countryCode || countryCodeForDestination(destination)).toUpperCase();
+  if (/^[A-Z]{2}$/.test(searchCountryCode)) requestBody.regionCode = searchCountryCode;
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
     requestBody.locationBias = {
       circle: {
         center: { latitude, longitude },
         radius: 3000,
-      },
-    };
-  } else if (!globalSearch) {
-    requestBody.regionCode = "JP";
-    requestBody.locationBias = {
-      circle: {
-        center: { latitude: 35.6762, longitude: 139.6503 },
-        radius: 50000,
       },
     };
   }
@@ -444,23 +496,18 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
   const payload = await googleResponse.json();
   const place = payload.places?.[0];
   if (!place) return { requestUrl, error: "找不到符合的 Google Maps 地點" };
-  const localizedArea = pickArea(place.addressComponents);
-  const areaOriginal = await localAreaForPlace(
+  const localDetails = await placeAreaDetails(
     apiKey,
     place.id,
-    localizedArea,
     localLanguageForCountry(pickCountryCode(place.addressComponents)),
   );
-  const area = chineseAreaName(localizedArea, areaOriginal);
+  const addressFields = addressAndPlanningFields(place.addressComponents, localDetails.addressComponents);
 
   return {
     requestUrl,
     placeId: place.id,
     name: place.displayName?.text || textQuery,
-    area,
-    areaOriginal,
-    areaResolvedByGoogle: true,
-    areaResolutionVersion: AREA_RESOLUTION_VERSION,
+    ...addressFields,
     category: place.primaryTypeDisplayName?.text || "景點",
     formattedAddress: place.formattedAddress || "",
     latitude: place.location?.latitude ?? null,
@@ -482,7 +529,6 @@ export default async function placesHandler(request, response) {
   }
 
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
 
   const requestedPlaces = Array.isArray(request.body?.places) ? request.body.places.slice(0, 10) : [];
   if (!requestedPlaces.length) return sendJson(response, 400, { error: "NO_PLACES_PROVIDED" });
@@ -494,15 +540,37 @@ export default async function placesHandler(request, response) {
       const manualAddress = String(item.manualAddress || "").normalize("NFKC").trim().slice(0, 300);
       const formattedAddress = String(item.formattedAddress || "").normalize("NFKC").trim().slice(0, 300);
       const placeId = String(item.placeId || "").trim().slice(0, 180);
-      const shouldLocalizeArea = item.localizeArea === true;
+      const shouldLocalizeArea = item.resolveTravelArea === true || item.resolvePlanningRegion === true || item.localizeArea === true;
       const globalSearch = item.globalSearch === true;
+      const destination = String(item.destination || "").normalize("NFKC").trim().slice(0, 100);
+      const requestedCountryCode = String(item.countryCode || "").trim().toUpperCase().slice(0, 2);
+      const storedAddressComponents = normalizeAddressComponents(item.addressComponents).slice(0, 20);
+      const storedAddressComponentsOriginal = normalizeAddressComponents(item.addressComponentsOriginal).slice(0, 20);
       const latitude = item.latitude === null || item.latitude === undefined || item.latitude === "" ? NaN : Number(item.latitude);
       const longitude = item.longitude === null || item.longitude === undefined || item.longitude === "" ? NaN : Number(item.longitude);
-      if (!originalUrl && !hintName && !manualAddress && !(shouldLocalizeArea && (placeId || formattedAddress || validCoordinates(latitude, longitude)))) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
+      if (!originalUrl && !hintName && !manualAddress && !(shouldLocalizeArea && (placeId || formattedAddress || storedAddressComponents.length || validCoordinates(latitude, longitude)))) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
       try {
         if (shouldLocalizeArea) {
+          if (storedAddressComponents.length) {
+            const storedResolution = addressAndPlanningFields(
+              storedAddressComponents,
+              storedAddressComponentsOriginal,
+              requestedCountryCode,
+            );
+            if (storedResolution.travelAreaResolved) {
+              return {
+                requestUrl: originalUrl?.toString() || item.sourceUrl || "",
+                placeId,
+                formattedAddress,
+                latitude: validCoordinates(latitude, longitude) ? latitude : null,
+                longitude: validCoordinates(latitude, longitude) ? longitude : null,
+                ...storedResolution,
+              };
+            }
+          }
+          if (!apiKey) return { requestUrl: originalUrl?.toString() || item.sourceUrl || "", error: "PLACES_API_NOT_CONFIGURED" };
           if (placeId || formattedAddress || validCoordinates(latitude, longitude)) {
-            return await localizeArea({
+            const localized = await localizeArea({
               apiKey,
               placeId,
               address: formattedAddress,
@@ -510,11 +578,12 @@ export default async function placesHandler(request, response) {
               longitude,
               requestUrl: originalUrl?.toString() || item.sourceUrl || "",
             });
+            if (!localized.error || item.manualLocation === true || item.detailsLocked === true) return localized;
           }
           const expandedUrl = await expandShortMapsUrl(originalUrl);
           const urlCoordinates = coordinatesFromMapsUrl(expandedUrl);
           if (validCoordinates(urlCoordinates?.latitude, urlCoordinates?.longitude)) {
-            return await localizeArea({
+            const localized = await localizeArea({
               apiKey,
               placeId: "",
               address: "",
@@ -522,6 +591,7 @@ export default async function placesHandler(request, response) {
               longitude: urlCoordinates.longitude,
               requestUrl: originalUrl?.toString() || item.sourceUrl || "",
             });
+            if (!localized.error || item.manualLocation === true || item.detailsLocked === true) return localized;
           }
           const textQuery = hintName || nameFromMapsUrl(expandedUrl);
           if (textQuery) {
@@ -530,10 +600,13 @@ export default async function placesHandler(request, response) {
               textQuery,
               requestUrl: originalUrl?.toString() || item.sourceUrl || "",
               globalSearch: true,
+              destination,
+              countryCode: requestedCountryCode,
             });
           }
           return { requestUrl: originalUrl?.toString() || "", error: "Google 連結中找不到可辨識的地址資料" };
         }
+        if (!apiKey) return { requestUrl: originalUrl?.toString() || item.sourceUrl || "", error: "PLACES_API_NOT_CONFIGURED" };
         if (manualAddress) {
           return await geocodeAddress({
             apiKey,
@@ -559,11 +632,13 @@ export default async function placesHandler(request, response) {
         }
         return await searchPlace({
           apiKey,
-          textQuery: globalSearch ? textQuery : `${textQuery} 東京`,
+          textQuery,
           requestUrl: originalUrl?.toString() || item.sourceUrl,
           globalSearch,
           latitude: validCoordinates(resolvedLatitude, resolvedLongitude) ? resolvedLatitude : null,
           longitude: validCoordinates(resolvedLatitude, resolvedLongitude) ? resolvedLongitude : null,
+          destination,
+          countryCode: requestedCountryCode,
         });
       } catch (error) {
         return {

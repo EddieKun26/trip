@@ -14,25 +14,69 @@ function sourceSection(start, end) {
   return appSource.slice(startIndex, endIndex);
 }
 
-test("persisted romanized Tokyo areas display as Chinese and Japanese", () => {
-  const section = sourceSection("const knownAreaLabels", "function placeVoters");
-  const areaDisplayName = new Function(`${section}; return areaDisplayName;`)();
-  assert.equal(areaDisplayName("Ginza", "Ginza"), "銀座（銀座）");
-  assert.equal(areaDisplayName("Ebisunishi", "Ebisunishi"), "惠比壽西（恵比寿西）");
-  assert.equal(areaDisplayName("Jingumae", "Jingumae"), "神宮前（神宮前）");
-  assert.equal(areaDisplayName("Jinnan", "Jinnan"), "神南（神南）");
-  assert.equal(areaDisplayName("Azabujuban", "Azabujuban"), "麻布十番（麻布十番）");
-  assert.equal(areaDisplayName("Yoyogi", "Yoyogi"), "代代木（代々木）");
-  assert.equal(areaDisplayName("Asakusa", "Asakusa"), "淺草（浅草）");
-  assert.equal(areaDisplayName("Unmappedromaji", "Unmappedromaji"), "正在辨識地區");
-  assert.equal(areaDisplayName("Montmartre", "Montmartre", true), "Montmartre（Montmartre）");
-  assert.match(appSource, /async function localizeStoredPlaceAreas/);
-  assert.match(appSource, /localizeArea: true/);
-  assert.match(appSource, /areaResolvedByGoogle/);
-  assert.match(appSource, /const AREA_RESOLUTION_VERSION = 2/);
-  assert.match(appSource, /function shouldUpgradeAreaResolution/);
-  assert.match(appSource, /Number\(place\.areaResolutionVersion\) < AREA_RESOLUTION_VERSION/);
-  assert.match(appSource, /shouldUpgradeAreaResolution\(representative\)/);
+test("places group only by stable travelAreaKey and retain usable labels while refresh is pending", () => {
+  const section = sourceSection("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters");
+  const helpers = new Function(`${section}; return { travelAreaDisplayName, travelAreaGroupKey, isTravelAreaResolutionCurrent, ensureTravelAreaFields };`)();
+  const shibuya = {
+    countryCode: "JP",
+    area: "神宮前",
+    areaOriginal: "神宮前",
+    travelAreaKey: "shibuya",
+    travelAreaZh: "澀谷",
+    travelAreaLocal: "渋谷",
+    travelAreaResolved: true,
+    travelAreaSource: "automatic",
+    travelAreaResolutionVersion: 5,
+  };
+  assert.equal(helpers.travelAreaDisplayName(shibuya), "澀谷（渋谷）");
+  assert.equal(helpers.travelAreaGroupKey(shibuya), "shibuya");
+  const stale = { ...shibuya, travelAreaResolved: false, travelAreaResolutionVersion: 3, travelAreaResolutionStatus: "failed" };
+  assert.equal(helpers.travelAreaDisplayName(stale), "澀谷（渋谷）");
+  assert.equal(helpers.travelAreaGroupKey(stale), "shibuya");
+  for (const legacyVersion of [2, 3, 4]) {
+    assert.equal(helpers.isTravelAreaResolutionCurrent({
+      ...shibuya,
+      travelAreaResolutionVersion: legacyVersion,
+    }), false, `automatic version ${legacyVersion} must be refreshed`);
+  }
+  const manual = { ...stale, travelAreaSource: "manual", travelAreaManuallySet: true };
+  assert.equal(helpers.isTravelAreaResolutionCurrent(manual), true);
+  assert.match(appSource, /if \(place\.travelAreaSource === "manual" \|\| place\.travelAreaManuallySet === true\) return true/);
+  assert.match(appSource, /place\.travelAreaResolutionStatus = "failed"/);
+  assert.doesNotMatch(sourceSection("function applyPlanningRegionResolution", "function planningRegionResolutionKey"), /place\.travelAreaZh = ""|place\.travelAreaLocal = ""|place\.travelAreaKey = ""/);
+  assert.match(appSource, /async function resolveStoredPlacePlanningRegions/);
+  assert.match(appSource, /resolveTravelArea: true/);
+  assert.match(appSource, /const TRAVEL_AREA_RESOLUTION_VERSION = 5/);
+  assert.match(appSource, /function shouldUpgradePlanningRegionResolution/);
+  assert.match(appSource, /!isTravelAreaResolutionCurrent\(place\) && hasPlanningRegionResolutionEvidence\(place\)/);
+  assert.match(appSource, /visiblePlaces\.map\(travelAreaGroupKey\)/);
+  assert.match(appSource, /filter\(\(place\) => travelAreaGroupKey\(place\) === regionKey\)/);
+  assert.doesNotMatch(appSource, /visiblePlaces\.map\(\(place\) => place\.area\)/);
+  assert.doesNotMatch(appSource, /"正在辨識地區"/);
+});
+
+test("resolution failure preserves the previous travel area, success replaces it, and manual assignment wins", () => {
+  const section = sourceSection("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters");
+  const apply = sourceSection("function applyPlanningRegionResolution", "function planningRegionResolutionKey");
+  const evidence = sourceSection("function hasPlanningRegionResolutionEvidence", "function needsPlanningRegionResolution");
+  const helpers = new Function(`${section}; ${apply}; ${evidence}; return { applyPlanningRegionResolution, shouldUpgradePlanningRegionResolution };`)();
+  const place = { area: "神宮前", areaOriginal: "神宮前", countryCode: "JP", areaResolutionVersion: 2,
+    addressComponentsOriginal: [{ longText: "神宮前", types: ["sublocality_level_2"] }] };
+  assert.equal(helpers.shouldUpgradePlanningRegionResolution(place), true);
+  assert.equal(helpers.applyPlanningRegionResolution(place, { error: "TIMEOUT" }), false);
+  assert.equal(place.travelAreaZh, "神宮前");
+  assert.equal(place.travelAreaResolutionStatus, "failed");
+  const success = { travelAreaKey: "shibuya", travelAreaZh: "澀谷", travelAreaLocal: "渋谷", travelAreaResolved: true, travelAreaResolutionVersion: 5 };
+  assert.equal(helpers.applyPlanningRegionResolution(place, success), true);
+  assert.equal(place.travelAreaZh, "澀谷");
+  assert.equal(place.travelAreaResolutionError, undefined);
+  assert.equal(helpers.shouldUpgradePlanningRegionResolution(place), false);
+  const manual = { area: "我的散步區", areaOriginal: "My walk", areaManuallySet: true, countryCode: "JP" };
+  assert.equal(helpers.applyPlanningRegionResolution(manual, success), true);
+  assert.equal(manual.travelAreaZh, "我的散步區");
+  assert.equal(manual.travelAreaSource, "manual");
+  assert.equal(helpers.shouldUpgradePlanningRegionResolution(manual), false);
+  assert.doesNotMatch(appSource, /travelAreaValidationMode|formal-trip-validation-/);
 });
 
 test("places can be manually added and later edited with an exact address and personal photo", () => {
@@ -41,12 +85,15 @@ test("places can be manually added and later edited with an exact address and pe
   const submit = sourceSection('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
   assert.match(appSource, /data-manual-place/);
   assert.match(editor, /id="place-editor-form"/);
+  assert.match(editor, /name="travelAreaZh"/);
+  assert.match(editor, /name="travelAreaLocal"/);
   assert.match(editor, /data-place-photo-input/);
   assert.match(editor, /function renamePlaceReferences/);
   assert.match(details, /data-edit-place=/);
   assert.match(details, /place\.formattedAddress/);
   assert.match(details, /place\.customPhotoDataUrl/);
   assert.match(submit, /manualAddress: address/);
+  assert.match(submit, /travelAreaSource: hasManualTravelArea \? "manual"/);
   assert.match(submit, /detailsLocked: true/);
   assert.match(submit, /renamePlaceReferences\(originalName, name\)/);
   assert.match(stylesSource, /\.place-photo-preview\.has-photo\s*{[^}]*height:\s*190px/s);
@@ -223,8 +270,8 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
   assert.ok(buttonStart > phoneEnd && buttonStart < contactSectionEnd, "the reservation action must be outside the phone card but in the same grid");
   const importSection = sourceSection('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")');
   assert.match(importSection, /withStoredTabelogLink\([\s\S]*state\.destination/);
-  assert.match(appSource, /state\.places = state\.places\.map\(\(place\) => withStoredTabelogLink/);
-  assert.match(appSource, /payload\.places\.map\(\(place\) => withStoredTabelogLink/);
+  assert.match(appSource, /state\.places = state\.places\.map\(\(place\) => ensureTravelAreaFields\(withStoredTabelogLink/);
+  assert.match(appSource, /payload\.places\.map\(\(place\) => ensureTravelAreaFields\(withStoredTabelogLink/);
   assert.doesNotMatch(appSource, /data-open-tabelog|function openTabelog/);
   assert.match(stylesSource, /\.place-contact-grid\.has-tabelog-action\s*\{[^}]*grid-template-rows:\s*minmax\(0, 1fr\) 44px/s);
   assert.match(stylesSource, /\.tabelog-reservation-button\s*\{[^}]*grid-column:\s*2[^}]*width:\s*100%[^}]*height:\s*44px[^}]*background:\s*var\(--accent\)[^}]*color:\s*#fff !important/s);

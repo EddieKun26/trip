@@ -1,6 +1,6 @@
 # 驗證地圖
 
-目前 `node --test` 共 90 項，會在 canonical source 與 deployment mirror 各跑一次。專案目前沒有 GitHub Actions 或強制 branch protection；測試是發布前工作流程要求，但不是平台強制的 merge gate。
+2026-09-04 發布前聚焦測試涵蓋 Travel Area、Places、社群候選整合與 UI migration，共 39/39 通過，canonical source 與 deployment mirror 結果一致。較早的完整 canonical `node --test` 為 114/115，唯一失敗仍是原有缺少 Apple 簽署 `.shortcut` 成品的包裝測試；deployment mirror 為 114/114。專案目前沒有 GitHub Actions 或強制 branch protection；測試是發布前工作流程要求，但不是平台強制的 merge gate。
 
 ## Existing coverage
 
@@ -12,7 +12,8 @@
 | 私人購物 | member + trip 隔離；非成員拒絕 | `tests/shopping.test.mjs` | existing integration |
 | 購物 AI | 只用 server key、圖片格式檢查、membership、無網圖仍保留辨識結果 | `tests/shopping-recognize.test.mjs` | existing integration |
 | 商品研究／圖片 | 只能研究自己的項目；備援搜尋只在不足時啟動 | `tests/shopping-research.test.mjs`、`tests/product-image-search.test.mjs` | existing unit/integration |
-| Google 地點匯入 | shared list 與普通 place link 分流；羅馬字地區轉中文；座標可轉可讀地址 | `tests/place-list.test.mjs`、`tests/places.test.mjs` | existing integration |
+| Google 地點匯入 | shared list 與普通 place link 分流；地址為原始證據；座標可轉可讀地址 | `tests/place-list.test.mjs`、`tests/places.test.mjs` | existing integration |
+| 旅遊分區 | 穩定 key 分組；澀谷／淺草合併；明洞／Brooklyn／蒙馬特不放大；v2/v3/v4 遷移；手動優先與失敗保留 | `tests/planning-region.test.mjs`、`tests/ui-logic.test.mjs`、`documentation/travel-area-validation-2026-09-04.md` | unit/integration + live Google 17/17 + formal trip 31/31 acceptance |
 | 社群匯入授權 | 必須是登入旅程成員；來源被擋時要求截圖 | `tests/social-place-import.test.mjs` | existing integration |
 | 社群安全媒體 | allowlist、排除 avatar、輪播上限、最多 20 地點 | `tests/social-place-import.test.mjs` | existing unit/integration |
 | 候選確認 | 分組、來源比對、重搜、略過，不強迫錯誤候選 | `tests/ui-logic.test.mjs`、`tests/social-place-import.test.mjs` | existing static/integration |

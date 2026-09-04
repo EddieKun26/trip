@@ -271,7 +271,7 @@ const state = {
   shoppingRecipientFilter: "all",
 };
 
-state.places = state.places.map((place) => withStoredTabelogLink(place, state.destination));
+state.places = state.places.map((place) => ensureTravelAreaFields(withStoredTabelogLink(place, state.destination)));
 
 const app = document.querySelector("#app");
 const sheetRoot = document.querySelector("#sheet-root");
@@ -299,8 +299,9 @@ let googleMapsLoader = null;
 let mapInteractionUntil = 0;
 let mapCoordinatesLoading = false;
 let airportCoordinatesLoading = false;
-let areaLocalizationBusy = false;
-const areaLocalizationAttempts = new Set();
+let planningRegionResolutionBusy = false;
+const planningRegionResolutionAttempts = new Set();
+const planningRegionResolutionInFlight = new Set();
 let mapFullscreen = false;
 let mapSidebarOpen = true;
 let pendingTimePicker = null;
@@ -536,81 +537,59 @@ function formatOpeningHoursForDay(value = "", weekday = "") {
   return escapeHtml(raw).replace(/([（(][^）)]*最晚[^）)]*[）)])/g, '<br><span class="last-entry-time">$1</span>');
 }
 
-const AREA_RESOLUTION_VERSION = 2;
+const TRAVEL_AREA_RESOLUTION_VERSION = 5;
 
-const knownAreaLabels = {
-  "銀座": ["銀座", "銀座"],
-  "Ginza": ["銀座", "銀座"],
-  "惠比壽": ["惠比壽", "恵比寿"],
-  "Ebisu": ["惠比壽", "恵比寿"],
-  "Ebisunishi": ["惠比壽西", "恵比寿西"],
-  "惠比壽／代官山": ["惠比壽／代官山", "恵比寿／代官山"],
-  "恵比寿": ["惠比壽", "恵比寿"],
-  "恵比寿／代官山": ["惠比壽／代官山", "恵比寿／代官山"],
-  "澀谷": ["澀谷", "渋谷"],
-  "渋谷": ["澀谷", "渋谷"],
-  "新宿": ["新宿", "新宿"],
-  "西新宿": ["西新宿", "西新宿"],
-  "Nishishinjuku": ["西新宿", "西新宿"],
-  "大塚": ["大塚", "大塚"],
-  "Kitaōtsuka": ["北大塚", "北大塚"],
-  "Kitaotsuka": ["北大塚", "北大塚"],
-  "淺草": ["淺草", "浅草"],
-  "浅草": ["淺草", "浅草"],
-  "池袋": ["池袋", "池袋"],
-  "上野": ["上野", "上野"],
-  "六本木": ["六本木", "六本木"],
-  "秋葉原": ["秋葉原", "秋葉原"],
-  "Kaminarimon": ["雷門", "雷門"],
-  "Jingumae": ["神宮前", "神宮前"],
-  "Jingūmae": ["神宮前", "神宮前"],
-  "Jinnan": ["神南", "神南"],
-  "Azabujuban": ["麻布十番", "麻布十番"],
-  "Azabu-juban": ["麻布十番", "麻布十番"],
-  "Yoyogi": ["代代木", "代々木"],
-  "Asakusa": ["淺草", "浅草"],
-  "Hyakunincho": ["百人町", "百人町"],
-  "Hyakuninchō": ["百人町", "百人町"],
-  "Jinbocho": ["神保町", "神保町"],
-  "Jinbōchō": ["神保町", "神保町"],
-  "Katase": ["片瀨", "片瀬"],
-};
-
-function normalizedAreaKey(value) {
-  return String(value || "")
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^\p{L}\p{N}]/gu, "")
-    .toLocaleLowerCase("en");
+function travelAreaKeyFromNames(countryCode, zh, local) {
+  const token = String(local || zh || "").normalize("NFKD").replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]/gu, "-").replace(/^-+|-+$/g, "").toLocaleLowerCase("en");
+  return `${String(countryCode || "xx").toLocaleLowerCase("en")}:${token || "unclassified"}`;
 }
 
-function knownAreaLabel(value) {
-  const direct = knownAreaLabels[value];
-  if (direct) return direct;
-  const normalized = normalizedAreaKey(value);
-  return Object.entries(knownAreaLabels).find(([key]) => normalizedAreaKey(key) === normalized)?.[1];
+function ensureTravelAreaFields(place) {
+  if (!place) return place;
+  if (place.travelAreaKey && place.travelAreaZh && place.travelAreaLocal) return place;
+  const zh = String(place.planningRegion || place.area || "").trim();
+  const local = String(place.planningRegionOriginal || place.areaOriginal || zh).trim();
+  if (zh && local) {
+    place.travelAreaKey = travelAreaKeyFromNames(place.countryCode, zh, local);
+    place.travelAreaZh = zh;
+    place.travelAreaLocal = local;
+    place.travelAreaSource = place.travelAreaManuallySet === true || place.areaManuallySet === true ? "manual" : "legacy-fallback";
+    place.travelAreaResolutionStatus = "retry-required";
+  } else {
+    place.travelAreaKey = `unclassified:${place.placeId || place.id || place.name || "place"}`;
+    place.travelAreaZh = "未分類";
+    place.travelAreaLocal = "待確認";
+    place.travelAreaSource = "unresolved";
+    place.travelAreaResolutionStatus = "retry-required";
+  }
+  return place;
 }
 
-function isRomanizedArea(value) {
-  const text = String(value || "").trim();
-  return /[A-Za-z]/.test(text) && !/[\u3000-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(text);
+function hasUsableTravelArea(place) {
+  ensureTravelAreaFields(place);
+  return Boolean(place?.travelAreaKey && place?.travelAreaZh && place?.travelAreaLocal);
 }
 
-function areaDisplayName(area = "", original = "", resolvedByGoogle = false) {
-  const value = String(area || "").trim();
-  const known = knownAreaLabel(value) || knownAreaLabel(original);
-  if (!known && (!value || value === "待確認區域" || (isRomanizedArea(value) && !resolvedByGoogle))) return "正在辨識地區";
-  const chinese = known?.[0] || value;
-  const localCandidate = String(known?.[1] || original || chinese).trim();
-  const local = localCandidate || chinese;
-  return `${chinese}（${local}）`;
+function isTravelAreaResolutionCurrent(place) {
+  ensureTravelAreaFields(place);
+  if (place?.travelAreaSource === "manual" || place?.travelAreaManuallySet === true) return hasUsableTravelArea(place);
+  return Boolean(place?.travelAreaResolved === true && Number(place?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION && hasUsableTravelArea(place));
 }
 
-function areaChineseName(area = "", resolutionIsCurrent = true) {
-  const value = String(area || "行程").trim();
-  if (!resolutionIsCurrent) return "正在辨識地區";
-  return knownAreaLabel(value)?.[0]
-    || (value === "待確認區域" ? "正在辨識地區" : value);
+function travelAreaDisplayName(place) {
+  ensureTravelAreaFields(place);
+  return `${String(place.travelAreaZh).trim()}（${String(place.travelAreaLocal).trim()}）`;
+}
+
+function travelAreaChineseName(place, fallback = "未分類") {
+  ensureTravelAreaFields(place);
+  return String(place?.travelAreaZh || fallback).trim();
+}
+
+function travelAreaGroupKey(place) {
+  ensureTravelAreaFields(place);
+  return String(place.travelAreaKey);
 }
 
 function placeVoters(name) {
@@ -1360,7 +1339,7 @@ function deletePlace(name) {
     state.itinerary[date] = (state.itinerary[date] || []).filter((item) => item.type === "flight" || item.name !== name);
   });
   reconcileTransportSegments();
-  if (!state.places.some((item) => item.area === state.selectedArea)) state.selectedArea = "";
+  if (!state.places.some((item) => travelAreaGroupKey(item) === state.selectedArea)) state.selectedArea = "";
   if (state.selectedMapPlace === name) state.selectedMapPlace = "";
   persist();
   return true;
@@ -1426,10 +1405,10 @@ function applySharedTrip(payload) {
   state.inviteCode = payload.inviteCode || "";
   state.ownerId = payload.ownerId || "";
   state.flights = Array.isArray(payload.flights) ? payload.flights : [];
-  state.places = payload.places.map((place) => withStoredTabelogLink(
+  state.places = payload.places.map((place) => ensureTravelAreaFields(withStoredTabelogLink(
     { ...place, kind: normalizedPlaceKind(place) },
     state.destination,
-  ));
+  )));
   state.votes = payload.votes && typeof payload.votes === "object" ? payload.votes : {};
   state.itinerary = payload.itinerary && typeof payload.itinerary === "object" ? payload.itinerary : {};
   state.transports = Array.isArray(payload.transports) ? payload.transports : [];
@@ -1702,7 +1681,7 @@ async function loadSharedTrip({ quiet = false, force = false } = {}) {
     if (applySharedTrip(payload)) {
       persist({ sync: false, resetUndo: true });
       render({ preserveScroll: true });
-      window.setTimeout(localizeStoredPlaceAreas, 0);
+      window.setTimeout(resolveStoredPlacePlanningRegions, 0);
     }
   } catch {
     if (!quiet) showToast("目前顯示離線資料");
@@ -1898,11 +1877,11 @@ function placesScreen() {
   if (state.placesMode === "map") return mapScreen();
 
   const visiblePlaces = state.places.filter((place) => state.placeKind === "all" || place.kind === state.placeKind);
-  const areas = [...new Set(visiblePlaces.map((place) => place.area))];
-  const groups = areas
-    .map((area) => {
+  const travelAreaKeys = [...new Set(visiblePlaces.map(travelAreaGroupKey))];
+  const groups = travelAreaKeys
+    .map((regionKey) => {
       const rows = visiblePlaces
-        .filter((place) => place.area === area)
+        .filter((place) => travelAreaGroupKey(place) === regionKey)
         .map((place) => {
           const voters = placeVoters(place.name);
           const active = voters.includes(currentMemberId());
@@ -1924,14 +1903,14 @@ function placesScreen() {
             </div>`;
         })
         .join("");
-      const representative = visiblePlaces.find((place) => place.area === area && place.areaOriginal)
-        || visiblePlaces.find((place) => place.area === area);
-      const areaLabel = shouldUpgradeAreaResolution(representative)
-        ? "正在辨識地區"
-        : areaDisplayName(area, representative?.areaOriginal, isAreaResolutionCurrent(representative));
+      const representative = visiblePlaces.find((place) => travelAreaGroupKey(place) === regionKey);
+      const areaLabel = travelAreaDisplayName(representative);
+      const retryAction = canEdit() && visiblePlaces.some((place) => travelAreaGroupKey(place) === regionKey && !isTravelAreaResolutionCurrent(place))
+        ? `<button class="travel-area-retry" type="button" data-retry-travel-area="${escapeHtml(regionKey)}">重新辨識</button>`
+        : "";
       return `
         <section class="place-group">
-          <h2 class="group-title">⌖ ${escapeHtml(areaLabel)}</h2>
+          <div class="group-title-row"><h2 class="group-title">⌖ ${escapeHtml(areaLabel)}</h2>${retryAction}</div>
           <div class="place-list">${rows}</div>
         </section>`;
     })
@@ -2342,7 +2321,7 @@ function mapScreen() {
     ? projectedPlaces.map((place) => `
         <button class="map-sidebar-place ${state.selectedMapPlace === place.name ? "active" : ""}" type="button" data-focus-map-place="${escapeHtml(place.name)}">
           <i style="--place-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</i>
-          <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area || "待確認區域", isAreaResolutionCurrent(place)))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
+          <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(travelAreaChineseName(place))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
         </button>`).join("")
     : `<div class="map-sidebar-empty">目前沒有符合篩選的地點</div>`;
   const selectedPreviewPlace = projectedPlaces.find((place) => place.name === state.selectedMapPlace);
@@ -2590,7 +2569,7 @@ function mapPlacePreviewMarkup(place) {
     <article class="map-place-preview-card" aria-label="${escapeHtml(place.name)}地點預覽">
       <button class="map-place-preview-main" type="button" data-open-map-place-detail="${escapeHtml(place.name)}">
         <span class="map-place-preview-photo">${photo}</span>
-        <span class="map-place-preview-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(rating)} · ${escapeHtml(kindLabel(place.kind))}</small><em>${escapeHtml(areaChineseName(place.area || "待確認區域", isAreaResolutionCurrent(place)))}</em></span>
+        <span class="map-place-preview-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(rating)} · ${escapeHtml(kindLabel(place.kind))}</small><em>${escapeHtml(travelAreaChineseName(place))}</em></span>
         <b aria-hidden="true">›</b>
       </button>
       <button class="map-place-preview-close" type="button" data-close-map-preview aria-label="關閉地點預覽">×</button>
@@ -2823,7 +2802,12 @@ async function ensureMapCoordinates() {
     const response = await fetch("/api/places", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ places: missing.map((place) => ({ sourceUrl: place.sourceUrl, hintName: place.name })) }),
+      body: JSON.stringify({ places: missing.map((place) => ({
+        sourceUrl: place.sourceUrl,
+        hintName: place.name,
+        destination: state.destination,
+        countryCode: place.countryCode || "",
+      })) }),
     });
     if (!response.ok) return false;
     const resolvedPlaces = (await response.json()).places || [];
@@ -2835,7 +2819,7 @@ async function ensureMapCoordinates() {
       place.area = resolved.area || place.area;
       place.areaOriginal = resolved.areaOriginal || place.areaOriginal || place.area;
       place.areaResolvedByGoogle = resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true;
-      place.areaResolutionVersion = Number(resolved.areaResolutionVersion) || place.areaResolutionVersion || 0;
+      applyPlanningRegionResolution(place, resolved);
       updated = true;
     });
     if (updated) persist({ recordUndo: false });
@@ -2847,75 +2831,113 @@ async function ensureMapCoordinates() {
   }
 }
 
-function areaLocalizationKey(place) {
-  return `${state.tripId}|${place.placeId || place.sourceUrl || place.formattedAddress || place.name}`;
+function applyPlanningRegionResolution(place, resolved) {
+  if (!place || !resolved) return false;
+  ensureTravelAreaFields(place);
+  if (resolved.countryCode) place.countryCode = resolved.countryCode;
+  if (Array.isArray(resolved.addressComponents)) place.addressComponents = resolved.addressComponents;
+  if (Array.isArray(resolved.addressComponentsOriginal)) place.addressComponentsOriginal = resolved.addressComponentsOriginal;
+  if (resolved.administrativeAreas) place.administrativeAreas = resolved.administrativeAreas;
+  if (place.travelAreaSource === "manual" || place.travelAreaManuallySet === true) return true;
+  if (resolved.travelAreaResolved !== true || !resolved.travelAreaKey || !resolved.travelAreaZh || !resolved.travelAreaLocal
+    || Number(resolved.travelAreaResolutionVersion) < TRAVEL_AREA_RESOLUTION_VERSION) {
+    place.travelAreaResolved = false;
+    place.travelAreaResolutionStatus = "failed";
+    place.travelAreaResolutionError = resolved.travelAreaResolutionError || resolved.error || "TRAVEL_AREA_NOT_RESOLVED";
+    return false;
+  }
+  place.travelAreaKey = resolved.travelAreaKey;
+  place.travelAreaZh = resolved.travelAreaZh;
+  place.travelAreaLocal = resolved.travelAreaLocal;
+  place.travelAreaResolved = true;
+  place.travelAreaSource = "automatic";
+  place.travelAreaResolver = resolved.travelAreaResolver || "";
+  place.travelAreaResolutionVersion = Number(resolved.travelAreaResolutionVersion);
+  place.travelAreaResolutionStatus = "resolved";
+  delete place.travelAreaResolutionError;
+  return true;
 }
 
-function hasAreaResolutionEvidence(place) {
+function planningRegionResolutionKey(place) {
+  return `${state.tripId}|${place?.placeId || place?.sourceUrl || place?.formattedAddress || place?.name || ""}`;
+}
+
+function hasPlanningRegionResolutionEvidence(place) {
   return Boolean(place && (place.placeId
     || place.formattedAddress
+    || (Array.isArray(place.addressComponents) && place.addressComponents.length)
+    || (Array.isArray(place.addressComponentsOriginal) && place.addressComponentsOriginal.length)
     || (Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
     || (place.sourceUrl && place.name)));
 }
 
-function isAreaResolutionCurrent(place) {
-  return Boolean(place?.areaManuallySet || Number(place?.areaResolutionVersion) >= AREA_RESOLUTION_VERSION);
+function shouldUpgradePlanningRegionResolution(place) {
+  return Boolean(place && !isTravelAreaResolutionCurrent(place) && hasPlanningRegionResolutionEvidence(place));
 }
 
-function shouldUpgradeAreaResolution(place) {
-  return Boolean(place && !place.areaManuallySet && Number(place.areaResolutionVersion) < AREA_RESOLUTION_VERSION && hasAreaResolutionEvidence(place));
-}
-
-function needsAreaLocalization(place) {
+function needsPlanningRegionResolution(place) {
   if (!place) return false;
-  const unresolved = !place.area
-    || place.area === "待確認區域"
-    || isRomanizedArea(place.area)
-    || isRomanizedArea(place.areaOriginal);
   return Boolean(
-    hasAreaResolutionEvidence(place)
-    && (unresolved || shouldUpgradeAreaResolution(place))
-    && !areaLocalizationAttempts.has(areaLocalizationKey(place)),
+    shouldUpgradePlanningRegionResolution(place)
+    && !planningRegionResolutionAttempts.has(planningRegionResolutionKey(place)),
   );
 }
 
-async function localizeStoredPlaceAreas() {
-  if (!state.tripId || areaLocalizationBusy) return false;
+async function resolveStoredPlacePlanningRegions() {
+  if (!state.tripId || planningRegionResolutionBusy) return false;
   const tripId = state.tripId;
-  const targets = state.places.filter(needsAreaLocalization).slice(0, 10);
+  const targets = state.places.filter(needsPlanningRegionResolution).slice(0, 10);
   if (!targets.length) return false;
-  areaLocalizationBusy = true;
-  targets.forEach((place) => areaLocalizationAttempts.add(areaLocalizationKey(place)));
+  const targetKeys = targets.map(planningRegionResolutionKey);
+  planningRegionResolutionBusy = true;
+  targetKeys.forEach((key) => {
+    planningRegionResolutionAttempts.add(key);
+    planningRegionResolutionInFlight.add(key);
+  });
+  render({ preserveScroll: true });
   let updated = false;
   try {
     const response = await fetch("/api/places", {
       method: "POST",
+      signal: AbortSignal.timeout(25000),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         places: targets.map((place) => ({
-          localizeArea: true,
+          resolveTravelArea: true,
           placeId: place.placeId || "",
           hintName: place.name || "",
           sourceUrl: place.sourceUrl || "",
           formattedAddress: place.formattedAddress || "",
           latitude: place.latitude,
           longitude: place.longitude,
+          manualLocation: place.manualLocation === true,
+          detailsLocked: place.detailsLocked === true,
+          destination: state.destination,
+          countryCode: place.countryCode || "",
+          addressComponents: place.addressComponents || [],
+          addressComponentsOriginal: place.addressComponentsOriginal || [],
         })),
       }),
     });
-    if (!response.ok || state.tripId !== tripId) return false;
+    if (state.tripId !== tripId) return false;
+    if (!response.ok) throw new Error(`TRAVEL_AREA_REQUEST_${response.status}`);
     const resolvedPlaces = (await response.json()).places || [];
     targets.forEach((target, index) => {
       const resolved = resolvedPlaces[index];
-      const current = state.places.find((place) => areaLocalizationKey(place) === areaLocalizationKey(target));
-      if (!current || !resolved || resolved.error || !resolved.area) {
-        window.setTimeout(() => areaLocalizationAttempts.delete(areaLocalizationKey(target)), 60000);
+      const current = state.places.find((place) => planningRegionResolutionKey(place) === planningRegionResolutionKey(target));
+      if (!current) return;
+      if (!resolved || resolved.error) {
+        applyPlanningRegionResolution(current, resolved || { error: "TRAVEL_AREA_RESPONSE_MISSING" });
+        updated = true;
         return;
       }
-      current.area = resolved.area;
+      if (!applyPlanningRegionResolution(current, resolved)) {
+        updated = true;
+        return;
+      }
+      current.area = resolved.area || current.area;
       current.areaOriginal = resolved.areaOriginal || resolved.area;
-      current.areaResolvedByGoogle = true;
-      current.areaResolutionVersion = Number(resolved.areaResolutionVersion) || AREA_RESOLUTION_VERSION;
+      current.areaResolvedByGoogle = resolved.areaResolvedByGoogle === true;
       current.formattedAddress = resolved.formattedAddress || current.formattedAddress || "";
       current.placeId = resolved.placeId || current.placeId;
       current.latitude = Number.isFinite(resolved.latitude) ? resolved.latitude : current.latitude;
@@ -2927,12 +2949,20 @@ async function localizeStoredPlaceAreas() {
       render({ preserveScroll: true });
     }
     return updated;
-  } catch {
-    targets.forEach((place) => window.setTimeout(() => areaLocalizationAttempts.delete(areaLocalizationKey(place)), 60000));
+  } catch (error) {
+    if (state.tripId === tripId) {
+      targets.forEach((target) => {
+        const current = state.places.find((place) => planningRegionResolutionKey(place) === planningRegionResolutionKey(target));
+        if (current) applyPlanningRegionResolution(current, { error: error.message || "TRAVEL_AREA_REQUEST_FAILED" });
+      });
+      persist({ sync: canEdit(), recordUndo: false });
+    }
     return false;
   } finally {
-    areaLocalizationBusy = false;
-    if (state.tripId === tripId && state.places.some(needsAreaLocalization)) window.setTimeout(localizeStoredPlaceAreas, 0);
+    planningRegionResolutionBusy = false;
+    targetKeys.forEach((key) => planningRegionResolutionInFlight.delete(key));
+    if (state.tripId === tripId) render({ preserveScroll: true });
+    if (state.tripId === tripId && state.places.some(needsPlanningRegionResolution)) window.setTimeout(resolveStoredPlacePlanningRegions, 0);
   }
 }
 
@@ -4077,7 +4107,7 @@ function itineraryScreen() {
   const area = placeItems.length
     ? [...new Set(placeItems.map((item) => {
         const place = state.places.find((candidate) => candidate.name === item.name);
-        return areaChineseName(place?.area || "行程", isAreaResolutionCurrent(place));
+        return travelAreaChineseName(place, "行程");
       }))].join("／")
     : "尚未安排";
   const dayCountLabel = [placeItems.length ? `${placeItems.length} 個地點` : "", dayItems.length - placeItems.length ? `${dayItems.length - placeItems.length} 個航班` : ""].filter(Boolean).join(" · ");
@@ -4176,7 +4206,7 @@ function openPlaceSheet(name) {
     <div class="modal-backdrop" data-dismiss-sheet>
       <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(place.name)}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(areaChineseName(place.area, isAreaResolutionCurrent(place)))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
+          <div><p class="section-kicker">${escapeHtml(travelAreaDisplayName(place))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
@@ -4234,7 +4264,7 @@ function openPlaceSheet(name) {
           <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">開啟 Google Maps</button>
         </div>
-        ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址與照片</button>` : ""}
+        ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址、旅遊分區與照片</button>` : ""}
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
       </section>
     </div>`;
@@ -4248,7 +4278,7 @@ async function ensurePlaceDetails(place) {
     const response = await fetch("/api/places", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ places: [{ sourceUrl: place.sourceUrl, hintName: place.name }] }),
+      body: JSON.stringify({ places: [{ sourceUrl: place.sourceUrl, hintName: place.name, destination: state.destination, countryCode: place.countryCode || "" }] }),
     });
     if (!response.ok) return;
     const resolved = (await response.json()).places?.[0];
@@ -4259,7 +4289,6 @@ async function ensurePlaceDetails(place) {
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
       areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
-      areaResolutionVersion: Number(resolved.areaResolutionVersion) || place.areaResolutionVersion || 0,
       category: resolved.category || place.category,
       kind: normalizedPlaceKind({ ...place, category: resolved.category || place.category }),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
@@ -4271,6 +4300,7 @@ async function ensurePlaceDetails(place) {
       photos: resolved.photos || place.photos || [],
       photosLoaded: true,
     });
+    applyPlanningRegionResolution(place, resolved);
     persist({ recordUndo: false });
     if (document.querySelector(`[data-detail-place="${CSS.escape(place.name)}"]`)) openPlaceSheet(place.name);
   } catch {
@@ -5173,6 +5203,8 @@ async function enrichPlaceImportsFromApi(entries) {
             globalSearch: place.globalSearch === true || place.recognition === "unresolved",
             latitude: place.latitude,
             longitude: place.longitude,
+            destination: state.destination,
+            countryCode: place.countryCode || "",
           })),
         }),
       });
@@ -5198,7 +5230,17 @@ async function enrichPlaceImportsFromApi(entries) {
         area: resolved.area || place.area,
         areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
         areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
-        areaResolutionVersion: Number(resolved.areaResolutionVersion) || place.areaResolutionVersion || 0,
+        travelAreaKey: resolved.travelAreaKey || place.travelAreaKey || "",
+        travelAreaZh: resolved.travelAreaZh || place.travelAreaZh || "",
+        travelAreaLocal: resolved.travelAreaLocal || place.travelAreaLocal || "",
+        travelAreaResolved: resolved.travelAreaResolved === true,
+        travelAreaSource: resolved.travelAreaSource || place.travelAreaSource || "automatic",
+        travelAreaResolver: resolved.travelAreaResolver || place.travelAreaResolver || "",
+        travelAreaResolutionVersion: Number(resolved.travelAreaResolutionVersion) || 0,
+        administrativeAreas: resolved.administrativeAreas || place.administrativeAreas || null,
+        countryCode: resolved.countryCode || place.countryCode || "",
+        addressComponents: Array.isArray(resolved.addressComponents) ? resolved.addressComponents : place.addressComponents || [],
+        addressComponentsOriginal: Array.isArray(resolved.addressComponentsOriginal) ? resolved.addressComponentsOriginal : place.addressComponentsOriginal || [],
         category: resolved.category || place.category,
         kind: inferPlaceKind(resolved.category || place.category),
         formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
@@ -5209,8 +5251,8 @@ async function enrichPlaceImportsFromApi(entries) {
         phone: resolved.phone || place.phone,
         photos: resolved.photos || place.photos || [],
         mark: resolved.name.slice(0, 1),
-        description: `${resolved.name}位於${resolved.area || place.area || "待確認區域"}，由 Google Places 自動補齊地點資料。`,
-        highlights: [resolved.category || "Google Maps 匯入", resolved.area || place.area || "待確認區域"],
+        description: `${resolved.name}位於${resolved.travelAreaZh || "待確認旅遊分區"}，由 Google Places 自動補齊地點資料。`,
+        highlights: [resolved.category || "Google Maps 匯入", resolved.travelAreaZh || "待確認旅遊分區"],
         recognition: "complete",
         coordinateLocation: resolved.coordinateLocation === true || place.coordinateLocation === true,
         addressProvider: resolved.addressProvider || place.addressProvider || "",
@@ -5807,6 +5849,10 @@ function openPlaceEditSheet(name = "", seed = {}) {
   const sourceUrl = seed.sourceUrl || existing?.sourceUrl || "";
   const displayName = seed.name || existing?.name || (kind === "lodging" ? "私人住宿" : "");
   const category = existing?.category || (kind === "lodging" ? "私人住宿" : kindLabel(kind));
+  if (existing) ensureTravelAreaFields(existing);
+  const manualTravelArea = existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true;
+  const travelAreaZh = manualTravelArea ? existing.travelAreaZh : "";
+  const travelAreaLocal = manualTravelArea ? existing.travelAreaLocal : "";
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet place-editor-sheet" id="place-editor-form" data-original-place-name="${escapeHtml(existing?.name || "")}" data-original-address="${escapeHtml(existing?.formattedAddress || "")}">
@@ -5821,8 +5867,9 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field"><label for="place-editor-category">分類</label><input id="place-editor-category" name="category" maxlength="60" value="${escapeHtml(category)}" placeholder="例如：私人住宿" /></div>
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="請貼上房東提供的完整門牌地址" required>${escapeHtml(address)}</textarea><small>儲存時會以地址定位，不會改抓附近的餐廳或商店。</small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
-          <div class="field"><label for="place-editor-area">地區（繁中）</label><input id="place-editor-area" name="area" maxlength="60" value="${escapeHtml(existing?.area || seed.area || "")}" placeholder="例如：片瀨（可留白自動定位）" /></div>
-          <div class="field"><label for="place-editor-area-original">當地名稱</label><input id="place-editor-area-original" name="areaOriginal" maxlength="60" value="${escapeHtml(existing?.areaOriginal || "")}" placeholder="例如：片瀬" /></div>
+          <div class="field"><label for="place-editor-travel-area-zh">旅遊分區（繁中，選填）</label><input id="place-editor-travel-area-zh" name="travelAreaZh" maxlength="60" value="${escapeHtml(travelAreaZh)}" placeholder="例如：淺草" /></div>
+          <div class="field"><label for="place-editor-travel-area-local">旅遊分區（當地語言）</label><input id="place-editor-travel-area-local" name="travelAreaLocal" maxlength="60" value="${escapeHtml(travelAreaLocal)}" placeholder="例如：浅草" /></div>
+          <div class="field full"><small>${existing ? `目前顯示：${escapeHtml(travelAreaDisplayName(existing))}。` : "留空時會依完整地址自動辨識。"} 兩欄都填寫即視為手動指定，之後不會被自動辨識覆蓋。</small></div>
         </div>
         <section class="place-photo-editor">
           <div class="place-photo-preview ${existing?.customPhotoDataUrl ? "has-photo" : ""}" data-place-photo-preview>${existing?.customPhotoDataUrl ? `<img src="${escapeHtml(existing.customPhotoDataUrl)}" alt="${escapeHtml(existing.name)}地點照片" />` : `<span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small>`}</div>
@@ -5923,14 +5970,16 @@ async function analyzePlaceImportSheet(analyzePlaces) {
   }
 }
 
-function openDateSheet(area) {
+function openDateSheet(regionKey) {
+  const representative = state.places.find((place) => travelAreaGroupKey(place) === regionKey);
+  const regionLabel = travelAreaDisplayName(representative);
   const options = dateMeta
     .map(([date, weekday]) => `<option value="${date}" ${date === state.selectedDate ? "selected" : ""}>${date} ${weekday}</option>`)
     .join("");
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet" id="add-area-form" data-area="${escapeHtml(area)}">
-        <div class="section-row"><div><p class="section-kicker">${escapeHtml(area)}</p><h2>加入同一天</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
+      <form class="modal-sheet" id="add-area-form" data-travel-area-key="${escapeHtml(regionKey)}">
+        <div class="section-row"><div><p class="section-kicker">${escapeHtml(regionLabel)}</p><h2>加入同一天</h2></div><button class="icon-button" type="button" data-close-sheet>×</button></div>
         <p>此區域的收藏地點會一起加入指定日期，之後仍可個別移除或調整時間。</p>
         <div class="field"><label for="trip-date">選擇日期</label><select id="trip-date" name="date">${options}</select></div>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">確認加入</button></div>
@@ -5949,7 +5998,7 @@ function openAddPlaceDateSheet(name) {
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet" id="add-place-day-form" data-place-name="${escapeHtml(name)}">
         <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(place.area)}</p><h2>加入某一天</h2></div>
+          <div><p class="section-kicker">${escapeHtml(travelAreaDisplayName(place))}</p><h2>加入某一天</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p><strong>${escapeHtml(name)}</strong>${assignments.length ? `目前已排：${escapeHtml(placeScheduleLabel(name))}` : "目前尚未安排。"}</p>
@@ -6042,7 +6091,7 @@ function openItineraryPlacesSheet({ reset = false } = {}) {
       <label class="itinerary-place-option ${current ? "already-added" : ""}">
         <input type="checkbox" name="places" value="${escapeHtml(place.name)}" ${current ? "checked disabled" : itineraryPlaceSelection.has(place.name) ? "checked" : ""} />
         <span class="itinerary-place-check" aria-hidden="true">✓</span>
-        <span class="itinerary-place-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(areaChineseName(place.area, isAreaResolutionCurrent(place)))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
+        <span class="itinerary-place-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(travelAreaChineseName(place))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
         <b>${escapeHtml(status)}</b>
       </label>`;
   }).join("");
@@ -6645,6 +6694,19 @@ document.addEventListener("click", async (event) => {
     return render();
   }
 
+  const retryTravelArea = event.target.closest("[data-retry-travel-area]");
+  if (retryTravelArea) {
+    if (!canEdit()) return guestOnlyMessage();
+    const regionKey = retryTravelArea.dataset.retryTravelArea;
+    state.places.filter((place) => travelAreaGroupKey(place) === regionKey).forEach((place) => {
+      planningRegionResolutionAttempts.delete(planningRegionResolutionKey(place));
+      place.travelAreaResolutionStatus = "retry-required";
+    });
+    render({ preserveScroll: true });
+    await resolveStoredPlacePlanningRegions();
+    return;
+  }
+
   const addArea = event.target.closest("[data-add-area-day]");
   if (addArea) return canEdit() ? openDateSheet(addArea.dataset.addAreaDay) : guestOnlyMessage();
 
@@ -7187,9 +7249,13 @@ document.addEventListener("submit", async (event) => {
     const name = String(form.get("name") || "").normalize("NFKC").trim().slice(0, 100);
     const address = String(form.get("address") || "").normalize("NFKC").trim().slice(0, 300);
     const sourceUrl = String(form.get("sourceUrl") || "").trim().slice(0, 500);
+    const manualTravelAreaZh = String(form.get("travelAreaZh") || "").normalize("NFKC").trim().slice(0, 60);
+    const manualTravelAreaLocal = String(form.get("travelAreaLocal") || "").normalize("NFKC").trim().slice(0, 60);
+    const hasManualTravelArea = Boolean(manualTravelAreaZh || manualTravelAreaLocal);
     if (!name) return showToast("請輸入地點名稱");
     if (!address) return showToast("請輸入房東或訂單提供的完整地址");
     if (sourceUrl && !isGoogleMapsUrl(sourceUrl)) return showToast("請貼上有效的 Google Maps 連結");
+    if (hasManualTravelArea && (!manualTravelAreaZh || !manualTravelAreaLocal)) return showToast("手動旅遊分區需同時填寫繁中與當地語言");
     if (state.places.some((place) => place !== existing && place.name === name)) return showToast("已有同名地點，請換一個顯示名稱");
     const customPhotoCount = state.places.filter((place) => place.customPhotoDataUrl).length;
     if (pendingPlacePhoto && !existing?.customPhotoDataUrl && customPhotoCount >= 12) return showToast("每趟旅程最多保存 12 張自訂地點照片");
@@ -7201,7 +7267,7 @@ document.addEventListener("submit", async (event) => {
       const response = await fetch("/api/places", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ places: [{ sourceUrl, manualAddress: address }] }),
+        body: JSON.stringify({ places: [{ sourceUrl, manualAddress: address, destination: state.destination, countryCode: existing?.countryCode || "" }] }),
       });
       if (response.ok) {
         const candidate = (await response.json()).places?.[0];
@@ -7212,10 +7278,10 @@ document.addEventListener("submit", async (event) => {
     }
     const kind = String(form.get("kind") || "lodging");
     const category = String(form.get("category") || "").normalize("NFKC").trim().slice(0, 60) || kindLabel(kind);
-    const enteredArea = String(form.get("area") || "").normalize("NFKC").trim().slice(0, 60);
-    const enteredAreaOriginal = String(form.get("areaOriginal") || "").normalize("NFKC").trim().slice(0, 60);
     const addressUnchanged = Boolean(existing && address === event.target.dataset.originalAddress);
     const customPhotoDataUrl = pendingPlacePhoto || (!removePendingPlacePhoto ? existing?.customPhotoDataUrl || "" : "");
+    const travelAreaSource = resolved?.travelAreaResolved === true ? resolved : existing;
+    const locationSource = resolved || (addressUnchanged ? existing : null);
     const nextPlace = {
       ...(existing || {}),
       id: existing?.id || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
@@ -7223,13 +7289,24 @@ document.addEventListener("submit", async (event) => {
       fullName: name,
       category,
       kind,
-      area: enteredArea || resolved?.area || existing?.area || placeAreaFromAddress(address, name),
-      areaOriginal: enteredAreaOriginal || resolved?.areaOriginal || enteredArea || existing?.areaOriginal || "",
-      areaResolvedByGoogle: Boolean(enteredArea || resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
-      areaManuallySet: Boolean(enteredArea || enteredAreaOriginal),
-      areaResolutionVersion: enteredArea || enteredAreaOriginal
-        ? AREA_RESOLUTION_VERSION
-        : Number(resolved?.areaResolutionVersion) || (addressUnchanged ? Number(existing?.areaResolutionVersion) : 0),
+      area: resolved?.area || (addressUnchanged ? existing?.area : "") || placeAreaFromAddress(address, name),
+      areaOriginal: resolved?.areaOriginal || (addressUnchanged ? existing?.areaOriginal : "") || "",
+      areaResolvedByGoogle: Boolean(resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
+      areaManuallySet: false,
+      travelAreaKey: hasManualTravelArea ? travelAreaKeyFromNames(resolved?.countryCode || existing?.countryCode, manualTravelAreaZh, manualTravelAreaLocal) : travelAreaSource?.travelAreaKey || "",
+      travelAreaZh: hasManualTravelArea ? manualTravelAreaZh : travelAreaSource?.travelAreaZh || "",
+      travelAreaLocal: hasManualTravelArea ? manualTravelAreaLocal : travelAreaSource?.travelAreaLocal || "",
+      travelAreaResolved: hasManualTravelArea || resolved?.travelAreaResolved === true,
+      travelAreaSource: hasManualTravelArea ? "manual" : resolved?.travelAreaResolved === true ? "automatic" : "legacy-fallback",
+      travelAreaManuallySet: hasManualTravelArea,
+      travelAreaResolver: hasManualTravelArea ? "MANUAL" : travelAreaSource?.travelAreaResolver || "",
+      travelAreaResolutionVersion: hasManualTravelArea ? TRAVEL_AREA_RESOLUTION_VERSION : Number(travelAreaSource?.travelAreaResolutionVersion) || 0,
+      travelAreaResolutionStatus: hasManualTravelArea || resolved?.travelAreaResolved === true ? "resolved" : "failed",
+      travelAreaResolutionError: hasManualTravelArea || resolved?.travelAreaResolved === true ? "" : resolved?.travelAreaResolutionError || "TRAVEL_AREA_NOT_RESOLVED",
+      countryCode: locationSource?.countryCode || existing?.countryCode || "",
+      addressComponents: Array.isArray(locationSource?.addressComponents) ? locationSource.addressComponents : [],
+      addressComponentsOriginal: Array.isArray(locationSource?.addressComponentsOriginal) ? locationSource.addressComponentsOriginal : [],
+      administrativeAreas: locationSource?.administrativeAreas || existing?.administrativeAreas || null,
       formattedAddress: address,
       sourceUrl: sourceUrl || resolved?.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
       placeId: resolved?.placeId || (addressUnchanged ? existing?.placeId : "") || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
@@ -7707,11 +7784,13 @@ document.addEventListener("submit", async (event) => {
     if (!canEdit()) return guestOnlyMessage();
     const form = new FormData(event.target);
     const date = form.get("date");
-    const area = event.target.dataset.area;
+    const regionKey = event.target.dataset.travelAreaKey;
+    const representative = state.places.find((place) => travelAreaGroupKey(place) === regionKey);
+    const regionLabel = travelAreaChineseName(representative, "未分類");
     const existing = state.itinerary[date] || [];
     const existingNames = new Set(existing.map((item) => item.name));
     const additions = state.places
-      .filter((place) => place.area === area && !existingNames.has(place.name))
+      .filter((place) => travelAreaGroupKey(place) === regionKey && !existingNames.has(place.name))
       .map((place, index) => ({
         name: place.name,
         time: index === 0 ? "11:00" : `${Math.min(18, 14 + index * 3)}:00`,
@@ -7721,7 +7800,7 @@ document.addEventListener("submit", async (event) => {
     persist();
     closeSheet();
     setTab("itinerary");
-    showToast(additions.length ? `已將 ${additions.length} 個${area}地點加入 ${date}` : `${area}地點已在 ${date}`);
+    showToast(additions.length ? `已將 ${additions.length} 個${regionLabel}地點加入 ${date}` : `${regionLabel}地點已在 ${date}`);
   }
 });
 
