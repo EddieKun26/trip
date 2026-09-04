@@ -1,5 +1,11 @@
 # Todo
 
+## Completed
+
+- [x] Travel Area v5 was deployed to production and the full 31-place `東京 7 日` production smoke test passed on 2026-09-04. The feature is complete; no deployment, migration, or formal acceptance remains pending.
+
+## Remaining
+
 - Verify fullscreen map opening, left-rail filtering, mobile drawer collapse, and compact marker readability on a real iPhone/PWA after the production rollout.
 - Verify the compact marker → bottom preview → full detail flow, background photo enrichment, and close/reselect animation on a real iPhone/PWA.
 - Verify a TPE → DXB → LHR round trip with transfers in both directions, including overnight dates and layover labels, on a production iPhone session.
