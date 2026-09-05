@@ -4035,6 +4035,7 @@ body.transport-sheet-open .app {
 }
 
 .import-places-sheet {
+  width: min(430px, 100%);
   height: min(760px, calc(100dvh - 32px));
   max-height: calc(100dvh - 32px);
   display: flex;
@@ -4044,11 +4045,50 @@ body.transport-sheet-open .app {
 }
 
 .import-places-sheet > .section-row,
-.import-places-sheet > .field,
-.import-places-sheet > .social-screenshot-picker,
-.import-places-sheet > .analyze-button,
+.import-places-sheet > .import-source-tools,
+.import-places-sheet > .manual-place-entry,
 .import-places-sheet > .modal-actions {
   flex: 0 0 auto;
+}
+
+.import-source-tools {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.68);
+}
+
+.import-source-tools > summary {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  color: var(--mineral);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.import-source-tools > summary span {
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.import-source-tools > summary small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-source-tools-body {
+  display: grid;
+  padding: 0 10px 10px;
 }
 
 .import-places-sheet .field {
@@ -4069,7 +4109,41 @@ body.transport-sheet-open .app {
 }
 
 .import-places-sheet > .modal-actions {
-  margin-top: 12px;
+  margin-top: 8px;
+}
+
+.import-places-sheet[data-import-state="results"] {
+  height: min(820px, calc(100dvh - 16px));
+  max-height: calc(100dvh - 16px);
+}
+
+.import-places-sheet[data-import-state="results"] > .section-row h2 {
+  font-size: 20px;
+}
+
+.import-places-sheet[data-import-state="results"] .manual-place-entry {
+  grid-template-areas: "question action";
+  min-height: 42px;
+  padding-block: 7px;
+}
+
+.import-places-sheet[data-import-state="results"] .manual-place-entry small {
+  display: none;
+}
+
+.import-actions {
+  position: relative;
+  z-index: 2;
+  margin-inline: -20px;
+  margin-bottom: -20px;
+  padding: 10px 20px max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--paper-2);
+}
+
+.import-actions button {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .manual-place-entry {
@@ -4416,16 +4490,19 @@ body.transport-sheet-open .app {
 }
 
 .import-group-summary {
-  display: grid;
-  gap: 2px;
-  padding: 9px 11px;
+  min-width: 0;
+  padding: 7px 10px;
   border-radius: 12px;
   background: var(--mineral-soft);
   color: var(--mineral);
 }
 
 .import-group-summary strong {
+  display: block;
+  overflow: hidden;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .import-group-summary span {
@@ -4525,7 +4602,7 @@ body.transport-sheet-open .app {
 }
 
 .import-place-row.social-candidate {
-  grid-template-columns: 20px 36px minmax(0, 1fr) auto;
+  grid-template-columns: 24px 36px minmax(0, 1fr) auto;
   cursor: pointer;
 }
 
@@ -4534,11 +4611,51 @@ body.transport-sheet-open .app {
   background: rgba(229, 240, 238, 0.72);
 }
 
-.import-candidate-radio {
-  width: 18px;
-  height: 18px;
+.import-candidate-control {
+  width: 22px;
+  height: 22px;
   margin: 0;
   accent-color: var(--mineral);
+}
+
+@media (max-width: 520px) {
+  .import-places-backdrop {
+    padding: max(8px, env(safe-area-inset-top)) 8px 0;
+    overflow: hidden;
+  }
+
+  .import-places-sheet {
+    width: 100%;
+    max-width: 100%;
+    padding: 14px;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .import-places-sheet[data-import-state="results"] {
+    height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+    max-height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+  }
+
+  .import-actions {
+    margin-inline: -14px;
+    margin-bottom: -14px;
+    padding-inline: 14px;
+  }
+
+  .import-place-row.social-candidate {
+    grid-template-columns: 24px 34px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .import-place-row .mini-thumb {
+    width: 34px;
+    height: 34px;
+  }
+
+  .import-open-hint {
+    font-size: 9px;
+  }
 }
 
 .import-place-row .mini-thumb {

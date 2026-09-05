@@ -3607,6 +3607,7 @@ async function handlePlaceImportScreenshotFile(input) {
   pendingPlaceImportScreenshot = "";
   if (!file) {
     if (status) status.textContent = "尚未選擇圖片";
+    updateImportSourceSummary(input.closest("#import-places-form"));
     return;
   }
   if (status) status.textContent = "正在準備截圖…";
@@ -3616,6 +3617,8 @@ async function handlePlaceImportScreenshotFile(input) {
   } catch {
     input.value = "";
     if (status) status.textContent = "圖片太大或無法讀取，請換一張截圖";
+  } finally {
+    updateImportSourceSummary(input.closest("#import-places-form"));
   }
 }
 
@@ -4911,6 +4914,30 @@ function importCanBeAdded(place) {
     && !importAlreadyExists(place);
 }
 
+function importCandidateSelectionMode(placeOrGroup) {
+  const candidates = Array.isArray(placeOrGroup) ? placeOrGroup : [placeOrGroup];
+  return candidates.some((place) => place?.candidateCategory === "lodging" || place?.kind === "lodging")
+    ? "single"
+    : "multiple";
+}
+
+function samePendingImportIdentity(first, second) {
+  const firstPlaceId = String(first?.placeId || "").trim();
+  const secondPlaceId = String(second?.placeId || "").trim();
+  if (firstPlaceId && secondPlaceId && firstPlaceId === secondPlaceId) return true;
+  const firstUrl = normalizeGoogleMapsUrl(first?.sourceUrl);
+  const secondUrl = normalizeGoogleMapsUrl(second?.sourceUrl);
+  return Boolean(firstUrl && secondUrl && firstUrl === secondUrl) || samePlaceIdentity(first, second);
+}
+
+function submittablePlaceImports(entries = pendingPlaceImports) {
+  return entries.reduce((unique, place) => {
+    if (!importCanBeAdded(place) || unique.some((candidate) => samePendingImportIdentity(candidate, place))) return unique;
+    unique.push(place);
+    return unique;
+  }, []);
+}
+
 function validMapCoordinates(latitude, longitude) {
   return Number.isFinite(latitude)
     && Number.isFinite(longitude)
@@ -5367,22 +5394,11 @@ async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceI
 }
 
 function updateImportConfirmState() {
-  const addableCount = pendingPlaceImports.filter(importCanBeAdded).length;
-  const socialStats = socialImportStats(pendingPlaceImports);
-  const plainAddableCount = pendingPlaceImports.filter((place) => !place.isSocialCandidate && importCanBeAdded(place)).length;
-  const totalAvailableCount = socialStats.activeImportableGroupCount + plainAddableCount;
+  const addableCount = submittablePlaceImports().length;
   const confirmButton = document.querySelector("[data-confirm-import]");
   if (confirmButton) {
     confirmButton.disabled = addableCount === 0;
-    confirmButton.textContent = addableCount
-      ? socialStats.skippedGroupCount
-        ? `加入其餘 ${addableCount} 個地點`
-        : addableCount === totalAvailableCount
-          ? `加入全部 ${addableCount} 個地點`
-          : `加入 ${addableCount} / ${totalAvailableCount} 個地點`
-      : socialStats.skippedGroupCount
-        ? "沒有選擇地點"
-        : "沒有可新增地點";
+    confirmButton.textContent = addableCount ? `加入已選 ${addableCount} 個地點` : "尚未選擇地點";
   }
 }
 
@@ -5397,13 +5413,18 @@ function socialImportStats(entries) {
         candidateCount: 0,
         importable: false,
         selected: false,
+        selectedCount: 0,
         skipped: false,
+        selectionMode: importCandidateSelectionMode(place),
       });
     }
     const group = groups.get(place.candidateGroupId);
     group.candidateCount += 1;
     if (place.canImport && place.recognition !== "unresolved" && !importAlreadyExists(place)) group.importable = true;
-    if (importCanBeAdded(place)) group.selected = true;
+    if (importCanBeAdded(place)) {
+      group.selected = true;
+      group.selectedCount += 1;
+    }
     if (place.candidateGroupSkipped) group.skipped = true;
   });
   const values = [...groups.values()];
@@ -5413,6 +5434,7 @@ function socialImportStats(entries) {
     importableGroupCount: values.filter((group) => group.importable).length,
     activeImportableGroupCount: values.filter((group) => group.importable && !group.skipped).length,
     selectedGroupCount: values.filter((group) => group.selected).length,
+    selectedCandidateCount: values.reduce((sum, group) => sum + group.selectedCount, 0),
     skippedGroupCount: values.filter((group) => group.skipped).length,
     groups,
   };
@@ -5422,15 +5444,25 @@ function importCandidateIdentity(place) {
   return String(place?.placeId || place?.sourceUrl || "");
 }
 
-function selectImportCandidate(groupId, identity) {
-  pendingPlaceImports.forEach((place) => {
-    if (place.candidateGroupId === groupId) {
-      place.candidateGroupSkipped = false;
-      place.selected = importCandidateIdentity(place) === identity;
-    }
-  });
+function renderImportPreview({ preserveScroll = false } = {}) {
   const preview = document.querySelector("#import-preview");
-  if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+  if (!preview) return;
+  const scrollTop = preserveScroll ? preview.scrollTop : 0;
+  preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+  if (preserveScroll) preview.scrollTop = scrollTop;
+}
+
+function selectImportCandidate(groupId, identity, checked = true) {
+  const group = pendingPlaceImports.filter((place) => place.candidateGroupId === groupId);
+  const target = group.find((place) => importCandidateIdentity(place) === identity);
+  if (!target || !target.canImport || importAlreadyExists(target)) return;
+  group.forEach((place) => { place.candidateGroupSkipped = false; });
+  if (importCandidateSelectionMode(group) === "single") {
+    group.forEach((place) => { place.selected = Boolean(checked) && place === target; });
+  } else {
+    target.selected = Boolean(checked);
+  }
+  renderImportPreview({ preserveScroll: true });
   updateImportConfirmState();
 }
 
@@ -5448,8 +5480,7 @@ function setImportCandidateGroupSkipped(groupId, skipped) {
       && (!lodgingGroup || place.recommended === true));
     if (preferred) preferred.selected = true;
   }
-  const preview = document.querySelector("#import-preview");
-  if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+  renderImportPreview({ preserveScroll: true });
   updateImportConfirmState();
 }
 
@@ -5563,8 +5594,7 @@ async function rematchImportCandidateGroup(groupId) {
     pendingPlaceImports = pendingPlaceImports.filter((place) => place.candidateGroupId !== groupId);
     pendingPlaceImports.splice(Math.max(0, firstIndex), 0, ...replacements);
     closeImportRematchSheet();
-    const preview = document.querySelector("#import-preview");
-    if (preview) preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+    renderImportPreview({ preserveScroll: true });
     updateImportConfirmState();
     showToast(`已為「${query}」找到 ${replacements.length} 個新候選`);
   } catch (error) {
@@ -5674,6 +5704,10 @@ function openImportCandidatePreview(identity) {
   const mapPreview = validMapCoordinates(latitude, longitude)
     ? `<section class="import-location-preview" aria-label="${escapeHtml(place.name)}地圖位置"><iframe title="${escapeHtml(place.name)}地圖位置" src="https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}&z=17&output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe><span>請用地圖與下方完整地址確認位置</span></section>`
     : "";
+  const selectionMode = importCandidateSelectionMode(place);
+  const selectLabel = selectionMode === "multiple"
+    ? place.selected ? "取消選取" : "加入這個地點"
+    : place.selected ? "✓ 已選擇這個住宿" : "選擇這個住宿";
   sheetRoot.insertAdjacentHTML("beforeend", `
     <div class="import-candidate-backdrop" data-import-candidate-preview-root data-dismiss-import-candidate>
       <section class="modal-sheet import-candidate-sheet" role="dialog" aria-modal="true" aria-labelledby="import-candidate-title">
@@ -5701,7 +5735,7 @@ function openImportCandidatePreview(identity) {
         </section>
         <div class="modal-actions import-candidate-actions">
           <button class="secondary-button" type="button" data-close-import-candidate>返回候選</button>
-          ${place.isSocialCandidate ? `<button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}">${place.selected ? "✓ 已選擇這個地點" : "選擇這個地點"}</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
+          ${place.isSocialCandidate ? `<button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" data-candidate-checked="${place.selected ? "false" : "true"}">${selectLabel}</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
         </div>
       </section>
     </div>`);
@@ -5755,8 +5789,11 @@ function importPreviewMarkup(entries) {
       const socialMeta = place.isSocialCandidate
         ? `<span>${escapeHtml(place.formattedAddress || `${place.area} · ${place.category}`)}</span><small>${escapeHtml(place.sourcePlatform || "社群貼文")}候選 ${place.candidateRank}${rating}</small>`
         : `<span>${escapeHtml(place.area)} · ${escapeHtml(place.category)}</span><small>${escapeHtml(place.openingHours)}</small>`;
+      const selectionMode = importCandidateSelectionMode(place);
+      const inputType = selectionMode === "multiple" ? "checkbox" : "radio";
+      const unavailable = isExisting || !place.canImport || place.recognition === "unresolved";
       const radio = place.isSocialCandidate
-        ? `<input class="import-candidate-radio" type="radio" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(importCandidateIdentity(place))}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${isExisting ? "disabled" : ""} aria-label="選擇 ${escapeHtml(place.name)}" />`
+        ? `<input class="import-candidate-control" type="${inputType}" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(importCandidateIdentity(place))}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${unavailable ? "disabled" : ""} aria-label="${place.selected ? "取消選取" : "選擇"} ${escapeHtml(place.name)}" />`
         : "";
       const previewable = place.isSocialCandidate || validMapCoordinates(Number(place.latitude), Number(place.longitude)) || Boolean(place.formattedAddress);
       const copy = previewable
@@ -5775,7 +5812,7 @@ function importPreviewMarkup(entries) {
           <div class="import-candidate-group-label ${groupState?.skipped ? "skipped" : ""}">
             <span>辨識地點 ${groupNumber}</span>
             <strong>${escapeHtml(place.candidateLabel || place.name)}</strong>
-            <small>${groupState?.skipped ? "已略過，不會加入旅程" : `${groupCandidateCount} 個 Google Maps 候選 · 可擇一或略過`}</small>
+            <small>${groupState?.skipped ? "已略過，不會加入旅程" : `${groupCandidateCount} 個 Google Maps 候選 · ${groupState?.selectionMode === "multiple" ? "可複選或略過" : "可擇一或略過"}`}</small>
             <div class="import-candidate-group-actions">
               <button type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">原文／原圖</button>
               <button type="button" data-rematch-import-group="${escapeHtml(place.candidateGroupId)}">重新搜尋</button>
@@ -5797,14 +5834,36 @@ function importPreviewMarkup(entries) {
         </article>`;
     })
     .join("");
-  const addableCount = entries.filter(importCanBeAdded).length;
+  const addableCount = submittablePlaceImports(entries).length;
   const socialSummary = socialStats.groupCount
-    ? `<div class="import-group-summary"><strong>辨識到 ${socialStats.groupCount} 個地點</strong><span>共 ${socialStats.candidateCount} 筆 Google Maps 配對候選；每個地點都可重搜或略過，不必強制選擇。</span></div>`
+    ? `<div class="import-group-summary"><strong>辨識到 ${socialStats.groupCount} 個來源地點，${socialStats.candidateCount} 個候選，已選 ${addableCount}</strong></div>`
     : "";
   const summary = socialStats.groupCount
-    ? `已選 ${socialStats.selectedGroupCount} 個地點${socialStats.skippedGroupCount ? `，略過 ${socialStats.skippedGroupCount} 個` : ""}；候選錯誤時可只重新搜尋該地點。`
+    ? ""
     : `可新增 ${addableCount} 個地點；重複項目會自動略過。`;
-  return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}${lodgingDraftMarkup}${socialSummary}${rows}<p class="import-summary">${summary}</p>`;
+  return `${pendingPlaceImportNotice ? `<p class="import-feedback error">${escapeHtml(pendingPlaceImportNotice)}</p>` : ""}${lodgingDraftMarkup}${socialSummary}${rows}${summary ? `<p class="import-summary">${summary}</p>` : ""}`;
+}
+
+function updateImportSourceSummary(form = document.querySelector("#import-places-form")) {
+  if (!form) return;
+  const summary = form.querySelector("[data-import-source-summary]");
+  if (!summary) return;
+  const hasText = Boolean(String(form.elements.mapsList?.value || "").trim());
+  const sources = [hasText ? "已填入來源" : "", pendingPlaceImportScreenshot ? "已加入圖片" : ""].filter(Boolean);
+  summary.textContent = form.dataset.importState === "results"
+    ? `${sources.join("、") || "辨識資料已準備"}，可展開修改或重新辨識`
+    : sources.join("、") || "貼上連結或加入圖片";
+}
+
+function setImportSheetState(nextState) {
+  const form = document.querySelector("#import-places-form");
+  if (!form) return;
+  form.dataset.importState = nextState;
+  form.setAttribute("aria-busy", nextState === "loading" ? "true" : "false");
+  const tools = form.querySelector("[data-import-source-tools]");
+  if (tools && nextState === "results") tools.open = false;
+  if (tools && (nextState === "input" || nextState === "input-error")) tools.open = true;
+  updateImportSourceSummary(form);
 }
 
 function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
@@ -5814,24 +5873,29 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
   pendingPlaceImportNotice = "";
   const fromShareTarget = Boolean(initialText);
   sheetRoot.innerHTML = `
-    <div class="modal-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet import-places-sheet" id="import-places-form">
+    <div class="modal-backdrop import-places-backdrop" data-dismiss-sheet>
+      <form class="modal-sheet import-places-sheet" id="import-places-form" data-import-state="input" aria-busy="false">
         <div class="section-row">
           <div><p class="section-kicker">${fromShareTarget ? "從系統分享收到" : "地點匯入"}</p>${fromShareTarget ? "<h2>確認分享地點</h2>" : "<h2>新增地點</h2>"}</div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option><option value="shopping">購物</option></select></div>
+        <details class="import-source-tools" data-import-source-tools open>
+          <summary><span>匯入來源</span><small data-import-source-summary>${initialText ? "已填入來源" : "貼上連結或加入圖片"}</small></summary>
+          <div class="import-source-tools-body">
+            <div class="field"><label for="import-place-kind">加入哪一類</label><select id="import-place-kind" name="placeKind"><option value="auto">依 Google Maps 自動判斷</option><option value="attraction">景點</option><option value="restaurant">餐廳</option><option value="lodging">住宿</option><option value="shopping">購物</option></select></div>
+            <div class="field">
+              <label for="google-maps-list">貼上連結</label>
+              <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Trip.com、Airbnb 或社群連結">${escapeHtml(initialText)}</textarea>
+              <p class="field-hint">訂房平台常擋住自動讀取。住宿請連同房東訊息或訂單確認信一起貼上（含「公寓名稱：…」「地址：…」），才能用正確名稱與門牌定位。</p>
+            </div>
+            <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
+            <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
+            <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點</button>
+          </div>
+        </details>
         <button class="manual-place-entry" type="button" data-manual-place><span>找不到正確地點？</span><strong>手動新增住宿／自訂地點</strong><small>名稱、完整地址、Maps 連結與照片都由你確認</small></button>
-        <div class="field">
-          <label for="google-maps-list">貼上連結</label>
-          <textarea id="google-maps-list" name="mapsList" rows="2" placeholder="Google Maps、Agoda、Booking.com、Trip.com、Airbnb 或社群連結">${escapeHtml(initialText)}</textarea>
-          <p class="field-hint">訂房平台常擋住自動讀取。住宿請連同房東訊息或訂單確認信一起貼上（含「公寓名稱：…」「地址：…」），才能用正確名稱與門牌定位。</p>
-        </div>
-        <label class="social-screenshot-picker social-screenshot-picker-standalone" for="social-place-screenshot"><span>截圖／照片</span><small data-social-screenshot-status>尚未選擇</small></label>
-        <input class="visually-hidden" id="social-place-screenshot" type="file" accept="image/jpeg,image/png,image/webp" data-social-place-screenshot />
-        <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點</button>
         <div id="import-preview" class="import-preview" aria-live="polite"></div>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>加入收藏</button></div>
+        <div class="modal-actions import-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>尚未選擇地點</button></div>
       </form>
     </div>`;
   if (autoAnalyze) {
@@ -5986,12 +6050,14 @@ async function analyzePlaceImportSheet(analyzePlaces) {
   const textarea = document.querySelector("#google-maps-list");
   const preview = document.querySelector("#import-preview");
   if (!analyzePlaces || !textarea || !preview) return;
+  setImportSheetState("loading");
   analyzePlaces.disabled = true;
   analyzePlaces.textContent = "正在理解連結與地點…";
   preview.innerHTML = `<div class="import-empty loading"><strong>正在辨識</strong><span>正在理解連結內容，再比對 Google Maps 候選。</span></div>`;
   pendingPlaceImports = [];
   pendingLodgingDrafts = [];
   pendingPlaceImportNotice = "";
+  updateImportConfirmState();
   const notices = [];
   try {
     pendingPlaceImports = parseGoogleMapsList(textarea.value);
@@ -6038,7 +6104,9 @@ async function analyzePlaceImportSheet(analyzePlaces) {
     notices.push("地點資料暫時無法辨識，請稍後再試。");
   } finally {
     pendingPlaceImportNotice = [...new Set(notices)].join(" ");
-    preview.innerHTML = importPreviewMarkup(pendingPlaceImports);
+    const hasResults = pendingPlaceImports.length > 0 || pendingLodgingDrafts.length > 0;
+    setImportSheetState(hasResults ? "results" : "input-error");
+    renderImportPreview();
     updateImportConfirmState();
     analyzePlaces.disabled = false;
     analyzePlaces.textContent = "⌁　重新辨識";
@@ -6297,7 +6365,11 @@ document.addEventListener("click", async (event) => {
 
   const selectImportCandidateButton = event.target.closest("[data-select-import-candidate]");
   if (selectImportCandidateButton) {
-    selectImportCandidate(selectImportCandidateButton.dataset.candidateGroup, selectImportCandidateButton.dataset.selectImportCandidate);
+    selectImportCandidate(
+      selectImportCandidateButton.dataset.candidateGroup,
+      selectImportCandidateButton.dataset.selectImportCandidate,
+      selectImportCandidateButton.dataset.candidateChecked === "true",
+    );
     closeImportCandidatePreview();
     return;
   }
@@ -7127,7 +7199,7 @@ document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-social-place-candidate]")) {
     const groupId = event.target.dataset.candidateGroup;
     const identity = event.target.dataset.socialPlaceCandidate;
-    selectImportCandidate(groupId, identity);
+    selectImportCandidate(groupId, identity, event.target.checked);
     return;
   }
 
@@ -7896,8 +7968,7 @@ document.addEventListener("submit", async (event) => {
       ? pendingPlaceImports
       : parseGoogleMapsList(String(form.get("mapsList") || ""));
     const requestedKind = String(form.get("placeKind") || "auto");
-    const additions = parsed
-      .filter(importCanBeAdded)
+    const additions = submittablePlaceImports(parsed)
       .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => withStoredTabelogLink({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,

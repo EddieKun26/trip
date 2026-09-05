@@ -749,6 +749,13 @@ test("place import sheet stays fixed on iPhone and avoids focus zoom", () => {
   assert.match(stylesSource, /\.import-preview\s*{[^}]*overflow-y:\s*scroll[^}]*touch-action:\s*pan-y/s);
   assert.match(appSource, /state\.placeKind = addedKinds\.length === 1 \? addedKinds\[0\] : "all"/);
   assert.match(appSource, /<h2>新增地點<\/h2>/);
+  assert.match(appSource, /data-import-state="input"/);
+  assert.match(appSource, /class="import-source-tools"[^>]*open/);
+  assert.match(appSource, /setImportSheetState\("loading"\)/);
+  assert.match(appSource, /setImportSheetState\(hasResults \? "results" : "input-error"\)/);
+  assert.match(stylesSource, /\.import-places-sheet\[data-import-state="results"\]\s*{[^}]*height:\s*min\(820px,/s);
+  assert.match(stylesSource, /\.import-actions\s*{[^}]*padding:\s*10px 20px max\(12px, env\(safe-area-inset-bottom\)\)/s);
+  assert.match(stylesSource, /@media \(max-width:\s*520px\)[\s\S]*\.import-places-backdrop\s*{[^}]*padding:\s*max\(8px, env\(safe-area-inset-top\)\) 8px 0/s);
   assert.doesNotMatch(appSource, /<h2>一次新增多個景點<\/h2>/);
   assert.doesNotMatch(appSource, /新增飯店或民宿時可直接選擇/);
   assert.doesNotMatch(appSource, /連結和截圖可擇一使用/);
@@ -771,7 +778,7 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.match(appSource, /place\.selected === true/);
   assert.match(appSource, /referenceUrl/);
   assert.match(appSource, /data-open-reference/);
-  assert.match(stylesSource, /\.import-place-row\.social-candidate\s*{[^}]*grid-template-columns:\s*20px 36px minmax\(0, 1fr\) auto/s);
+  assert.match(stylesSource, /\.import-place-row\.social-candidate\s*{[^}]*grid-template-columns:\s*24px 36px minmax\(0, 1fr\) auto/s);
   assert.match(stylesSource, /\.import-candidate-backdrop\s*{[^}]*z-index:\s*130/s);
   assert.match(stylesSource, /\.import-candidate-sheet\s*{[^}]*max-height:\s*88dvh[^}]*overflow-y:\s*auto/s);
   assert.match(stylesSource, /\.social-screenshot-picker-standalone\s*{/);
@@ -785,10 +792,8 @@ test("place import accepts social links with a confirmation-only Google candidat
 
 test("social place import distinguishes recognized places from Google candidate rows", () => {
   assert.match(appSource, /function socialImportStats/);
-  assert.match(appSource, /辨識到 \$\{socialStats\.groupCount\} 個地點/);
-  assert.match(appSource, /共 \$\{socialStats\.candidateCount\} 筆 Google Maps 配對候選/);
-  assert.match(appSource, /每個地點都可重搜或略過/);
-  assert.match(appSource, /加入全部 \$\{addableCount\} 個地點/);
+  assert.match(appSource, /辨識到 \$\{socialStats\.groupCount\} 個來源地點，\$\{socialStats\.candidateCount\} 個候選，已選 \$\{addableCount\}/);
+  assert.match(appSource, /加入已選 \$\{addableCount\} 個地點/);
   assert.match(appSource, /class="import-candidate-group-label/);
   assert.match(stylesSource, /\.import-group-summary\s*{/);
   assert.match(stylesSource, /\.import-candidate-group-label\s*{/);
@@ -819,10 +824,127 @@ test("each social place group can be rematched or skipped without forcing a wron
   assert.match(appSource, /略過不加/);
   assert.match(appSource, /不必從錯誤候選中選擇/);
   assert.match(appSource, /candidateGroupSkipped/);
-  assert.match(appSource, /加入其餘 \$\{addableCount\} 個地點/);
+  assert.match(appSource, /renderImportPreview\(\{ preserveScroll: true \}\)/);
   assert.match(stylesSource, /\.import-candidate-group-actions\s*{[^}]*grid-template-columns:\s*repeat\(3,/s);
   assert.match(stylesSource, /\.import-rematch-backdrop\s*{[^}]*z-index:\s*145/s);
   assert.match(stylesSource, /\.import-rematch-sheet input\s*{[^}]*font-size:\s*16px/s);
+});
+
+test("general social candidates support independent multi-selection while lodging remains single-select", () => {
+  const importer = sourceSection("function socialGroupsToImports", "async function recognizeSocialPlace");
+  const { socialGroupsToImports } = new Function(
+    "state",
+    "currentMemberId",
+    "importAlreadyExists",
+    `${importer}; return { socialGroupsToImports };`,
+  )({ profile: { nickname: "測試者" } }, () => "member-1", () => false);
+  const candidates = [
+    { name: "同品牌 A 店", sourceUrl: "https://maps.google.com/?cid=1", placeId: "place-1" },
+    { name: "同品牌 B 店", sourceUrl: "https://maps.google.com/?cid=2", placeId: "place-2" },
+    { name: "同品牌 C 店", sourceUrl: "https://maps.google.com/?cid=3", placeId: "place-3" },
+  ];
+  const general = socialGroupsToImports({ groups: [{ id: "brand", extracted: { name: "同品牌", category: "shopping" }, candidates }] }).imports;
+  assert.deepEqual(general.map((candidate) => candidate.selected), [true, false, false], "multi-select must not auto-select every result");
+  const lodging = socialGroupsToImports({ groups: [{ id: "hotel", extracted: { name: "住宿", category: "lodging" }, candidates }] }).imports;
+  assert.deepEqual(lodging.map((candidate) => candidate.selected), [false, false, false], "lodging without a recommendation stays unselected");
+  const recommendedLodging = socialGroupsToImports({ groups: [{ id: "hotel", extracted: { name: "住宿", category: "lodging" }, candidates: candidates.map((candidate, index) => ({ ...candidate, recommended: index === 1 })) }] }).imports;
+  assert.deepEqual(recommendedLodging.map((candidate) => candidate.selected), [false, true, false]);
+  assert.match(appSource, /const inputType = selectionMode === "multiple" \? "checkbox" : "radio"/);
+});
+
+test("candidate toggles preserve scroll position, allow zero general selections, and keep lodging mutually exclusive", () => {
+  const selection = sourceSection("function importCandidateIdentity", "function closeImportRematchSheet");
+  const entries = [
+    { candidateGroupId: "shops", candidateCategory: "shopping", placeId: "shop-a", canImport: true, selected: true },
+    { candidateGroupId: "shops", candidateCategory: "shopping", placeId: "shop-b", canImport: true, selected: false },
+    { candidateGroupId: "hotel", candidateCategory: "lodging", placeId: "hotel-a", canImport: true, selected: true },
+    { candidateGroupId: "hotel", candidateCategory: "lodging", placeId: "hotel-b", canImport: true, selected: false },
+  ];
+  let scrollTop = 137;
+  const preview = {
+    get scrollTop() { return scrollTop; },
+    set scrollTop(value) { scrollTop = value; },
+    set innerHTML(value) { this.markup = value; scrollTop = 0; },
+  };
+  const document = { querySelector: (selector) => selector === "#import-preview" ? preview : null };
+  const helpers = new Function(
+    "entries",
+    "document",
+    "importCandidateSelectionMode",
+    "importAlreadyExists",
+    "importPreviewMarkup",
+    "updateImportConfirmState",
+    `let pendingPlaceImports = entries; ${selection}; return { selectImportCandidate, setImportCandidateGroupSkipped };`,
+  )(
+    entries,
+    document,
+    (placeOrGroup) => (Array.isArray(placeOrGroup) ? placeOrGroup : [placeOrGroup]).some((place) => place.candidateCategory === "lodging") ? "single" : "multiple",
+    () => false,
+    () => "updated",
+    () => {},
+  );
+  helpers.selectImportCandidate("shops", "shop-b", true);
+  assert.deepEqual(entries.slice(0, 2).map((candidate) => candidate.selected), [true, true]);
+  assert.equal(scrollTop, 137);
+  helpers.selectImportCandidate("shops", "shop-a", false);
+  helpers.selectImportCandidate("shops", "shop-b", false);
+  assert.deepEqual(entries.slice(0, 2).map((candidate) => candidate.selected), [false, false]);
+  helpers.selectImportCandidate("hotel", "hotel-b", true);
+  assert.deepEqual(entries.slice(2).map((candidate) => candidate.selected), [false, true]);
+  helpers.setImportCandidateGroupSkipped("shops", true);
+  assert.deepEqual(entries.slice(0, 2).map((candidate) => candidate.selected), [false, false]);
+  helpers.setImportCandidateGroupSkipped("shops", false);
+  assert.deepEqual(entries.slice(0, 2).map((candidate) => candidate.selected), [true, false], "unskipping may restore one default but must not select all");
+});
+
+test("import count and submit share one de-duplicated candidate list", () => {
+  const section = sourceSection("function samePlaceIdentity", "function validMapCoordinates");
+  const state = { places: [{ name: "已收藏", placeId: "saved-place", sourceUrl: "https://maps.google.com/?cid=saved" }] };
+  const { submittablePlaceImports } = new Function(
+    "state",
+    "normalizeGoogleMapsUrl",
+    `${section}; return { submittablePlaceImports };`,
+  )(state, (value) => String(value || "").toLowerCase());
+  const entries = [
+    { name: "已收藏", placeId: "saved-place", sourceUrl: "https://maps.google.com/?cid=saved", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
+    { name: "A 分店", placeId: "place-a", sourceUrl: "https://maps.google.com/?cid=a", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
+    { name: "A 分店重複", placeId: "place-a", sourceUrl: "https://maps.google.com/?cid=a-copy", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
+    { name: "B 分店", sourceUrl: "https://maps.google.com/?cid=b", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
+    { name: "B 分店重複", sourceUrl: "https://maps.google.com/?cid=b", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
+  ];
+  assert.deepEqual(submittablePlaceImports(entries).map((place) => place.name), ["A 分店", "B 分店"]);
+  assert.match(appSource, /const addableCount = submittablePlaceImports\(\)\.length/);
+  assert.match(appSource, /const additions = submittablePlaceImports\(parsed\)/);
+
+  const updateSection = sourceSection("function updateImportConfirmState", "function socialImportStats");
+  const button = {};
+  let selected = [];
+  const updateImportConfirmState = new Function(
+    "pendingPlaceImports",
+    "submittablePlaceImports",
+    "document",
+    `${updateSection}; return updateImportConfirmState;`,
+  )([], () => selected, { querySelector: () => button });
+  updateImportConfirmState();
+  assert.equal(button.disabled, true);
+  assert.equal(button.textContent, "尚未選擇地點");
+  selected = [{ placeId: "place-a" }, { placeId: "place-b" }];
+  updateImportConfirmState();
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, "加入已選 2 個地點");
+});
+
+test("results-first import layout collapses source tools and keeps candidates above a safe-area action bar", () => {
+  const layout = sourceSection("function updateImportSourceSummary", "function manualPlaceSeed");
+  assert.match(layout, /if \(tools && nextState === "results"\) tools\.open = false/);
+  assert.match(layout, /if \(tools && \(nextState === "input" \|\| nextState === "input-error"\)\) tools\.open = true/);
+  assert.match(layout, /class="modal-backdrop import-places-backdrop"/);
+  assert.match(layout, /class="modal-actions import-actions"/);
+  assert.match(stylesSource, /\.import-preview\s*{[^}]*flex:\s*1 1 160px[^}]*min-height:\s*0[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*scroll/s);
+  assert.match(stylesSource, /\.import-source-tools > summary\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\)/s);
+  assert.match(stylesSource, /\.import-places-sheet\[data-import-state="results"\] \.manual-place-entry\s*{[^}]*min-height:\s*42px/s);
+  assert.match(stylesSource, /\.import-actions button\s*{[^}]*min-width:\s*0[^}]*white-space:\s*nowrap/s);
+  assert.match(appSource, /const scrollTop = preserveScroll \? preview\.scrollTop : 0[\s\S]*if \(preserveScroll\) preview\.scrollTop = scrollTop/);
 });
 
 test("PWA share target routes supported links into the existing confirmed place-import flow", () => {
