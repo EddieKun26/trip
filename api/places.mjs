@@ -522,6 +522,42 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
   };
 }
 
+async function exactPlaceDetails({ apiKey, placeId, requestUrl }) {
+  if (!/^[A-Za-z0-9_-]{1,180}$/.test(placeId) || /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)) {
+    return { requestUrl, error: "DETAIL_IDENTITY_REQUIRED" };
+  }
+  const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
+  url.searchParams.set("languageCode", "zh-TW");
+  const response = await fetch(url, {
+    headers: {
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,primaryTypeDisplayName,location,googleMapsUri,regularOpeningHours,nationalPhoneNumber,photos",
+    },
+  });
+  if (!response.ok) return { requestUrl, error: `PLACE_DETAILS_${response.status}` };
+  const place = await response.json();
+  if (place.id !== placeId) return { requestUrl, error: "PLACE_IDENTITY_MISMATCH" };
+  const localDetails = await placeAreaDetails(apiKey, placeId, localLanguageForCountry(pickCountryCode(place.addressComponents)));
+  if (localDetails.id && localDetails.id !== placeId) return { requestUrl, error: "PLACE_IDENTITY_MISMATCH" };
+  return {
+    requestUrl,
+    placeId,
+    name: place.displayName?.text || "",
+    ...addressAndPlanningFields(place.addressComponents, localDetails.addressComponents),
+    category: place.primaryTypeDisplayName?.text || "",
+    formattedAddress: place.formattedAddress || "",
+    latitude: place.location?.latitude ?? null,
+    longitude: place.location?.longitude ?? null,
+    googleMapsUrl: place.googleMapsUri || requestUrl,
+    openingHours: place.regularOpeningHours?.weekdayDescriptions?.join("；") || "",
+    phone: place.nationalPhoneNumber || "",
+    photos: (place.photos || []).filter((photo) => String(photo.name || "").startsWith(`places/${placeId}/photos/`)).slice(0, 3).map((photo) => ({
+      name: photo.name,
+      attribution: photo.authorAttributions?.[0]?.displayName || "Google Maps 使用者",
+    })),
+  };
+}
+
 export default async function placesHandler(request, response) {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -548,8 +584,14 @@ export default async function placesHandler(request, response) {
       const storedAddressComponentsOriginal = normalizeAddressComponents(item.addressComponentsOriginal).slice(0, 20);
       const latitude = item.latitude === null || item.latitude === undefined || item.latitude === "" ? NaN : Number(item.latitude);
       const longitude = item.longitude === null || item.longitude === undefined || item.longitude === "" ? NaN : Number(item.longitude);
-      if (!originalUrl && !hintName && !manualAddress && !(shouldLocalizeArea && (placeId || formattedAddress || storedAddressComponents.length || validCoordinates(latitude, longitude)))) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
+      if (!originalUrl && !hintName && !manualAddress && !placeId && !item.resolveDetails && !(shouldLocalizeArea && (formattedAddress || storedAddressComponents.length || validCoordinates(latitude, longitude)))) return { requestUrl: item.sourceUrl || "", error: "無效的 Google Maps 連結" };
       try {
+        if (item.resolveDetails === true) {
+          const requestUrl = originalUrl?.toString() || "";
+          if (item.manualLocation || item.coordinateLocation) return { requestUrl, error: "ADDRESS_DETAILS_PRESERVED" };
+          if (!apiKey) return { requestUrl, error: "PLACES_API_NOT_CONFIGURED" };
+          return await exactPlaceDetails({ apiKey, placeId, requestUrl });
+        }
         if (shouldLocalizeArea) {
           if (storedAddressComponents.length) {
             const storedResolution = addressAndPlanningFields(
@@ -614,6 +656,7 @@ export default async function placesHandler(request, response) {
             requestUrl: originalUrl?.toString() || item.sourceUrl || "",
           });
         }
+        if (placeId) return await exactPlaceDetails({ apiKey, placeId, requestUrl: originalUrl?.toString() || "" });
         const expandedUrl = await expandShortMapsUrl(originalUrl);
         const urlCoordinates = coordinatesFromMapsUrl(expandedUrl);
         const resolvedLatitude = Number.isFinite(latitude) ? latitude : urlCoordinates?.latitude;

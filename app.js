@@ -1890,8 +1890,8 @@ function placesScreen() {
             <div class="swipe-row ${canEdit() ? "" : "readonly"}">
               ${canEdit() ? `<button class="swipe-delete" type="button" data-request-delete-place="${escapeHtml(place.name)}" aria-label="刪除${escapeHtml(place.name)}">刪除</button>` : ""}
               <article class="place-row swipe-surface" ${canEdit() ? `data-swipe-item="place:${escapeHtml(place.name)}"` : ""}>
-                <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(place.name)}">${escapeHtml(place.mark)}</button>
-                <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(place.name)}">
+                <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">${escapeHtml(place.mark)}</button>
+                <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">
                   <strong>${escapeHtml(place.name)}</strong>
                   <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
                   <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
@@ -2320,12 +2320,12 @@ function mapScreen() {
   }).join("");
   const sidebarPlaces = projectedPlaces.length
     ? projectedPlaces.map((place) => `
-        <button class="map-sidebar-place ${state.selectedMapPlace === place.name ? "active" : ""}" type="button" data-focus-map-place="${escapeHtml(place.name)}">
+        <button class="map-sidebar-place ${isSelectedMapDetailPlace(place) ? "active" : ""}" type="button" data-focus-map-place="${escapeHtml(placeDetailKey(place))}">
           <i style="--place-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</i>
           <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(travelAreaChineseName(place))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
         </button>`).join("")
     : `<div class="map-sidebar-empty">目前沒有符合篩選的地點</div>`;
-  const selectedPreviewPlace = projectedPlaces.find((place) => place.name === state.selectedMapPlace);
+  const selectedPreviewPlace = projectedPlaces.find(isSelectedMapDetailPlace);
   const mapCanvas = `
     <div class="map-canvas" data-map-host>
       <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
@@ -2559,16 +2559,17 @@ function markerHtml(place) {
 
 function mapPlacePreviewMarkup(place) {
   if (!place || place.isAirport) return "";
+  const googlePhoto = identitySafePhotos(place)[0];
   const photo = place.customPhotoDataUrl
     ? `<img src="${escapeHtml(place.customPhotoDataUrl)}" alt="${escapeHtml(place.name)}自行加入的照片" loading="eager" />`
-    : place.photos?.[0]?.name
-      ? `<img src="/api/place-photo?name=${encodeURIComponent(place.photos[0].name)}" alt="${escapeHtml(place.name)}照片" loading="eager" />`
+    : googlePhoto
+      ? `<img src="/api/place-photo?name=${encodeURIComponent(googlePhoto.name)}" alt="${escapeHtml(place.name)}照片" loading="eager" />`
       : `<span style="--preview-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</span>`;
   const voters = placeVoters(place.name).length;
   const rating = Number(place.rating) > 0 ? `★ ${Number(place.rating).toFixed(1)}` : voters ? `★ ${voters} 人推薦` : "尚未有人推薦";
   return `
     <article class="map-place-preview-card" aria-label="${escapeHtml(place.name)}地點預覽">
-      <button class="map-place-preview-main" type="button" data-open-map-place-detail="${escapeHtml(place.name)}">
+      <button class="map-place-preview-main" type="button" data-open-map-place-detail="${escapeHtml(placeDetailKey(place))}">
         <span class="map-place-preview-photo">${photo}</span>
         <span class="map-place-preview-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(rating)} · ${escapeHtml(kindLabel(place.kind))}</small><em>${escapeHtml(travelAreaChineseName(place))}</em></span>
         <b aria-hidden="true">›</b>
@@ -2589,13 +2590,14 @@ function focusActiveMapOnPlace(place) {
 
 function updateMapPlacePreview(place) {
   state.selectedMapPlace = place?.name || "";
+  state.selectedMapPlaceKey = place ? placeDetailKey(place) : "";
   const dock = document.querySelector("[data-map-preview-dock]");
   if (dock) {
     dock.hidden = !place || place.isAirport;
     dock.innerHTML = place && !place.isAirport ? mapPlacePreviewMarkup(place) : "";
   }
   document.querySelectorAll("[data-map-place-marker]").forEach((marker) => marker.classList.toggle("selected", marker.dataset.mapPlaceMarker === state.selectedMapPlace));
-  document.querySelectorAll("[data-focus-map-place]").forEach((button) => button.classList.toggle("active", button.dataset.focusMapPlace === state.selectedMapPlace));
+  document.querySelectorAll("[data-focus-map-place]").forEach((button) => button.classList.toggle("active", button.dataset.focusMapPlace === state.selectedMapPlaceKey));
   if (place) focusActiveMapOnPlace(place);
 }
 
@@ -2603,7 +2605,7 @@ function selectMapPlace(place) {
   updateMapPlacePreview(place);
   if (!place || place.isAirport || place.photosLoaded) return;
   ensurePlaceDetails(place).then(() => {
-    if (state.selectedMapPlace === place.name) updateMapPlacePreview(place);
+    if (isSelectedMapDetailPlace(place)) updateMapPlacePreview(place);
   });
 }
 
@@ -2727,7 +2729,7 @@ function renderGoogleInteractiveMap(host, places) {
     new TripPlaceOverlay(place).setMap(map);
   });
   if (places.length > 1) map.fitBounds(bounds, 42);
-  const selectedPlace = places.find((place) => place.name === state.selectedMapPlace);
+  const selectedPlace = places.find(isSelectedMapDetailPlace);
   if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
   syncLiveLocationLayers({ center: liveLocationEnabled });
 }
@@ -2787,7 +2789,7 @@ function renderLeafletInteractiveMap(host, places) {
   if (bounds.length > 1) activeLeafletMap.fitBounds(bounds, { padding: [42, 42] });
   else activeLeafletMap.setView(bounds[0] || [35.6762, 139.6503], bounds.length ? 14 : 11);
   activeLeafletMap.on("click", () => updateMapPlacePreview(null));
-  const selectedPlace = places.find((place) => place.name === state.selectedMapPlace);
+  const selectedPlace = places.find(isSelectedMapDetailPlace);
   if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
   syncLiveLocationLayers({ center: liveLocationEnabled });
 }
@@ -4161,8 +4163,51 @@ function render({ preserveScroll = false } = {}) {
   }
 }
 
+function placeDetailKey(place) {
+  if (place?.id) return `app:${place.id}`;
+  if (place?.placeId) return `google:${place.placeId}`;
+  if (place?.sourceUrl) return `maps:${normalizeGoogleMapsUrl(place.sourceUrl)}`;
+  return `name:${place?.name || ""}`;
+}
+
+function resolveDetailPlace(identity) {
+  const exact = state.places.filter((place) => placeDetailKey(place) === identity);
+  if (exact.length) return exact.length === 1 ? exact[0] : null;
+  // Legacy itinerary/name links are safe only when the name is unambiguous.
+  const named = state.places.filter((place) => place.name === identity);
+  return named.length === 1 ? named[0] : null;
+}
+
+function isSelectedMapDetailPlace(place) {
+  if (!state.selectedMapPlace || place.name !== state.selectedMapPlace) return false;
+  return state.selectedMapPlaceKey
+    ? placeDetailKey(place) === state.selectedMapPlaceKey
+    : resolveDetailPlace(state.selectedMapPlace) === place;
+}
+
+function detailGooglePlaceId(place) {
+  const stored = String(place?.placeId || "").trim();
+  if (stored) return /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(stored) ? "" : stored;
+  if (!isGoogleMapsUrl(place?.sourceUrl)) return "";
+  try {
+    const url = new URL(place.sourceUrl);
+    return url.searchParams.get("query_place_id") || url.searchParams.get("place_id") || "";
+  } catch { return ""; }
+}
+
+function isAddressDetailPlace(place) {
+  return Boolean(place?.manualLocation || place?.coordinateLocation || place?.addressProvider
+    || /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(String(place?.placeId || ""))
+    || /^(?:建築物|建物|地址|街道地址|郵遞區號|住宿座標|premise|street_address|postal_code|route|subpremise|building)$/iu.test(String(place?.category || "").trim()));
+}
+
+function identitySafePhotos(place) {
+  const id = detailGooglePlaceId(place);
+  return id ? (place.photos || []).filter((photo) => String(photo?.name || "").startsWith(`places/${id}/photos/`)) : [];
+}
+
 function openPlaceSheet(name) {
-  const place = state.places.find((item) => item.name === name);
+  const place = resolveDetailPlace(name);
   if (!place) return;
   const reference = placeReferenceMeta(place);
   const mapNavigationUrl = placeNavigationUrl(place);
@@ -4191,7 +4236,7 @@ function openPlaceSheet(name) {
     : `<span class="meta">還沒有人標記，成為第一個吧</span>`;
   const galleryItems = [];
   if (place.customPhotoDataUrl) galleryItems.push({ type: "custom", url: place.customPhotoDataUrl, caption: place.photoOrigin === "lodging_source" ? "原住宿頁照片" : "自行加入的照片" });
-  (place.photos || []).slice(0, place.customPhotoDataUrl ? 2 : 3).forEach((photo) => galleryItems.push({ type: "google", ...photo }));
+  identitySafePhotos(place).slice(0, place.customPhotoDataUrl ? 2 : 3).forEach((photo) => galleryItems.push({ type: "google", ...photo }));
   const fallbackLabels = place.galleryLabels || ["正在取得 Google Maps 照片", "環境照片", "附近街景"];
   while (galleryItems.length < 3) galleryItems.push({ type: "placeholder", label: fallbackLabels[galleryItems.length] || "地點照片" });
   const gallery = galleryItems.slice(0, 3).map((photo, index) => {
@@ -4209,7 +4254,7 @@ function openPlaceSheet(name) {
 
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
-      <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(place.name)}" role="dialog" aria-modal="true" aria-labelledby="place-title">
+      <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(placeDetailKey(place))}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
           <div><p class="section-kicker">${escapeHtml(travelAreaDisplayName(place))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
@@ -4278,16 +4323,25 @@ function openPlaceSheet(name) {
 
 async function ensurePlaceDetails(place) {
   if (!place || place.detailsLocked || place.photosLoaded || place.detailsLoading) return;
+  if (isAddressDetailPlace(place)) return;
+  const placeId = detailGooglePlaceId(place);
+  // A name, destination, CID or short URL alone is not permission to replace identity.
+  if (!placeId) return;
+  const detailKey = placeDetailKey(place);
+  const tripId = state.tripId;
   place.detailsLoading = true;
   try {
     const response = await fetch("/api/places", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ places: [{ sourceUrl: place.sourceUrl, hintName: place.name, destination: state.destination, countryCode: place.countryCode || "" }] }),
+      body: JSON.stringify({ places: [{ sourceUrl: place.sourceUrl, placeId, resolveDetails: true }] }),
     });
     if (!response.ok) return;
     const resolved = (await response.json()).places?.[0];
     if (!resolved || resolved.error) return;
+    if (resolved.placeId !== placeId || detailGooglePlaceId(place) !== placeId
+      || placeDetailKey(place) !== detailKey || state.tripId !== tripId
+      || !state.places.includes(place) || place.detailsLocked || isAddressDetailPlace(place)) return;
     Object.assign(place, {
       placeId: resolved.placeId || place.placeId,
       fullName: resolved.name || place.fullName,
@@ -4302,12 +4356,12 @@ async function ensurePlaceDetails(place) {
       formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
       openingHours: resolved.openingHours || place.openingHours,
       phone: resolved.phone || place.phone,
-      photos: resolved.photos || place.photos || [],
+      photos: identitySafePhotos({ placeId, photos: resolved.photos || place.photos || [] }),
       photosLoaded: true,
     });
     applyPlanningRegionResolution(place, resolved);
     persist({ recordUndo: false });
-    if (document.querySelector(`[data-detail-place="${CSS.escape(place.name)}"]`)) openPlaceSheet(place.name);
+    if (document.querySelector(`[data-detail-place="${CSS.escape(detailKey)}"]`)) openPlaceSheet(placeDetailKey(place));
   } catch {
     // The existing text details remain available when Google Places is temporarily unavailable.
   } finally {
@@ -6627,8 +6681,8 @@ document.addEventListener("click", async (event) => {
 
   const focusMapPlace = event.target.closest("[data-focus-map-place]");
   if (focusMapPlace) {
-    const name = focusMapPlace.dataset.focusMapPlace;
-    const place = filteredMapPlaces().find((candidate) => candidate.name === name);
+    const identity = focusMapPlace.dataset.focusMapPlace;
+    const place = filteredMapPlaces().find((candidate) => placeDetailKey(candidate) === identity);
     if (!place) return;
     selectMapPlace(place);
     if (window.matchMedia("(max-width: 700px)").matches && mapSidebarOpen) {
@@ -6695,10 +6749,10 @@ document.addEventListener("click", async (event) => {
   if (vote) {
     if (!canEdit()) return guestOnlyMessage();
     const name = vote.dataset.vote;
-    const detailWasOpen = Boolean(event.target.closest(".place-detail-sheet"));
+    const detailIdentity = event.target.closest(".place-detail-sheet")?.dataset.detailPlace;
     const active = toggleMyVote(name);
     render({ preserveScroll: true });
-    if (detailWasOpen) openPlaceSheet(name);
+    if (detailIdentity) openPlaceSheet(detailIdentity);
     return showToast(active ? `你也想去「${name}」` : `已取消你的「最想去」`);
   }
 
