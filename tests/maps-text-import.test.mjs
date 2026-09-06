@@ -36,6 +36,65 @@ function frontend() {
 }
 const address = "Room 202 , 1 Chome - 16 - 19 Okubo\nShinjuku - ku, Tōkyō - to 169 - 0072";
 
+const exactProductionInput = `251-0032, Kanagawa, Fujisawa, Katase, 3-chōme-8-12 Katase, Japan
+
+Room 202 , 1 Chome - 16 - 19 Okubo
+Shinjuku - ku, Tōkyō - to 169 - 0072`;
+
+test("production Katase and Room 202 Okubo input stays two uncontaminated selected addresses", () => {
+  const { c } = frontend();
+  const [katase, okubo] = exactProductionInput.split("\n\n");
+  const kataseParts = c.addressImportLineParts(katase);
+  assert.equal(kataseParts.streetHouse, true);
+  assert.equal(kataseParts.postal, true);
+  const roomParts = c.addressImportLineParts(okubo.split("\n")[0]);
+  assert.equal(roomParts.streetHouse, true);
+  assert.equal(roomParts.roomFloor, true);
+  for (const input of [exactProductionInput, exactProductionInput.replaceAll("\n", "\r\n"), exactProductionInput.replace("\n\n", "\n")]) {
+    const candidates = c.googleMapsImportCandidates(input);
+    assert.equal(candidates.length, 2);
+    assert.equal(candidates[0].address, katase);
+    assert.equal(candidates[1].address, okubo);
+    assert.match(candidates[0].address, /Katase/);
+    assert.match(candidates[0].address, /Fujisawa/);
+    assert.doesNotMatch(candidates[0].address, /Room 202|Okubo|Shinjuku|169 - 0072/);
+    for (const component of ["Room 202", "Okubo", "Shinjuku", "169 - 0072"]) assert.ok(candidates[1].address.includes(component));
+    assert.doesNotMatch(candidates[1].address, /Katase|Fujisawa|251-0032/);
+    const imports = c.parseGoogleMapsList(input);
+    assert.equal(imports.length, 2);
+    assert.ok(imports.every((place) => place.selected && place.canImport));
+    assert.notEqual(imports[0].candidateGroupId, imports[1].candidateGroupId);
+  }
+});
+
+test("production exact addresses cancel independently and actual submit saves only the remaining address", () => {
+  for (const cancelledIndex of [0, 1]) {
+    const { c, button } = frontend();
+    c.pendingPlaceImports = c.parseGoogleMapsList(exactProductionInput);
+    const cancelled = c.pendingPlaceImports[cancelledIndex];
+    const remaining = c.pendingPlaceImports[1 - cancelledIndex];
+    c.selectImportCandidate(cancelled.candidateGroupId, c.importCandidateIdentity(cancelled), false);
+    assert.equal(cancelled.selected, false);
+    assert.equal(remaining.selected, true);
+    assert.equal(button.textContent, "加入已選 1 個地點");
+    assert.equal(c.submittablePlaceImports().length, 1);
+    assert.equal(c.submittablePlaceImports()[0], remaining);
+    let saves = 0;
+    Object.assign(c, {
+      event: { target: { id: "import-places-form" }, preventDefault() {} },
+      canEdit: () => true, FormData: class { get() { return "auto"; } },
+      withStoredTabelogLink: (place) => place,
+      persist: () => { saves += 1; }, closeSheet() {}, render() {}, showToast() {},
+    });
+    const start = source.indexOf('  if (event.target.id === "import-places-form")');
+    const end = source.indexOf('  if (event.target.id === "add-area-form")', start);
+    vm.runInContext(`(function () { ${source.slice(start, end)} })()`, c);
+    assert.equal(saves, 1);
+    assert.equal(c.state.places.length, 1);
+    assert.equal(c.state.places[0].formattedAddress, remaining.formattedAddress);
+  }
+});
+
 test("A: one complete address split across three lines remains one candidate", () => {
   const { c } = frontend();
   for (const text of ["1 Chome-16-19 Okubo\nShinjuku-ku, Tokyo-to\n169-0072", "台北市信義區\n信義路五段7號\n11049"]) {

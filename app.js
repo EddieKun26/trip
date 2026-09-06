@@ -5112,7 +5112,7 @@ function addressImportLineParts(value) {
   const normalized = text.normalize("NFKC").replace(/[‐‑–—−]/g, "-");
   const postal = /(?:〒\s*)?\b\d{3}\s*-\s*\d{4}\b|\b\d{5}(?:-\d{4})?\b/u.test(normalized);
   const roomFloor = /\b(?:room|floor|suite|apt\.?|apartment)\s*#?\s*[\w-]+|\b\d+(?:st|nd|rd|th)\s+floor\b|\d+\s*(?:樓|楼|階|室)|\b\d+\s*F\b/iu.test(normalized);
-  const streetHouse = /\d\s*(?:丁目|番地|番|號|号|巷|弄)|\d+\s*-\s*\d+\s*-\s*\d+|\b\d+\s+(?:ch[oō]me\b|[^\n,]+\b(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|rue)\b)/iu.test(normalized);
+  const streetHouse = /\d\s*(?:丁目|番地|番|號|号|巷|弄)|\d+\s*-\s*\d+\s*-\s*\d+|\b\d+\s*-\s*ch[oō]me\s*-\s*\d+\s*-\s*\d+\b|\b\d+\s+(?:ch[oō]me\b|[^\n,]+\b(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|rue)\b)/iu.test(normalized);
   const administrative = /(?:[\p{L}\s,.-]+(?:都|道|府|県|縣|市|區|区)|[\p{L}\s,.-]+-\s*(?:ku|to|shi|fu|ken))(?:[\p{L}\s,.-]*(?:都|道|府|県|縣|市|區|区|-\s*(?:ku|to|shi|fu|ken)))*(?:\s*(?:〒\s*)?\d{3}\s*-\s*\d{4})?$/iu.test(normalized)
     || /^[\p{L}\s,.-]+\s+\d{5}(?:-\d{4})?$/u.test(normalized);
   return { text, streetHouse, postal, roomFloor, administrative };
