@@ -2735,6 +2735,26 @@ body.itinerary-dragging .transport-between {
   outline-offset: -2px;
 }
 
+.place-address-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.place-address-feedback button {
+  flex: 0 0 auto;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent, #587a73);
+  font-size: 13px;
+}
+
+.place-area-advanced summary { cursor: pointer; padding: 10px 0; font-size: 14px; }
+.place-area-advanced > .field { margin-top: 10px; }
+
 @media (prefers-reduced-motion: reduce) {
   .tab-icon {
     transition: none;

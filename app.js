@@ -5489,7 +5489,8 @@ function socialGroupsToImports(payload, sourceIndex = 0, uploadedImageDataUrl = 
       .filter(Boolean);
     const sourceOriginalImages = requestedSourceImages.length ? requestedSourceImages : allSourceImages;
     const candidates = (group.candidates || []).map((candidate, candidateIndex) => ({
-      ...candidate,
+      ...(payload.lodgingDraft && (candidate.kind === "lodging" || group.extracted?.category === "lodging")
+        ? lodgingCandidateSource(candidate, payload.lodgingDraft) : candidate),
       addedBy: currentMemberId(),
       addedByName: state.profile?.nickname || "我",
       recognition: "complete",
@@ -5544,6 +5545,10 @@ async function recognizeSocialPlace(sourceUrl, sharedText, imageDataUrl, sourceI
     error.status = response.status;
     error.platform = payload.platform || "社群貼文";
     throw error;
+  }
+  if (payload.lodgingDraft?.sourceImageDataUrl) {
+    try { payload.lodgingDraft.sourceImageDataUrl = await compressPlacePhotoDataUrl(payload.lodgingDraft.sourceImageDataUrl); }
+    catch { payload.lodgingDraft.sourceImageDataUrl = ""; }
   }
   return socialGroupsToImports(payload, sourceIndex, imageDataUrl);
 }
@@ -5714,7 +5719,8 @@ async function rematchImportCandidateGroup(groupId) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "GOOGLE_PLACE_NOT_FOUND");
     const replacements = (payload.candidates || []).map((candidate, candidateIndex) => ({
-      ...candidate,
+      ...(source.originalReferenceUrl && (candidate.kind === "lodging" || source.candidateCategory === "lodging")
+        ? lodgingCandidateSource(candidate, { ...source, sourceImageDataUrl: source.photoOrigin === "lodging_source" ? source.customPhotoDataUrl : "" }) : candidate),
       addedBy: currentMemberId(),
       addedByName: state.profile?.nickname || "我",
       recognition: "complete",
@@ -5913,7 +5919,7 @@ function lodgingDraftsMarkup() {
         ${address}
       </div>
       ${approximate ? `<p class="coordinate-fallback-notice"><strong>這是住宿大約位置，不是入住地址</strong><span>建立前請使用房東或訂單提供的完整地址。</span></p>` : ""}
-      ${draft.notice ? `<p class="lodging-draft-notice">${escapeHtml(draft.notice)}</p>` : ""}
+      ${(draft.sourceReadStatus || draft.notice) ? `<p class="lodging-draft-notice">${escapeHtml(draft.sourceReadStatus ? lodgingSourceStatusMessage(draft) : draft.notice)}</p>` : ""}
       <button class="primary-button" type="button" data-create-lodging-draft="${index}">自行建立住宿</button>
     </article>`;
   }).join("");
@@ -6069,7 +6075,320 @@ function manualPlaceSeed(value = "") {
   const labelledName = textLines.map((line) => line.match(/^(?:公寓|住宿|飯店|酒店|民宿|房源)名稱\s*[：:]\s*(.+)$/u)?.[1]).find(Boolean) || "";
   const labelledAddress = textLines.map((line) => line.match(/^(?:公寓|住宿|飯店|酒店|民宿|房源)?地址\s*[：:]\s*(.+)$/u)?.[1]).find(Boolean) || "";
   const address = labelledAddress || textLines.find((line) => /\d/.test(line) && /(?:縣|県|市|區|区|町|村|路|街|丁目|番|號|号)/u.test(line)) || "";
-  return { name: labelledName, address, sourceUrl, referenceUrl, sourcePlatform: reference?.platform || "" };
+  const draft = pendingLodgingDrafts.find((item) => lodgingSourceKey(item.referenceUrl) === lodgingSourceKey(referenceUrl));
+  const seed = lodgingDraftToEditorSeed(draft || {});
+  const touchedFields = new Set(seed.touchedFields || []);
+  if (labelledName) touchedFields.add("name");
+  if (address) touchedFields.add("address");
+  return { ...seed, referenceUrl, sourcePlatform: reference?.platform || "", lodgingDraft: draft,
+    ...(labelledName ? { name: labelledName } : {}), ...(address ? { address } : {}), sourceUrl,
+    touchedFields: [...touchedFields] };
+}
+
+function lodgingSourceKey(value) {
+  try { return new URL(value).toString(); } catch { return String(value || "").trim(); }
+}
+
+function lodgingSourceMetadata(source = {}) {
+  const referenceUrl = String(source.referenceUrl || "").trim();
+  const unavailable = ["blocked", "unavailable"].includes(source.sourceReadStatus);
+  return {
+    referenceUrl,
+    originalReferenceUrl: referenceUrl ? source.originalReferenceUrl || referenceUrl : "",
+    sourceCanonicalUrl: referenceUrl ? source.sourceCanonicalUrl || "" : "",
+    sourcePlatform: referenceUrl ? source.sourcePlatform || "" : "",
+    sourceListingId: referenceUrl ? source.sourceListingId || "" : "",
+    sourceLodgingName: referenceUrl && !unavailable ? source.sourceLodgingName || "" : "",
+    sourceImageUrl: referenceUrl && !unavailable ? source.sourceImageUrl || "" : "",
+    sourceReadStatus: referenceUrl ? source.sourceReadStatus || "unknown" : "",
+  };
+}
+
+function lodgingSourceStatusMessage(source = {}) {
+  if (["blocked", "unavailable"].includes(source.sourceReadStatus)) {
+    return `${source.sourcePlatform || "住宿平台"} 目前無法自動讀取來源資料；請自行補上名稱、完整地址與照片，原始連結已保留。`;
+  }
+  if (source.locationPrecision === "approximate") return "已帶入來源資料；平台僅提供大約位置，請補入住完整地址";
+  return source.referenceUrl ? "已帶入可取得的來源資料，請補齊缺少的名稱、完整地址或照片" : "";
+}
+
+function lodgingCandidateSource(candidate, draft) {
+  // Source evidence may never replace a Google candidate's identity, address, coordinates or photos.
+  const metadata = lodgingSourceMetadata(draft);
+  const sourcePhoto = ["blocked", "unavailable"].includes(metadata.sourceReadStatus) ? "" : draft.sourceImageDataUrl || "";
+  return { ...candidate, ...metadata,
+    ...(sourcePhoto && !candidate.customPhotoDataUrl ? { customPhotoDataUrl: sourcePhoto, photoOrigin: "lodging_source" } : {}) };
+}
+
+function lodgingDraftToEditorSeed(draft = {}) {
+  const metadata = lodgingSourceMetadata(draft);
+  const touchedFields = new Set((draft.touchedFields || []).filter((field) => ["name", "address", "photo"].includes(field)));
+  if (draft.userProvidedName) touchedFields.add("name");
+  const userPhoto = draft.photoOrigin === "user_upload" ? draft.customPhotoDataUrl || "" : "";
+  if (userPhoto) touchedFields.add("photo");
+  const photo = userPhoto || (["blocked", "unavailable"].includes(metadata.sourceReadStatus) ? "" : draft.sourceImageDataUrl || "");
+  return {
+    ...metadata,
+    kind: "lodging", name: draft.userProvidedName || metadata.sourceLodgingName,
+    address: draft.locationPrecision === "approximate" ? "" : draft.address || "",
+    customPhotoDataUrl: photo,
+    photoOrigin: photo ? (userPhoto ? "user_upload" : "lodging_source") : "", lodgingDraft: draft,
+    touchedFields: [...touchedFields],
+  };
+}
+
+function placeEditorAddress(form) {
+  return String(form.elements.address.value || "").normalize("NFKC").trim().slice(0, 300);
+}
+
+function editorAutoTravelArea(resolved) {
+  const success = resolved?.travelAreaResolved === true;
+  return {
+    travelAreaKey: success ? resolved.travelAreaKey : "unclassified:address",
+    travelAreaZh: success ? resolved.travelAreaZh : "未分類",
+    travelAreaLocal: success ? resolved.travelAreaLocal : "待辨識",
+    travelAreaResolved: success, travelAreaManuallySet: false,
+    travelAreaSource: resolved?.travelAreaSource || "automatic",
+    travelAreaResolver: resolved?.travelAreaResolver || "",
+    travelAreaResolutionVersion: Number(resolved?.travelAreaResolutionVersion) || 0,
+    travelAreaResolutionStatus: resolved?.travelAreaResolutionStatus || (success ? "resolved" : "failed"),
+    travelAreaResolutionError: success ? "" : resolved?.travelAreaResolutionError || "TRAVEL_AREA_NOT_RESOLVED",
+  };
+}
+
+function placeEditorTravelArea(resolved, existing, zh, local, restoreAuto = false) {
+  const auto = editorAutoTravelArea(resolved);
+  const manual = !restoreAuto && (existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true);
+  if (!zh && !local && manual) return placeEditorTravelArea(resolved, existing, existing.travelAreaZh, existing.travelAreaLocal);
+  if (zh && local) return { ...auto, autoTravelArea: auto,
+    travelAreaKey: manual && zh === existing.travelAreaZh && local === existing.travelAreaLocal
+      ? existing.travelAreaKey : travelAreaKeyFromNames(resolved?.countryCode || existing?.countryCode, zh, local),
+    travelAreaZh: zh, travelAreaLocal: local, travelAreaSource: "manual", travelAreaManuallySet: true,
+    travelAreaResolved: true, travelAreaResolver: "MANUAL", travelAreaResolutionVersion: TRAVEL_AREA_RESOLUTION_VERSION,
+    travelAreaResolutionStatus: "resolved", travelAreaResolutionError: "" };
+  return { ...auto, autoTravelArea: auto };
+}
+
+function bindPlaceEditor(form, existing, seed) {
+  const session = { sequence: 0, metadataSequence: 0, dirty: new Set(seed.touchedFields || []), address: placeEditorAddress(form),
+    result: null, request: null, timer: null, composing: false, restoreAuto: false, saving: false };
+  form.placeEditorSession = session;
+  session.referenceUrl = form.elements.referenceUrl.value.trim();
+  session.sourceMetadata = lodgingSourceMetadata(seed.lodgingDraft || { ...existing, ...seed, referenceUrl: session.referenceUrl });
+  if (existing?.sourceReadStatus) form.querySelector("[data-lodging-source-status]").textContent = lodgingSourceStatusMessage(session.sourceMetadata);
+  if (existing) {
+    session.dirty.add("name");
+    session.dirty.add("address");
+    if (existing.customPhotoDataUrl && existing.photoOrigin !== "lodging_source") session.dirty.add("photo");
+    session.loadedUrl = session.referenceUrl;
+  }
+  session.active = () => form.isConnected && form.placeEditorSession === session;
+  session.invalidate = () => {
+    clearTimeout(session.timer);
+    session.sequence += 1;
+    session.address = placeEditorAddress(form);
+    session.result = null;
+    session.request = null;
+    session.status("");
+  };
+  session.status = (message) => {
+    if (session.active()) form.querySelector("[data-place-address-status]").textContent = message;
+  };
+  session.showLocation = (candidate) => {
+    const area = placeEditorTravelArea(candidate, existing, form.elements.travelAreaZh.value.trim(),
+      form.elements.travelAreaLocal.value.trim(), session.restoreAuto);
+    session.status(area.travelAreaResolved
+      ? `✓ 地址已定位 · ${area.travelAreaZh}（${area.travelAreaLocal}）${area.travelAreaManuallySet ? " · 手動分區" : ""}`
+      : "✓ 地址已定位 · 分區待辨識");
+  };
+  session.resolve = (retry = false) => {
+    clearTimeout(session.timer);
+    if (!session.active() || session.composing) return Promise.resolve(null);
+    const address = placeEditorAddress(form);
+    if (session.address !== address) session.invalidate();
+    if (!address) return Promise.resolve(null);
+    if (session.request) return session.request;
+    if (session.result && !retry) { session.showLocation(session.result); return Promise.resolve(session.result); }
+    const sequence = ++session.sequence;
+    session.result = null;
+    form.querySelector("[data-place-address-error]").hidden = true;
+    session.status("正在定位地址…");
+    const request = (async () => {
+      try {
+        const response = await fetch("/api/places", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ places: [{ manualAddress: address, sourceUrl: form.elements.sourceUrl.value,
+            destination: state.destination, countryCode: existing?.countryCode || "" }] }),
+        });
+        const candidate = response.ok ? (await response.json()).places?.[0] : null;
+        if (!session.active() || sequence !== session.sequence || address !== placeEditorAddress(form)) return null;
+        if (!candidate || candidate.error || !Number.isFinite(candidate.latitude) || !Number.isFinite(candidate.longitude)
+          || !validMapCoordinates(candidate.latitude, candidate.longitude)) throw new Error("GEOCODING_FAILED");
+        session.result = candidate;
+        session.showLocation(candidate);
+        return candidate;
+      } catch {
+        if (session.active() && sequence === session.sequence) session.status("地址無法定位，請檢查完整門牌後重新解析");
+        return null;
+      } finally {
+        if (sequence === session.sequence) session.request = null;
+      }
+    })();
+    session.request = request;
+    return request;
+  };
+  session.schedule = () => {
+    clearTimeout(session.timer);
+    if (!session.composing) session.timer = setTimeout(() => session.resolve(), 700);
+  };
+  session.syncSource = () => {
+    const url = form.elements.referenceUrl.value.trim();
+    if (url === session.referenceUrl) return;
+    const previous = session.sourceMetadata;
+    session.referenceUrl = url;
+    session.metadataSequence += 1;
+    session.loadedUrl = "";
+    session.loadingUrl = "";
+    clearTimeout(session.metadataTimer);
+    for (const field of ["sourcePlatform", "sourceLodgingName", "sourceListingId"]) form.elements[field].value = "";
+    if (!session.dirty.has("name") && form.elements.name.value === previous.sourceLodgingName) form.elements.name.value = "";
+    if (!session.dirty.has("address") && session.sourceAddress && placeEditorAddress(form) === session.sourceAddress) {
+      form.elements.address.value = "";
+      session.invalidate();
+    }
+    session.sourceAddress = "";
+    if (!session.dirty.has("photo") && form.elements.photoOrigin.value === "lodging_source") {
+      pendingPlacePhoto = "";
+      removePendingPlacePhoto = true;
+      form.elements.photoOrigin.value = "";
+      renderPlacePhotoEditor(form);
+    }
+    session.sourceMetadata = lodgingSourceMetadata({ referenceUrl: url });
+    form.querySelector("[data-lodging-source-status]").textContent = "";
+    const originalSourceBlock = form.querySelector(".lodging-source-reference");
+    if (originalSourceBlock) originalSourceBlock.hidden = true;
+  };
+  form.addEventListener("input", (event) => {
+    session.dirty.add(event.target.name);
+    if (event.target.name === "address") { session.invalidate(); session.schedule(); }
+    if (event.target.name === "referenceUrl") {
+      session.syncSource();
+      session.metadataTimer = setTimeout(() => fillPlaceEditorFromUrl(form), 700);
+    }
+  });
+  const addressInput = form.elements.address;
+  addressInput.addEventListener("paste", () => {
+    session.invalidate();
+    session.schedule();
+  });
+  addressInput.addEventListener("compositionstart", () => { session.composing = true; session.invalidate(); });
+  addressInput.addEventListener("compositionend", () => { session.composing = false; session.invalidate(); session.schedule(); });
+  addressInput.addEventListener("blur", () => session.resolve());
+  form.querySelector("[data-retry-place-address]").addEventListener("click", () => session.resolve(true));
+  form.querySelector("[data-restore-auto-area]").addEventListener("click", () => {
+    if (session.saving) return;
+    session.restoreAuto = true;
+    form.elements.travelAreaZh.value = "";
+    form.elements.travelAreaLocal.value = "";
+    session.resolve();
+  });
+  form.elements.referenceUrl.addEventListener("blur", () => {
+    clearTimeout(session.metadataTimer);
+    fillPlaceEditorFromUrl(form);
+  });
+  const cachedAuto = existing?.autoTravelArea || existing;
+  if (Number(cachedAuto?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION
+    && existing?.manualLocation && existing.manualAddress && existing.formattedAddress && session.address === String(existing.manualAddress).normalize("NFKC").trim().slice(0, 300)
+    && (!(existing.travelAreaSource === "manual" || existing.travelAreaManuallySet) || existing.autoTravelArea)
+    && Number.isFinite(existing.latitude) && Number.isFinite(existing.longitude) && validMapCoordinates(existing.latitude, existing.longitude)) {
+    session.result = { ...existing, ...(existing.autoTravelArea || {}) };
+    session.showLocation(session.result);
+  } else if (session.address) session.schedule();
+  if (seed.lodgingDraft) {
+    session.loadedUrl = seed.referenceUrl;
+    session.sourceAddress = placeEditorAddress(form);
+    form.querySelector("[data-lodging-source-status]").textContent = lodgingSourceStatusMessage(seed.lodgingDraft);
+    const photoSequence = session.metadataSequence;
+    if (!seed.customPhotoDataUrl) form.querySelector("[data-place-photo-status]").textContent = "未取得來源照片，可自行補照片";
+    else {
+      session.sourcePhotoPreparing = (session.sourcePhotoPreparing || 0) + 1;
+      compressPlacePhotoDataUrl(seed.customPhotoDataUrl).then((photo) => {
+        if (!session.active() || session.dirty.has("photo") || photoSequence !== session.metadataSequence || form.elements.referenceUrl.value.trim() !== seed.referenceUrl) return;
+        pendingPlacePhoto = photo;
+        renderPlacePhotoEditor(form);
+      }).catch(() => {
+        if (!session.active() || session.dirty.has("photo") || photoSequence !== session.metadataSequence || form.elements.referenceUrl.value.trim() !== seed.referenceUrl) return;
+        pendingPlacePhoto = "";
+        renderPlacePhotoEditor(form);
+        form.querySelector("[data-place-photo-status]").textContent = "未取得來源照片，可自行補照片";
+      }).finally(() => { session.sourcePhotoPreparing -= 1; });
+    }
+  }
+  if (!existing && seed.referenceUrl && !seed.lodgingDraft?.referenceUrl) fillPlaceEditorFromUrl(form);
+  return session;
+}
+
+async function fillPlaceEditorFromUrl(form) {
+  const session = form.placeEditorSession;
+  if (!session?.active() || session.saving) return;
+  session.syncSource();
+  const url = form.elements.referenceUrl.value.trim();
+  if (!session?.active() || session.saving || !isLodgingShareUrl(url) || session.loadedUrl === url
+    || (session.loadingUrl === url && session.loadingSequence === session.metadataSequence)) return;
+  const sequence = ++session.metadataSequence;
+  session.loadingUrl = url;
+  session.loadingSequence = sequence;
+  const untouched = (field) => !session.dirty.has(field);
+  const current = () => session.active() && !session.saving && sequence === session.metadataSequence && url === form.elements.referenceUrl.value.trim();
+  const status = form.querySelector("[data-lodging-source-status]");
+  if (untouched("sourcePlatform")) form.elements.sourcePlatform.value = placeReferenceMeta({ referenceUrl: url })?.platform || "";
+  status.textContent = "正在讀取住宿來源…";
+  try {
+    let draft = pendingLodgingDrafts.find((item) => lodgingSourceKey(item.referenceUrl) === lodgingSourceKey(url));
+    if (!draft) {
+      const response = await fetch("/api/social-place-import", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId: state.tripId, sourceUrl: url, requestedKind: "lodging", action: "lodging-draft" }),
+      });
+      const payload = await response.json();
+      if (!response.ok || lodgingSourceKey(payload.lodgingDraft?.referenceUrl) !== lodgingSourceKey(url)) throw new Error("LODGING_DRAFT_UNAVAILABLE");
+      draft = payload.lodgingDraft;
+    }
+    if (!current()) return;
+    const seed = lodgingDraftToEditorSeed(draft);
+    session.sourceMetadata = lodgingSourceMetadata(draft);
+    for (const field of ["name", "address", "sourcePlatform", "sourceLodgingName", "sourceListingId"]) {
+      if (untouched(field) && seed[field]) form.elements[field].value = seed[field];
+    }
+    if (untouched("address") && seed.address) { session.sourceAddress = placeEditorAddress(form); session.invalidate(); session.schedule(); }
+    session.loadedUrl = url;
+    status.textContent = lodgingSourceStatusMessage(draft);
+    if (untouched("photo")) {
+      session.sourcePhotoPreparing = (session.sourcePhotoPreparing || 0) + 1;
+      try {
+        if (!seed.customPhotoDataUrl) throw new Error("SOURCE_IMAGE_UNAVAILABLE");
+        const photo = await compressPlacePhotoDataUrl(seed.customPhotoDataUrl);
+        if (!current() || !untouched("photo")) return;
+        pendingPlacePhoto = photo;
+        removePendingPlacePhoto = false;
+        form.elements.photoOrigin.value = "lodging_source";
+        renderPlacePhotoEditor(form);
+      } catch {
+        if (current() && untouched("photo")) form.querySelector("[data-place-photo-status]").textContent = "未取得來源照片，可自行補照片";
+      } finally {
+        session.sourcePhotoPreparing -= 1;
+      }
+    }
+  } catch {
+    if (current()) {
+      session.loadedUrl = url;
+      session.sourceMetadata = lodgingSourceMetadata({ referenceUrl: url,
+        sourcePlatform: form.elements.sourcePlatform.value, sourceReadStatus: "unavailable" });
+      status.textContent = lodgingSourceStatusMessage(session.sourceMetadata);
+    }
+  } finally {
+    if (session.loadingSequence === sequence) session.loadingUrl = "";
+  }
 }
 
 async function compressPlacePhoto(file) {
@@ -6124,13 +6443,13 @@ function openPlaceEditSheet(name = "", seed = {}) {
   pendingPlacePhoto = String(seed.customPhotoDataUrl || "");
   removePendingPlacePhoto = false;
   const kind = seed.kind && seed.kind !== "auto" ? seed.kind : existing?.kind || "lodging";
-  const address = seed.address || existing?.formattedAddress || "";
+  const address = seed.address || existing?.manualAddress || existing?.formattedAddress || "";
   const sourceUrl = seed.sourceUrl || existing?.sourceUrl || "";
   const displayName = seed.name || existing?.name || (kind === "lodging" ? "私人住宿" : "");
   const category = existing?.category || (kind === "lodging" ? "私人住宿" : kindLabel(kind));
   const referenceUrl = seed.referenceUrl || existing?.referenceUrl || "";
   const sourcePlatform = seed.sourcePlatform || existing?.sourcePlatform || placeReferenceMeta({ referenceUrl })?.platform || "";
-  const sourceLodgingName = seed.sourceLodgingName || existing?.sourceLodgingName || displayName;
+  const sourceLodgingName = seed.sourceLodgingName ?? existing?.sourceLodgingName ?? "";
   const sourceListingId = seed.sourceListingId || existing?.sourceListingId || "";
   const photoOrigin = seed.photoOrigin || existing?.photoOrigin || (pendingPlacePhoto ? "lodging_source" : "user_upload");
   const sourceReference = placeReferenceMeta({ referenceUrl });
@@ -6147,7 +6466,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p class="place-editor-intro">私人住宿不一定有 Google 商家頁面。這裡會用門牌定位，名稱、地址與照片則以你填寫的內容為準。</p>
-        <input type="hidden" name="referenceUrl" value="${escapeHtml(referenceUrl)}" />
+        <div class="field"><label for="place-editor-reference">住宿來源連結（選填）</label><input id="place-editor-reference" name="referenceUrl" inputmode="url" maxlength="1000" value="${escapeHtml(referenceUrl)}" placeholder="Airbnb、Booking、Agoda 或 Trip.com 連結" /><small data-lodging-source-status aria-live="polite"></small></div>
         <input type="hidden" name="sourcePlatform" value="${escapeHtml(sourcePlatform)}" />
         <input type="hidden" name="sourceLodgingName" value="${escapeHtml(sourceLodgingName)}" />
         <input type="hidden" name="sourceListingId" value="${escapeHtml(sourceListingId)}" />
@@ -6157,11 +6476,13 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="例如：江之島私人住宿" required /></div>
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <div class="field"><label for="place-editor-category">分類</label><input id="place-editor-category" name="category" maxlength="60" value="${escapeHtml(category)}" placeholder="例如：私人住宿" /></div>
-          <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="請貼上房東提供的完整門牌地址" required>${escapeHtml(address)}</textarea><small>儲存時會以地址定位，不會改抓附近的餐廳或商店。</small><small class="field-error" data-place-address-error hidden></small></div>
+          <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="請貼上房東提供的完整門牌地址" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
+          <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
           <div class="field"><label for="place-editor-travel-area-zh">旅遊分區（繁中，選填）</label><input id="place-editor-travel-area-zh" name="travelAreaZh" maxlength="60" value="${escapeHtml(travelAreaZh)}" placeholder="例如：淺草" /></div>
           <div class="field"><label for="place-editor-travel-area-local">旅遊分區（當地語言）</label><input id="place-editor-travel-area-local" name="travelAreaLocal" maxlength="60" value="${escapeHtml(travelAreaLocal)}" placeholder="例如：浅草" /></div>
           <div class="field full"><small>${existing ? `目前顯示：${escapeHtml(travelAreaDisplayName(existing))}。` : "留空時會依完整地址自動辨識。"} 兩欄都填寫即視為手動指定，之後不會被自動辨識覆蓋。</small></div>
+          <button type="button" class="secondary-button" data-restore-auto-area>恢復自動分區</button></details>
         </div>
         <section class="place-photo-editor">
           <div class="place-photo-preview ${editorPhoto ? "has-photo" : ""}" data-place-photo-preview>${editorPhoto ? `<img src="${escapeHtml(editorPhoto)}" alt="${escapeHtml(displayName)}地點照片" />` : `<span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small>`}</div>
@@ -6171,6 +6492,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : "確認新增"}</button></div>
       </form>
     </div>`;
+  bindPlaceEditor(sheetRoot.querySelector("#place-editor-form"), existing, seed);
 }
 
 function renamePlaceReferences(previousName, nextName) {
@@ -7031,17 +7353,7 @@ document.addEventListener("click", async (event) => {
     if (!canEdit()) return guestOnlyMessage();
     const draft = pendingLodgingDrafts[Number(lodgingDraftButton.dataset.createLodgingDraft)];
     if (!draft) return showToast("找不到這筆住宿來源資料");
-    return openPlaceEditSheet("", {
-      kind: "lodging",
-      name: draft.sourceLodgingName || "",
-      sourceLodgingName: draft.sourceLodgingName || "",
-      address: draft.locationPrecision === "approximate" ? "" : draft.address || "",
-      referenceUrl: draft.referenceUrl || "",
-      sourcePlatform: draft.sourcePlatform || "",
-      sourceListingId: draft.sourceListingId || "",
-      customPhotoDataUrl: draft.sourceImageDataUrl || "",
-      photoOrigin: draft.sourceImageDataUrl ? "lodging_source" : "",
-    });
+    return openPlaceEditSheet("", lodgingDraftToEditorSeed(draft));
   }
 
   const editPlace = event.target.closest("[data-edit-place]");
@@ -7049,9 +7361,11 @@ document.addEventListener("click", async (event) => {
 
   const removePlacePhoto = event.target.closest("[data-remove-place-photo]");
   if (removePlacePhoto) {
+    if (removePlacePhoto.closest("#place-editor-form")?.placeEditorSession?.saving) return;
     pendingPlacePhoto = "";
     removePendingPlacePhoto = true;
     const form = removePlacePhoto.closest("#place-editor-form");
+    form?.placeEditorSession?.dirty.add("photo");
     const input = form?.querySelector("[data-place-photo-input]");
     if (input) input.value = "";
     const photoOrigin = form?.elements.photoOrigin;
@@ -7332,11 +7646,14 @@ document.addEventListener("change", async (event) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) return showToast("請選擇照片格式的圖片");
     const form = input.closest("#place-editor-form");
+    form?.placeEditorSession?.dirty.add("photo");
     const status = form?.querySelector("[data-place-photo-status]");
     input.disabled = true;
     if (status) status.textContent = "正在準備照片…";
     try {
-      pendingPlacePhoto = await compressPlacePhoto(file);
+      const photo = await compressPlacePhoto(file);
+      if (!form?.isConnected) return;
+      pendingPlacePhoto = photo;
       removePendingPlacePhoto = false;
       const photoOrigin = form?.elements.photoOrigin;
       if (photoOrigin) photoOrigin.value = "user_upload";
@@ -7567,16 +7884,17 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "place-editor-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
+    event.target.placeEditorSession.syncSource();
     const form = new FormData(event.target);
     const originalName = event.target.dataset.originalPlaceName || "";
     const existing = originalName ? state.places.find((place) => place.name === originalName) : null;
     const name = String(form.get("name") || "").normalize("NFKC").trim().slice(0, 100);
     const address = String(form.get("address") || "").normalize("NFKC").trim().slice(0, 300);
     const sourceUrl = String(form.get("sourceUrl") || "").trim().slice(0, 500);
-    const referenceUrl = String(form.get("referenceUrl") || existing?.referenceUrl || "").trim().slice(0, 1000);
-    const sourcePlatform = String(form.get("sourcePlatform") || existing?.sourcePlatform || "").normalize("NFKC").trim().slice(0, 60);
-    const sourceLodgingName = String(form.get("sourceLodgingName") || existing?.sourceLodgingName || name).normalize("NFKC").trim().slice(0, 160);
-    const sourceListingId = String(form.get("sourceListingId") || existing?.sourceListingId || "").normalize("NFKC").trim().slice(0, 80);
+    const referenceUrl = String(form.get("referenceUrl") || "").trim().slice(0, 1000);
+    const sourcePlatform = String(form.get("sourcePlatform") || "").normalize("NFKC").trim().slice(0, 60);
+    const sourceLodgingName = String(form.get("sourceLodgingName") || "").normalize("NFKC").trim().slice(0, 160);
+    const sourceListingId = String(form.get("sourceListingId") || "").normalize("NFKC").trim().slice(0, 80);
     let photoOrigin = String(form.get("photoOrigin") || existing?.photoOrigin || "").trim();
     const manualTravelAreaZh = String(form.get("travelAreaZh") || "").normalize("NFKC").trim().slice(0, 60);
     const manualTravelAreaLocal = String(form.get("travelAreaLocal") || "").normalize("NFKC").trim().slice(0, 60);
@@ -7590,34 +7908,35 @@ document.addEventListener("submit", async (event) => {
     if (pendingPlacePhoto && !existing?.customPhotoDataUrl && customPhotoCount >= 12) return showToast("每趟旅程最多保存 12 張自訂地點照片");
     const submitButton = event.target.querySelector('button[type="submit"]');
     const addressError = event.target.querySelector("[data-place-address-error]");
+    const editorForm = event.target;
+    const session = editorForm.placeEditorSession;
+    if (session.saving) return;
+    if (isLodgingShareUrl(referenceUrl) && session.loadedUrl !== referenceUrl) {
+      fillPlaceEditorFromUrl(editorForm);
+      return showToast("住宿來源讀取中，請稍候再儲存");
+    }
+    if (session.loadingUrl) return showToast("住宿來源讀取中，請稍候再儲存");
+    if (session.sourcePhotoPreparing || editorForm.querySelector("[data-place-photo-input]").disabled) return showToast("照片正在準備，請稍候再儲存");
+    session.saving = true;
+    const editableControls = [...editorForm.querySelectorAll("input, textarea, select")];
+    editableControls.forEach((control) => { control.disabled = true; });
+    const unlock = () => {
+      session.saving = false;
+      editableControls.forEach((control) => { control.disabled = false; });
+      submitButton.disabled = false;
+      submitButton.textContent = existing ? "儲存變更" : "確認新增";
+    };
     if (addressError) addressError.hidden = true;
     submitButton.disabled = true;
     submitButton.textContent = "正在確認地址…";
-    let resolved = null;
-    let resolutionError = "";
-    try {
-      const response = await fetch("/api/places", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ places: [{ sourceUrl, manualAddress: address, destination: state.destination, countryCode: existing?.countryCode || "" }] }),
-      });
-      if (response.ok) {
-        const candidate = (await response.json()).places?.[0];
-        if (candidate && !candidate.error) resolved = candidate;
-        else resolutionError = candidate?.error || "無法解析這個地址";
-      } else {
-        resolutionError = "地址定位服務暫時無法使用";
-      }
-    } catch {
-      resolutionError = "地址定位服務暫時無法使用";
-    }
+    const resolved = await session.resolve();
+    if (!session.active()) return;
     if (!resolved || !validMapCoordinates(Number(resolved.latitude), Number(resolved.longitude))) {
       if (addressError) {
         addressError.hidden = false;
-        addressError.textContent = `${resolutionError || "找不到這個完整地址的位置"}。請檢查門牌後再試，住宿尚未建立。`;
+        addressError.textContent = "找不到這個完整地址的位置。請檢查門牌後再試，住宿尚未建立。";
       }
-      submitButton.disabled = false;
-      submitButton.textContent = existing ? "儲存變更" : "確認新增";
+      unlock();
       return showToast("地址無法解析，尚未建立住宿");
     }
     const kind = String(form.get("kind") || "lodging");
@@ -7629,13 +7948,12 @@ document.addEventListener("submit", async (event) => {
         submitButton.textContent = "正在壓縮住宿照片…";
         customPhotoDataUrl = await compressPlacePhotoDataUrl(customPhotoDataUrl);
       } catch {
-        submitButton.disabled = false;
-        submitButton.textContent = existing ? "儲存變更" : "確認新增";
+        unlock();
         return showToast("來源照片無法儲存，請移除或更換照片");
       }
     }
+    if (!session.active() || address !== placeEditorAddress(editorForm) || resolved !== session.result) { unlock(); return; }
     if (!customPhotoDataUrl) photoOrigin = "";
-    const travelAreaSource = resolved?.travelAreaResolved === true ? resolved : existing;
     const locationSource = resolved || (addressUnchanged ? existing : null);
     const nextPlace = {
       ...(existing || {}),
@@ -7648,26 +7966,15 @@ document.addEventListener("submit", async (event) => {
       areaOriginal: resolved?.areaOriginal || (addressUnchanged ? existing?.areaOriginal : "") || "",
       areaResolvedByGoogle: Boolean(resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
       areaManuallySet: false,
-      travelAreaKey: hasManualTravelArea ? travelAreaKeyFromNames(resolved?.countryCode || existing?.countryCode, manualTravelAreaZh, manualTravelAreaLocal) : travelAreaSource?.travelAreaKey || "",
-      travelAreaZh: hasManualTravelArea ? manualTravelAreaZh : travelAreaSource?.travelAreaZh || "",
-      travelAreaLocal: hasManualTravelArea ? manualTravelAreaLocal : travelAreaSource?.travelAreaLocal || "",
-      travelAreaResolved: hasManualTravelArea || resolved?.travelAreaResolved === true,
-      travelAreaSource: hasManualTravelArea ? "manual" : resolved?.travelAreaResolved === true ? "automatic" : "legacy-fallback",
-      travelAreaManuallySet: hasManualTravelArea,
-      travelAreaResolver: hasManualTravelArea ? "MANUAL" : travelAreaSource?.travelAreaResolver || "",
-      travelAreaResolutionVersion: hasManualTravelArea ? TRAVEL_AREA_RESOLUTION_VERSION : Number(travelAreaSource?.travelAreaResolutionVersion) || 0,
-      travelAreaResolutionStatus: hasManualTravelArea || resolved?.travelAreaResolved === true ? "resolved" : "failed",
-      travelAreaResolutionError: hasManualTravelArea || resolved?.travelAreaResolved === true ? "" : resolved?.travelAreaResolutionError || "TRAVEL_AREA_NOT_RESOLVED",
+      ...placeEditorTravelArea(resolved, existing, manualTravelAreaZh, manualTravelAreaLocal, session.restoreAuto),
       countryCode: locationSource?.countryCode || existing?.countryCode || "",
       addressComponents: Array.isArray(locationSource?.addressComponents) ? locationSource.addressComponents : [],
       addressComponentsOriginal: Array.isArray(locationSource?.addressComponentsOriginal) ? locationSource.addressComponentsOriginal : [],
       administrativeAreas: locationSource?.administrativeAreas || existing?.administrativeAreas || null,
-      formattedAddress: address,
+      manualAddress: String(form.get("address") || "").slice(0, 300),
+      formattedAddress: resolved.formattedAddress,
       sourceUrl: sourceUrl || resolved?.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
-      referenceUrl,
-      sourcePlatform,
-      sourceLodgingName,
-      sourceListingId,
+      ...lodgingSourceMetadata({ ...session.sourceMetadata, referenceUrl, sourcePlatform, sourceLodgingName, sourceListingId }),
       placeId: existing && !existing.manualLocation ? existing.placeId || "" : "",
       latitude: Number.isFinite(resolved?.latitude) ? resolved.latitude : addressUnchanged ? existing?.latitude ?? null : null,
       longitude: Number.isFinite(resolved?.longitude) ? resolved.longitude : addressUnchanged ? existing?.longitude ?? null : null,
@@ -8129,6 +8436,9 @@ document.addEventListener("submit", async (event) => {
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
       }, state.destination));
     if (!additions.length) return showToast("沒有可新增的地點");
+    if (state.places.filter((place) => place.customPhotoDataUrl).length + additions.filter((place) => place.customPhotoDataUrl).length > 12) {
+      return showToast("每趟旅程最多保存 12 張自訂地點照片，請減少選取或先移除既有照片");
+    }
     state.places.push(...additions);
     const addedKinds = [...new Set(additions.map((place) => place.kind))];
     state.placeKind = addedKinds.length === 1 ? addedKinds[0] : "all";

@@ -413,13 +413,49 @@ function lodgingListingId(value, metadata = {}) {
   }
 }
 
-function lodgingDraft({ metadata = {}, sourceUrl = "", platform = "住宿平台", sharedText = "", recognition = null, sourceImageEntry = null } = {}) {
-  const recognized = Array.isArray(recognition?.places) ? recognition.places[0] : null;
+function lodgingPageUrlEvidence(value, originalUrl, metadata = {}) {
+  const original = safeSocialUrl(originalUrl);
+  const candidate = safeSocialUrl(value);
+  if (!original || !candidate || !isLodgingShareUrl(candidate)
+    || socialPlatform(original) !== socialPlatform(candidate)) return "";
+  const originalId = lodgingListingId(original);
+  const candidateId = lodgingListingId(candidate);
+  const pageId = cleanText(metadata.lodgingId, 80);
+  const ids = [originalId, candidateId, pageId].filter(Boolean);
+  if (new Set(ids).size > 1) return "";
+  // A redirect alone does not prove that two different property URLs identify the same stay.
+  if ((originalId && (candidateId === originalId || pageId === originalId))
+    || original.pathname === candidate.pathname) return candidate.toString();
+  return "";
+}
+
+function lodgingCanonicalFromHtml(html, originalUrl, finalUrl, metadata) {
+  for (const tag of String(html).match(/<link\b[^>]*>/gi) || []) {
+    const attributes = tagAttributes(tag);
+    if (!attributes.href || !String(attributes.rel || "").toLowerCase().split(/\s+/).includes("canonical")) continue;
+    try {
+      const url = new URL(attributes.href, finalUrl).toString();
+      const trusted = lodgingPageUrlEvidence(url, originalUrl, metadata);
+      if (trusted) return trusted;
+    } catch { /* Ignore malformed canonical evidence. */ }
+  }
+  return "";
+}
+
+function lodgingDraft({ metadata = {}, sourceUrl = "", platform = "住宿平台", sharedText = "", sourceImageEntry = null } = {}) {
+  const sourceReadStatus = metadata.sourceReadStatus || (metadata.available === false ? "unavailable" : "available");
+  if (["blocked", "unavailable"].includes(sourceReadStatus)) {
+    metadata = { finalUrl: metadata.finalUrl, sourceReadStatus };
+    sourceImageEntry = null;
+  }
+  const originalReferenceUrl = String(sourceUrl || "").trim().slice(0, 1000);
+  const sourceCanonicalUrl = lodgingPageUrlEvidence(metadata.sourceCanonicalUrl, originalReferenceUrl, metadata);
+  const trustedFinalUrl = lodgingPageUrlEvidence(metadata.finalUrl, originalReferenceUrl, metadata);
+  const pageTitle = cleanText(metadata.title, 160).replace(/\s*[|｜–—]\s*(?:Booking\.com|Airbnb|Agoda|Trip\.com).*$/iu, "");
+  const usableTitle = pageTitle && !/captcha|access denied|verify.{0,30}(?:human|identity)|just a moment|sign in|log in|登入|驗證|搜索|搜尋/iu.test(pageTitle)
+    && !/^(?:Booking\.com|Airbnb|Agoda|Trip\.com)$/iu.test(pageTitle) ? pageTitle : "";
   const sourceLodgingName = cleanText(
-    metadata.lodgingName
-      || extractLodgingNameHint(sharedText)
-      || recognized?.nameOriginal
-      || recognized?.nameZh,
+    metadata.lodgingName || usableTitle,
     160,
   );
   const address = cleanText(metadata.address || extractAddressHint(sharedText), 300);
@@ -431,12 +467,17 @@ function lodgingDraft({ metadata = {}, sourceUrl = "", platform = "住宿平台"
       : "unknown";
   return {
     sourcePlatform: platform,
-    referenceUrl: cleanText(metadata.finalUrl || sourceUrl, 1000),
+    originalReferenceUrl,
+    referenceUrl: originalReferenceUrl,
+    sourceCanonicalUrl,
+    sourceReadStatus,
     sourceLodgingName,
-    sourceListingId: lodgingListingId(metadata.finalUrl || sourceUrl, metadata),
+    sourceListingId: lodgingListingId(originalReferenceUrl) || lodgingListingId(sourceCanonicalUrl || trustedFinalUrl)
+      || (trustedFinalUrl ? cleanText(metadata.lodgingId, 80) : ""),
     sourceImageUrl: cleanText(sourceImageEntry?.url || metadata.imageUrl, 1000),
     sourceImageDataUrl: String(sourceImageEntry?.dataUrl || ""),
     address,
+    userProvidedName: extractLodgingNameHint(sharedText),
     latitude: hasCoordinates ? Number(metadata.latitude) : null,
     longitude: hasCoordinates ? Number(metadata.longitude) : null,
     locationPrecision,
@@ -467,9 +508,12 @@ async function fetchPublicMetadata(initialUrl) {
     if (result.status >= 300 && result.status < 400) {
       const location = result.headers.get("location");
       const nextUrl = safeSocialUrl(location ? new URL(location, current).toString() : "");
-      if (!nextUrl) return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
+      if (!nextUrl || (isLodgingShareUrl(initialUrl) && socialPlatform(nextUrl) !== socialPlatform(initialUrl))) return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
       current = nextUrl;
       continue;
+    }
+    if (isLodgingShareUrl(initialUrl) && [202, 401, 403, 429].includes(result.status)) {
+      return { available: false, sourceReadStatus: "blocked", finalUrl: current.toString() };
     }
     if (!result.ok || !String(result.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
       return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
@@ -479,10 +523,20 @@ async function fetchPublicMetadata(initialUrl) {
       return { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: current.toString() };
     }
     const html = (await result.text()).slice(0, MAX_PUBLIC_HTML_BYTES);
+    if (isLodgingShareUrl(initialUrl) && /<title[^>]*>[^<]*(?:captcha|access denied|just a moment|verify.{0,30}(?:human|identity))|(?:id|class)=["'][^"']*(?:cf-challenge|challenge-container)|\/cdn-cgi\/challenge-platform\//iu.test(html)) {
+      return { available: false, sourceReadStatus: "blocked", finalUrl: current.toString() };
+    }
     const metadata = publicMetadataFromHtml(html, current);
+    if (isLodgingShareUrl(initialUrl)) {
+      const identityIds = [lodgingListingId(initialUrl), lodgingListingId(current), metadata.lodgingId].filter(Boolean);
+      if (new Set(identityIds).size > 1) return { available: false, sourceReadStatus: "unavailable", finalUrl: current.toString() };
+    }
+    const available = Boolean(metadata.title || metadata.description || metadata.lodgingName || metadata.address || metadata.imageUrls.length || metadata.videoUrl);
     return {
       ...metadata,
-      available: Boolean(metadata.title || metadata.description || metadata.lodgingName || metadata.address || metadata.imageUrls.length || metadata.videoUrl),
+      available,
+      sourceReadStatus: available ? "available" : "unavailable",
+      sourceCanonicalUrl: available ? lodgingCanonicalFromHtml(html, initialUrl, current, metadata) : "",
       finalUrl: current.toString(),
     };
   }
@@ -1372,6 +1426,7 @@ export default async function socialPlaceImportHandler(request, response) {
     }
 
     const sourceUrl = safeSocialUrl(body.sourceUrl);
+    const originalReferenceUrl = sourceUrl ? String(body.sourceUrl).trim().slice(0, 1000) : "";
     const recognitionKind = requestedKind === "auto" && isLodgingShareUrl(sourceUrl) ? "lodging" : requestedKind;
     const sharedText = cleanText(body.sharedText, 6000);
     const sharedTextRaw = String(body.sharedText || "").normalize("NFKC").replace(/[ \t]+/g, " ").trim().slice(0, 6000);
@@ -1382,8 +1437,8 @@ export default async function socialPlaceImportHandler(request, response) {
     if (!sourceUrl && !sharedText && !imageDataUrl) return sendJson(response, 400, { error: "SOCIAL_SOURCE_REQUIRED" });
 
     const openAiKey = String(process.env.OPENAI_API_KEY || "").trim();
-    if (!openAiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
-    if (!googleMapsKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
+    const draftOnly = action === "lodging-draft" && isLodgingShareUrl(sourceUrl);
+    if (draftOnly && !(await enforceDailyLimit(member.id))) return sendJson(response, 429, { error: "DAILY_RECOGNITION_LIMIT" });
 
     let metadata = { available: false, title: "", description: "", imageUrl: "", imageUrls: [], videoUrl: "", finalUrl: sourceUrl?.toString() || "" };
     if (sourceUrl) {
@@ -1394,9 +1449,10 @@ export default async function socialPlaceImportHandler(request, response) {
       }
     }
     let linkedImageEntries = [];
-    if (!imageDataUrl && metadata.imageUrls?.length) {
+    const sourceImageUrls = metadata.imageUrls?.length ? metadata.imageUrls : metadata.imageUrl ? [metadata.imageUrl] : [];
+    if (!imageDataUrl && sourceImageUrls.length) {
       try {
-        linkedImageEntries = await fetchPublicImageEntries(metadata.imageUrls);
+        linkedImageEntries = await fetchPublicImageEntries(sourceImageUrls);
       } catch {
         linkedImageEntries = [];
       }
@@ -1407,7 +1463,7 @@ export default async function socialPlaceImportHandler(request, response) {
       : linkedImageDataUrls.map((dataUrl) => ({ dataUrl, detail: "high" }));
     const platform = sourceUrl ? socialPlatform(sourceUrl) : "社群截圖";
     let source = {
-      url: metadata.finalUrl || sourceUrl?.toString() || "",
+      url: isLodgingShareUrl(sourceUrl) ? originalReferenceUrl : metadata.finalUrl || sourceUrl?.toString() || "",
       platform,
       summary: "",
       language: "",
@@ -1415,9 +1471,11 @@ export default async function socialPlaceImportHandler(request, response) {
       imageUrls: linkedImageEntries.map((entry) => entry.url),
     };
     const initialLodgingDraft = recognitionKind === "lodging"
-      ? lodgingDraft({ metadata, sourceUrl: source.url, platform, sharedText: sharedTextRaw, sourceImageEntry: linkedImageEntries[0] })
+      ? lodgingDraft({ metadata, sourceUrl: originalReferenceUrl, platform, sharedText: sharedTextRaw, sourceImageEntry: linkedImageEntries[0] })
       : null;
-    if (recognitionKind === "lodging" && platform === "Booking.com" && !metadata.available && !sharedText && !recognitionImages.length) {
+    if (draftOnly) return sendJson(response, 200, { source, lodgingDraft: initialLodgingDraft, groups: [] });
+    if (recognitionKind === "lodging" && platform === "Booking.com" && !metadata.available
+      && !sharedTextRaw.replace(/https?:\/\/[^\s<>"']+/g, "").trim() && !recognitionImages.length) {
       return sendJson(response, 200, {
         source,
         lodgingDraft: initialLodgingDraft,
@@ -1425,6 +1483,8 @@ export default async function socialPlaceImportHandler(request, response) {
         notice: "Booking.com 未公開可讀取的住宿資料，請補上訂單或房東提供的住宿名稱與完整地址。",
       });
     }
+    if (!draftOnly && !openAiKey) return sendJson(response, 503, { error: "AI_RECOGNITION_NOT_CONFIGURED" });
+    if (!draftOnly && !googleMapsKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
     if (!metadata.available && !sharedText && !recognitionImages.length && !isLodgingShareUrl(sourceUrl)) {
       return sendJson(response, 422, { error: "SOURCE_CONTENT_REQUIRED", platform: socialPlatform(sourceUrl) });
     }
@@ -1467,7 +1527,7 @@ export default async function socialPlaceImportHandler(request, response) {
         source = { ...source, summary: recognition.sourceSummary, language: recognition.sourceLanguage };
         return sendJson(response, 200, {
           source,
-          lodgingDraft: lodgingDraft({ metadata, sourceUrl: source.url, platform, sharedText: sharedTextRaw, recognition, sourceImageEntry: linkedImageEntries[0] }),
+          lodgingDraft: lodgingDraft({ metadata, sourceUrl: originalReferenceUrl, platform, sharedText: sharedTextRaw, sourceImageEntry: linkedImageEntries[0] }),
           groups: [],
           notice: "沒有找到可靠的 Google Maps 住宿配對，可改用來源資料自行建立住宿。",
         });
@@ -1487,7 +1547,7 @@ export default async function socialPlaceImportHandler(request, response) {
       language: recognition.sourceLanguage,
     };
     const resolvedLodgingDraft = recognitionKind === "lodging"
-      ? lodgingDraft({ metadata, sourceUrl: source.url, platform, sharedText: sharedTextRaw, recognition, sourceImageEntry: linkedImageEntries[0] })
+      ? lodgingDraft({ metadata, sourceUrl: originalReferenceUrl, platform, sharedText: sharedTextRaw, sourceImageEntry: linkedImageEntries[0] })
       : null;
     const lookupErrors = [];
     const groups = await mapWithConcurrency(

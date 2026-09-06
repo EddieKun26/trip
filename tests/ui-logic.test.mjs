@@ -92,8 +92,8 @@ test("places can be manually added and later edited with an exact address and pe
   assert.match(details, /data-edit-place=/);
   assert.match(details, /place\.formattedAddress/);
   assert.match(details, /place\.customPhotoDataUrl/);
-  assert.match(submit, /manualAddress: address/);
-  assert.match(submit, /travelAreaSource: hasManualTravelArea \? "manual"/);
+  assert.match(editor, /manualAddress: address/);
+  assert.match(submit, /placeEditorTravelArea\(resolved, existing/);
   assert.match(submit, /detailsLocked: true/);
   assert.match(submit, /renamePlaceReferences\(originalName, name\)/);
   assert.match(stylesSource, /\.place-photo-preview\.has-photo\s*{[^}]*height:\s*190px/s);

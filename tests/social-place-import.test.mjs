@@ -32,6 +32,7 @@ let recognitionPlaceOverride = null;
 let socialHtmlOverride = "";
 let bookingBlocked = false;
 let forceNearbyLodgings = false;
+let sourceImageFailure = false;
 
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
@@ -54,6 +55,7 @@ globalThis.fetch = async (url, options = {}) => {
     });
   }
   if (target.includes("muscache.com")) {
+    if (sourceImageFailure) return new Response("blocked", { status: 403 });
     return new Response(new Uint8Array([255, 216, 255, 217]), {
       status: 200,
       headers: { "Content-Type": "image/jpeg", "Content-Length": "4" },
@@ -346,6 +348,7 @@ test("lodging metadata keeps only allowlisted source images and listing identiti
 
 test("lodging draft separates source evidence from Google candidate matching", () => {
   const draft = lodgingDraft({
+    sourceUrl: "https://tw.trip.com/hotels/w/detail/?hotelid=56737637",
     metadata: {
       lodgingName: "湘南藤澤微笑飯店(Smile Hotel Shonan Fujisawa)",
       address: "19-12 Minamifujisawa, 251-0055 藤澤市",
@@ -663,7 +666,7 @@ test("lodging imports keep a self-create draft when restaurant results are exclu
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.payload.groups[0].candidates.length, 0);
-  assert.equal(response.payload.lodgingDraft.sourceLodgingName, "Private stay without a map listing");
+  assert.equal(response.payload.lodgingDraft.sourceLodgingName, "Private stay", "only the page title, not the AI name, is source metadata");
   assert.equal(response.payload.lodgingDraft.referenceUrl, "https://www.booking.com/hotel/jp/private-stay.html");
   assert.equal(googleRequests.length, 1);
 });
@@ -687,6 +690,63 @@ test("a blocked Booking page returns an empty self-create draft without searchin
   assert.equal(response.payload.lodgingDraft.requiresAddress, true);
   assert.equal(openAiRequests.length, 0);
   assert.equal(googleRequests.length, 0);
+});
+
+test("manual lodging draft uses public metadata and safe images without AI or Google, including image failure", async () => {
+  store.clear(); openAiRequests.length = 0; googleRequests.length = 0;
+  const { cookie, trip } = await loginAndCreateTrip();
+  const sourceUrl = "https://www.booking.com/hotel/jp/private-stay.html?app_hotel_id=123";
+  socialHtmlOverride = `<meta property="og:title" content="Private Stay" /><meta property="og:image" content="https://a0.muscache.com/im/pictures/stay.jpg" />`;
+  const aiKey = process.env.OPENAI_API_KEY, mapsKey = process.env.GOOGLE_MAPS_API_KEY;
+  delete process.env.OPENAI_API_KEY; delete process.env.GOOGLE_MAPS_API_KEY;
+  try {
+    const success = await recognize({ cookie, tripId: trip.id, sourceUrl, action: "lodging-draft", requestedKind: "lodging" });
+    assert.equal(success.statusCode, 200); assert.deepEqual(success.payload.groups, []);
+    assert.equal(success.payload.lodgingDraft.referenceUrl, sourceUrl);
+    assert.equal(success.payload.lodgingDraft.sourceListingId, "123");
+    assert.equal(success.payload.lodgingDraft.sourceLodgingName, "Private Stay");
+    assert.match(success.payload.lodgingDraft.sourceImageDataUrl, /^data:image\/jpeg;base64,/);
+    sourceImageFailure = true;
+    const failedImage = await recognize({ cookie, tripId: trip.id, sourceUrl, action: "lodging-draft", requestedKind: "lodging" });
+    assert.equal(failedImage.statusCode, 200);
+    assert.equal(failedImage.payload.lodgingDraft.sourceImageDataUrl, "");
+    assert.equal(failedImage.payload.lodgingDraft.sourceLodgingName, "Private Stay");
+    assert.equal(failedImage.payload.lodgingDraft.sourceListingId, "123");
+    bookingBlocked = true;
+    const blocked = await recognize({ cookie, tripId: trip.id, sourceUrl, action: "lodging-draft", requestedKind: "lodging" });
+    assert.equal(blocked.payload.lodgingDraft.referenceUrl, sourceUrl);
+    assert.deepEqual(blocked.payload.groups, []);
+    assert.equal(openAiRequests.length, 0); assert.equal(googleRequests.length, 0);
+  } finally {
+    socialHtmlOverride = ""; sourceImageFailure = false; bookingBlocked = false;
+    process.env.OPENAI_API_KEY = aiKey; process.env.GOOGLE_MAPS_API_KEY = mapsKey;
+  }
+});
+
+test("Booking challenge returns the same blocked contract for recognition and direct manual draft, even with a pasted bare URL", async () => {
+  store.clear(); openAiRequests.length = 0; googleRequests.length = 0;
+  const { cookie, trip } = await loginAndCreateTrip();
+  const sourceUrl = "https://www.booking.com/Share-stay?app_hotel_id=123#photos";
+  const aiKey = process.env.OPENAI_API_KEY, mapsKey = process.env.GOOGLE_MAPS_API_KEY;
+  bookingBlocked = true; delete process.env.OPENAI_API_KEY; delete process.env.GOOGLE_MAPS_API_KEY;
+  try {
+    const recognized = await recognize({ cookie, tripId: trip.id, sourceUrl, sharedText: sourceUrl, requestedKind: "lodging" });
+    const direct = await recognize({ cookie, tripId: trip.id, sourceUrl, action: "lodging-draft", requestedKind: "lodging" });
+    assert.equal(recognized.statusCode, 200); assert.equal(direct.statusCode, 200);
+    assert.deepEqual(recognized.payload.lodgingDraft, direct.payload.lodgingDraft);
+    for (const response of [recognized, direct]) {
+      assert.deepEqual(response.payload.groups, []);
+      const draft = response.payload.lodgingDraft;
+      assert.equal(draft.sourceReadStatus, "blocked");
+      assert.equal(draft.originalReferenceUrl, sourceUrl); assert.equal(draft.referenceUrl, sourceUrl);
+      assert.equal(draft.sourceListingId, "123");
+      assert.equal(draft.sourceCanonicalUrl, ""); assert.equal(draft.sourceLodgingName, "");
+      assert.equal(draft.sourceImageUrl, ""); assert.equal(draft.sourceImageDataUrl, "");
+    }
+    assert.equal(openAiRequests.length, 0); assert.equal(googleRequests.length, 0);
+  } finally {
+    bookingBlocked = false; process.env.OPENAI_API_KEY = aiKey; process.env.GOOGLE_MAPS_API_KEY = mapsKey;
+  }
 });
 
 test("nearby lodging with an unrelated name is returned unselected and not recommended", async () => {
