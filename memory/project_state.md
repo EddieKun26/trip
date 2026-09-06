@@ -1,5 +1,13 @@
 # Project state
 
+## P1 Maps/text address import — 2026-09-06
+
+- The P1 release candidate starts at `7dcaa8c`, retaining the released P0 identity protection and Google Maps button behavior. Its scope is limited to Maps/text address parsing, candidate selection, and corresponding regression coverage.
+- Pure-text import now groups around each independently recognized street/house-number core while retaining original line and blank-paragraph structure. Administrative/postal continuation lines close the preceding core; leading room/floor evidence belongs to the following sole core. A second core always starts a second candidate even when its city or postal code matches. Component-only room/floor/postal/admin text yields no place, and ambiguous room/floor or unknown text between two cores remains visible as an unresolved, unselected, non-geocoded item. Maps links remain URL-driven, so attached address lines do not create another candidate.
+- Ordinary Maps/text/shared-list rows have explicit selected state and independent checkboxes, including selection in the preview. All import eligibility requires `selected === true`; the existing deduplicated `submittablePlaceImports` list drives counts and actual submission. Social branch multiselect and lodging alternative single-select remain unchanged.
+- Thirteen targeted P1 tests plus necessary regression pass 134/134. This includes A–F grouping, ambiguous-component geocoding exclusion, independent cancellation and actual submit count. App/test/API syntax and `git diff --check` pass; API functions remain 12. No browser or production UI acceptance is claimed; production UI acceptance remains manual.
+- Parsing remains heuristic. International address cores using street words outside the supported set, house-name-only addresses, UK-style alphanumeric postcodes, and formats that split an unmarked house number from an unfamiliar street name may remain separate text candidates instead of being grouped. P2 lodging draft and P3 rematch remain outside this round.
+
 ## Implemented
 
 - Public responsive web app optimized for iPhone 15 Pro.

@@ -4955,7 +4955,7 @@ function mergeLodgingMapEvidence(entries, sourceText) {
     coordinateLocation: true,
     recognition: "complete",
     canImport: true,
-    selected: preferredSocial ? true : undefined,
+    selected: preferredSocial ? true : matchingMap.selected === true,
     isExisting: importAlreadyExists({ name, sourceUrl: matchingMap.sourceUrl }),
     description: `已將 ${lodgingPlatform} 住宿資料與你提供的 Google Maps 地址合併；請核對門牌後再加入。`,
   };
@@ -4986,12 +4986,13 @@ function importCanBeAdded(place) {
   return Boolean(place?.canImport)
     && place?.recognition !== "unresolved"
     && !place?.candidateGroupSkipped
-    && (!place?.isSocialCandidate || place.selected === true)
+    && place.selected === true
     && !importAlreadyExists(place);
 }
 
 function importCandidateSelectionMode(placeOrGroup) {
   const candidates = Array.isArray(placeOrGroup) ? placeOrGroup : [placeOrGroup];
+  if (candidates.every((place) => !place?.isSocialCandidate)) return "multiple";
   return candidates.some((place) => place?.candidateCategory === "lodging" || place?.kind === "lodging")
     ? "single"
     : "multiple";
@@ -5106,14 +5107,83 @@ function knownGooglePlace(value) {
     .find((place) => normalizeGoogleMapsUrl(place.sourceUrl) === normalized);
 }
 
+function addressImportLineParts(value) {
+  const text = String(value || "").trim();
+  const normalized = text.normalize("NFKC").replace(/[‐‑–—−]/g, "-");
+  const postal = /(?:〒\s*)?\b\d{3}\s*-\s*\d{4}\b|\b\d{5}(?:-\d{4})?\b/u.test(normalized);
+  const roomFloor = /\b(?:room|floor|suite|apt\.?|apartment)\s*#?\s*[\w-]+|\b\d+(?:st|nd|rd|th)\s+floor\b|\d+\s*(?:樓|楼|階|室)|\b\d+\s*F\b/iu.test(normalized);
+  const streetHouse = /\d\s*(?:丁目|番地|番|號|号|巷|弄)|\d+\s*-\s*\d+\s*-\s*\d+|\b\d+\s+(?:ch[oō]me\b|[^\n,]+\b(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|rue)\b)/iu.test(normalized);
+  const administrative = /(?:[\p{L}\s,.-]+(?:都|道|府|県|縣|市|區|区)|[\p{L}\s,.-]+-\s*(?:ku|to|shi|fu|ken))(?:[\p{L}\s,.-]*(?:都|道|府|県|縣|市|區|区|-\s*(?:ku|to|shi|fu|ken)))*(?:\s*(?:〒\s*)?\d{3}\s*-\s*\d{4})?$/iu.test(normalized)
+    || /^[\p{L}\s,.-]+\s+\d{5}(?:-\d{4})?$/u.test(normalized);
+  return { text, streetHouse, postal, roomFloor, administrative };
+}
+
+function groupPlainTextAddressCandidates(rawLines) {
+  const parts = rawLines.map(addressImportLineParts);
+  const coreIndexes = parts.flatMap((part, index) => part.streetHouse ? [index] : []);
+  const componentOnly = (part) => !part.streetHouse && (part.postal || part.roomFloor || part.administrative);
+  if (!coreIndexes.length) {
+    return parts
+      .filter((part) => part.text && !componentOnly(part))
+      .map((part) => ({ label: part.text, url: "" }));
+  }
+
+  const groups = coreIndexes.map((coreIndex) => ({ coreIndex, indexes: new Set([coreIndex]) }));
+  const ambiguous = [];
+  parts.forEach((part, index) => {
+    if (!part.text || part.streetHouse) return;
+    const nextGroupIndex = coreIndexes.findIndex((coreIndex) => coreIndex > index);
+    const previousGroupIndex = nextGroupIndex < 0 ? groups.length - 1 : nextGroupIndex - 1;
+    if (previousGroupIndex < 0) {
+      groups[0].indexes.add(index);
+      return;
+    }
+    if (nextGroupIndex < 0) {
+      groups[previousGroupIndex].indexes.add(index);
+      return;
+    }
+    if (!part.roomFloor && (part.postal || part.administrative)) {
+      groups[previousGroupIndex].indexes.add(index);
+    } else {
+      ambiguous.push(index);
+    }
+  });
+
+  const textForIndexes = (indexes) => {
+    const ordered = [...indexes].sort((a, b) => a - b);
+    const first = ordered[0];
+    const last = ordered.at(-1);
+    return rawLines
+      .slice(first, last + 1)
+      .filter((line, offset) => !line.trim() || indexes.has(first + offset))
+      .join("\n")
+      .replace(/^\s*\n|\n\s*$/g, "");
+  };
+  return [
+    ...groups.map((group) => ({
+      label: textForIndexes(group.indexes),
+      url: "",
+      address: textForIndexes(group.indexes),
+      inputIndex: Math.min(...group.indexes),
+    })),
+    ...ambiguous.map((index) => ({
+      label: parts[index].text,
+      url: "",
+      requiresAddressConfirmation: true,
+      inputIndex: index,
+    })),
+  ].sort((first, second) => first.inputIndex - second.inputIndex);
+}
+
 function googleMapsImportCandidates(value) {
-  const lines = String(value)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
+  const rawLines = String(value).split(/\r?\n/).map((line) => line.trim());
+  const lines = rawLines
     .filter(Boolean);
   const candidates = [];
   let pendingLabel = "";
   const hasSupportedUrl = lines.some((line) => (line.match(/https?:\/\/[^\s<>"']+/g) || []).some((rawUrl) => isGoogleMapsUrl(rawUrl) || isSocialPlaceUrl(rawUrl)));
+
+  if (!hasSupportedUrl) return groupPlainTextAddressCandidates(rawLines);
 
   lines.forEach((line, index) => {
     const urls = line.match(/https?:\/\/[^\s<>"']+/g) || [];
@@ -5155,16 +5225,18 @@ function googleMapsImportCandidates(value) {
 function parseGoogleMapsList(value) {
   const entries = [];
   const seen = new Set();
-  googleMapsImportCandidates(value).forEach(({ label: lineName, url }) => {
+  googleMapsImportCandidates(value).forEach(({ label: lineName, url, address, requiresAddressConfirmation }) => {
     const known = url ? knownGooglePlace(url) : null;
     const coordinates = url ? coordinatesFromGoogleMapsUrl(url) : null;
     const parsedName = known?.name || lineName || extractNameFromGoogleMapsUrl(url);
-    const displayName = parsedName || (coordinates ? "正在確認座標地址" : "正在辨識 Google Maps 地點");
+    const displayName = requiresAddressConfirmation
+      ? `待確認地址資訊：${parsedName}`
+      : parsedName || (coordinates ? "正在確認座標地址" : "正在辨識 Google Maps 地點");
     const identity = normalizeGoogleMapsUrl(url) || parsedName.toLowerCase();
     if (!identity || seen.has(identity)) return;
     seen.add(identity);
     const isExisting = importAlreadyExists({ name: parsedName, sourceUrl: url });
-    const canImport = Boolean(parsedName || normalizeGoogleMapsUrl(url));
+    const canImport = !requiresAddressConfirmation && Boolean(parsedName || normalizeGoogleMapsUrl(url));
     entries.push({
       ...(known || {}),
       name: displayName,
@@ -5189,10 +5261,14 @@ function parseGoogleMapsList(value) {
       addedBy: currentMemberId(),
       addedByName: state.profile?.nickname || "我",
       isCustom: true,
-      recognition: known ? "complete" : parsedName ? "partial" : "unresolved",
+      recognition: requiresAddressConfirmation ? "unresolved" : known ? "complete" : parsedName ? "partial" : "unresolved",
       coordinateLocation: Boolean(coordinates),
       isExisting,
       canImport,
+      selected: canImport && !isExisting,
+      requiresAddressConfirmation: requiresAddressConfirmation === true,
+      candidateGroupId: `maps-${entries.length + 1}`,
+      ...(address ? { importAddress: address, formattedAddress: address, coordinateLocation: true, category: "自訂地址", globalSearch: true } : {}),
     });
   });
   return entries;
@@ -5288,6 +5364,8 @@ async function expandGoogleMapsSharedLists(entries) {
           recognition: "partial",
           isExisting,
           canImport: Boolean(name),
+          selected: Boolean(name) && !isExisting,
+          candidateGroupId: `maps-list-${normalizeGoogleMapsUrl(entry.sourceUrl)}-${rawPlace.listIndex ?? rawPlace.sourceUrl}`,
           globalSearch: true,
           isSharedList: true,
           listTitle: result.title || "Google Maps 共用清單",
@@ -5316,6 +5394,7 @@ async function enrichPlaceImportsFromApi(entries) {
           places: chunk.map((place) => ({
             sourceUrl: place.sourceUrl,
             hintName: place.recognition === "unresolved" ? "" : place.name,
+            manualAddress: place.importAddress || "",
             globalSearch: place.globalSearch === true || place.recognition === "unresolved",
             latitude: place.latitude,
             longitude: place.longitude,
@@ -5359,7 +5438,7 @@ async function enrichPlaceImportsFromApi(entries) {
         addressComponentsOriginal: Array.isArray(resolved.addressComponentsOriginal) ? resolved.addressComponentsOriginal : place.addressComponentsOriginal || [],
         category: resolved.category || place.category,
         kind: inferPlaceKind(resolved.category || place.category),
-        formattedAddress: resolved.formattedAddress || place.formattedAddress || "",
+        formattedAddress: place.importAddress || resolved.formattedAddress || place.formattedAddress || "",
         sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
         latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
         longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
@@ -5811,7 +5890,7 @@ function openImportCandidatePreview(identity) {
         </section>
         <div class="modal-actions import-candidate-actions">
           <button class="secondary-button" type="button" data-close-import-candidate>返回候選</button>
-          ${place.isSocialCandidate ? `<button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" data-candidate-checked="${place.selected ? "false" : "true"}">${selectLabel}</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
+          ${place.candidateGroupId ? `<button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" data-candidate-checked="${place.selected ? "false" : "true"}">${selectLabel}</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
         </div>
       </section>
     </div>`);
@@ -5868,7 +5947,7 @@ function importPreviewMarkup(entries) {
       const selectionMode = importCandidateSelectionMode(place);
       const inputType = selectionMode === "multiple" ? "checkbox" : "radio";
       const unavailable = isExisting || !place.canImport || place.recognition === "unresolved";
-      const radio = place.isSocialCandidate
+      const radio = place.candidateGroupId
         ? `<input class="import-candidate-control" type="${inputType}" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(importCandidateIdentity(place))}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${unavailable ? "disabled" : ""} aria-label="${place.selected ? "取消選取" : "選擇"} ${escapeHtml(place.name)}" />`
         : "";
       const previewable = place.isSocialCandidate || validMapCoordinates(Number(place.latitude), Number(place.longitude)) || Boolean(place.formattedAddress);
@@ -5902,7 +5981,7 @@ function importPreviewMarkup(entries) {
       if (place.candidateGroupSkipped) return "";
       return `
         ${groupHeader}
-        <article class="import-place-row ${place.isSocialCandidate ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}"${previewTarget}>
+        <article class="import-place-row ${place.candidateGroupId ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}"${previewTarget}>
           ${radio}
           <span class="mini-thumb" style="--swatch:${place.swatch}">${escapeHtml(place.mark)}</span>
           ${copy}
@@ -8045,7 +8124,7 @@ document.addEventListener("submit", async (event) => {
       : parseGoogleMapsList(String(form.get("mapsList") || ""));
     const requestedKind = String(form.get("placeKind") || "auto");
     const additions = submittablePlaceImports(parsed)
-      .map(({ recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => withStoredTabelogLink({
+      .map(({ importAddress, requiresAddressConfirmation, recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => withStoredTabelogLink({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
       }, state.destination));

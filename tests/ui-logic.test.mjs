@@ -700,7 +700,7 @@ test("shared-list imports expand before Places enrichment and support global chu
 });
 
 test("a single short Google Maps link remains importable after list detection", () => {
-  assert.match(appSource, /const canImport = Boolean\(parsedName \|\| normalizeGoogleMapsUrl\(url\)\)/);
+  assert.match(appSource, /const canImport = !requiresAddressConfirmation && Boolean\(parsedName \|\| normalizeGoogleMapsUrl\(url\)\)/);
   assert.match(appSource, /place\?\.recognition !== "unresolved"/);
   const section = sourceSection("function promoteSinglePlaceImport", "async function expandGoogleMapsSharedLists");
   const promoteSinglePlaceImport = new Function(
