@@ -38,7 +38,7 @@ function frontend(places, resolved) {
     canEdit: () => false, placeCreatorName: () => "測試", currentMemberId: () => "test",
   };
   vm.createContext(context);
-  for (const name of ["placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "ensurePlaceDetails", "openPlaceSheet"]) {
+  for (const name of ["placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { context, calls, saves };
@@ -125,6 +125,24 @@ test("late detail response cannot persist after a trip switch or identity edit",
 function responseMock() {
   return { status(code) { this.statusCode = code; return this; }, setHeader() { return this; }, json(data) { this.payload = data; } };
 }
+
+test("place-view and navigation actions are separate and preserve exact Maps identity", () => {
+  const { context } = frontend([], {});
+  const poi = new URL(context.placeMapsUrl(savedPlace()));
+  assert.equal(poi.pathname, "/maps/search/");
+  assert.equal(poi.searchParams.get("query_place_id"), shinjukuId);
+  const custom = new URL(context.placeMapsUrl(savedPlace({ placeId: "custom-place-123" })));
+  assert.equal(custom.searchParams.get("query"), "35.7005251,139.7031715");
+  assert.equal(custom.searchParams.has("query_place_id"), false);
+  const address = new URL(context.placeMapsUrl({ formattedAddress: "新宿大久保1-16-19" }));
+  assert.equal(address.searchParams.get("query"), "新宿大久保1-16-19");
+  const legacy = new URL(context.placeMapsUrl({ sourceUrl: "https://www.google.com/maps/dir/?api=1&destination=Shinjuku" }));
+  assert.equal(legacy.pathname, "/maps/search/");
+  assert.equal(legacy.searchParams.get("query"), "Shinjuku");
+  const detail = functionSource("openPlaceSheet");
+  assert.match(detail, /data-open-maps="\$\{escapeHtml\(mapNavigationUrl\)\}">Google Maps導航/);
+  assert.match(detail, /data-open-maps="\$\{escapeHtml\(mapPlaceUrl\)\}">開啟 Google Maps/);
+});
 test("API resolves known Google identity with GET details, never searchText", async (t) => {
   const originalFetch = globalThis.fetch, originalKey = process.env.GOOGLE_MAPS_API_KEY;
   t.after(() => { globalThis.fetch = originalFetch; if (originalKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY; else process.env.GOOGLE_MAPS_API_KEY = originalKey; });

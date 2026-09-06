@@ -4211,6 +4211,7 @@ function openPlaceSheet(name) {
   if (!place) return;
   const reference = placeReferenceMeta(place);
   const mapNavigationUrl = placeNavigationUrl(place);
+  const mapPlaceUrl = placeMapsUrl(place);
   const tabelogUrl = safeTabelogUrl(place.tabelogUrl);
   const tabelogWebUrl = tabelogMultilingualWebUrl(tabelogUrl);
   const tabelogLink = tabelogAppLink(tabelogUrl);
@@ -4263,7 +4264,7 @@ function openPlaceSheet(name) {
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
           <span>${place.customPhotoDataUrl ? (place.photoOrigin === "lodging_source" ? "使用原住宿頁照片" : "包含你自行加入的照片") : place.photos?.length ? "Google Maps 景點照片" : "尚未加入地點照片"}</span>
-          <button type="button" data-open-maps="${escapeHtml(mapNavigationUrl)}">在 Google Maps 開啟 ↗</button>
+          <button type="button" data-open-maps="${escapeHtml(mapNavigationUrl)}">Google Maps導航 ↗</button>
         </div>
         ${place.formattedAddress ? `<div class="place-address-card"><small>完整地址</small><strong>${escapeHtml(place.formattedAddress)}</strong></div>` : ""}
         <p class="place-description">${escapeHtml(place.description)}</p>
@@ -4312,7 +4313,7 @@ function openPlaceSheet(name) {
         }
         <div class="modal-actions">
           <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
-          <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapNavigationUrl)}">開啟 Google Maps</button>
+          <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapPlaceUrl)}">開啟 Google Maps</button>
         </div>
         ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址、旅遊分區與照片</button>` : ""}
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
@@ -4760,6 +4761,27 @@ function googleMapsNavigationUrl(value) {
   } catch {
     return "";
   }
+}
+
+function placeMapsUrl(place) {
+  const placeId = detailGooglePlaceId(place);
+  const address = String(place?.formattedAddress || "").trim();
+  const name = String(place?.name || "").trim();
+  const searchUrl = (query) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  if (placeId) return `${searchUrl(address || name || placeId)}&query_place_id=${encodeURIComponent(placeId)}`;
+  const latitude = place?.latitude == null || place.latitude === "" ? NaN : Number(place.latitude);
+  const longitude = place?.longitude == null || place.longitude === "" ? NaN : Number(place.longitude);
+  if (validMapCoordinates(latitude, longitude)) return searchUrl(`${latitude},${longitude}`);
+  if (address) return searchUrl(address);
+  const existing = googleMapsNavigationUrl(place?.sourceUrl);
+  if (existing) {
+    const url = new URL(existing);
+    // Legacy route URLs must not turn the place-view action back into navigation.
+    const destination = url.searchParams.get("destination") || url.searchParams.get("daddr");
+    if (destination) return searchUrl(destination);
+    if (!/\/dir(?:\/|$)/i.test(url.pathname) && !url.searchParams.has("saddr")) return existing;
+  }
+  return name ? searchUrl(name) : "";
 }
 
 function placeNavigationUrl(place) {
