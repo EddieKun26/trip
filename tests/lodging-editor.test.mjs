@@ -6,26 +6,29 @@ import vm from "node:vm";
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 const helpers = section("function manualPlaceSeed", "async function compressPlacePhoto(file)");
+const editorValueHelpers = section("function defaultPlaceCategory", "function openPlaceEditSheet");
 const submit = section('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
 const good = { latitude: 35.7, longitude: 139.7, formattedAddress: "Google 標準地址 1-2-3", countryCode: "JP",
   travelAreaKey: "shinjuku", travelAreaZh: "新宿", travelAreaLocal: "新宿", travelAreaResolved: true,
   travelAreaSource: "automatic", travelAreaResolver: "JP_NAMED_AREA", travelAreaResolutionVersion: 5 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-function harness({ existing = null, drafts = [], address = "", seed = {} } = {}) {
+function harness({ existing = null, drafts = [], address = "", seed = {}, formName } = {}) {
   const timers = new Map();
   let time = 0, timerId = 0;
   const requests = [], toasts = [];
-  const node = (value = "") => ({ value, disabled: false, hidden: false, textContent: "", listeners: {},
-    addEventListener(type, fn) { this.listeners[type] = fn; }, fire(type, event = {}) { return this.listeners[type]?.(event); } });
+  const node = (value = "") => ({ value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, clickCount: 0, listeners: {},
+    addEventListener(type, fn) { this.listeners[type] = fn; }, fire(type, event = {}) { return this.listeners[type]?.(event); }, click() { this.clickCount += 1; } });
   const form = node();
   form.id = "place-editor-form";
   form.isConnected = true;
   form.dataset = { originalPlaceName: existing?.name || "", originalAddress: existing?.formattedAddress || "" };
   form.elements = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, node()]));
-  Object.assign(form.elements.name, { value: seed.name || existing?.name || "私人住宿" });
+  Object.assign(form.elements.name, { value: formName ?? (seed.name || existing?.name || "私人住宿") });
   form.elements.address.value = address;
-  form.elements.kind.value = "lodging";
+  form.elements.kind.value = seed.kind || existing?.kind || "lodging";
+  form.elements.category.value = seed.category || existing?.category || "私人住宿";
+  form.elements.category.dataset.categoryKind = form.elements.kind.value;
   form.elements.referenceUrl.value = seed.referenceUrl ?? existing?.referenceUrl ?? "";
   for (const key of ["sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin"]) form.elements[key].value = seed[key] ?? existing?.[key] ?? "";
   const nodes = new Map();
@@ -42,15 +45,15 @@ function harness({ existing = null, drafts = [], address = "", seed = {} } = {})
     isGoogleMapsUrl: (value) => /maps/.test(value), isLodgingShareUrl: (value) => /https:\/\/.*(?:airbnb|booking|agoda|trip)\./.test(value),
     placeReferenceMeta: () => ({ platform: "Airbnb" }), validMapCoordinates: (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0),
     compressPlacePhotoDataUrl: async (data) => { if (data === "broken") throw Error("image"); return "data:image/jpeg;base64,compressed"; },
-    renderPlacePhotoEditor() {}, kindLabel: () => "住宿", placeAreaFromAddress: () => "", currentMemberId: () => "member",
+    renderPlacePhotoEditor() {}, kindLabel: (kind) => ({ attraction: "景點", restaurant: "餐廳", lodging: "住宿", shopping: "購物" }[kind] || "地點"), placeAreaFromAddress: () => "", currentMemberId: () => "member",
     canEdit: () => true, guestOnlyMessage() {}, showToast: (message) => toasts.push(message),
     crypto: { randomUUID: () => "id" }, persist() {}, render() {}, renamePlaceReferences() {},
     closeSheet() { form.isConnected = false; },
     FormData: class { constructor(form) { this.values = Object.fromEntries(Object.entries(form.elements).map(([key, node]) => [key, node.value])); } get(key) { return this.values[key]; } },
   });
-  vm.runInContext(section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + helpers + `\nasync function submitEditor(event) { ${submit} }`, context);
+  vm.runInContext(section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + helpers + editorValueHelpers + `\nasync function submitEditor(event) { ${submit} }`, context);
   const session = context.bindPlaceEditor(form, existing, seed);
-  const input = (key, value) => { form.elements[key].value = value; form.fire("input", { target: { name: key } }); };
+  const input = (key, value) => { const target = form.elements[key]; target.name = key; target.value = value; form.fire("input", { target }); };
   return { context, form, session, requests, toasts, input,
     async advance(ms) { time += ms; for (const [id, timer] of [...timers]) if (timer.at <= time) { timers.delete(id); timer.fn(); } await tick(); },
     reply(index, place = good) { requests[index].resolve({ ok: true, json: async () => ({ places: [place] }) }); },
@@ -224,6 +227,36 @@ test("normal editor exposes one source input and collapsed override; API count s
   assert.match(editor, /<details class="place-area-advanced field full"><summary>進階：手動修正分區/);
   assert.doesNotMatch(editor, /type="hidden" name="referenceUrl"/);
   assert.equal(readdirSync(new URL("../api", import.meta.url)).filter((name) => name.endsWith(".mjs")).length <= 12, true);
+});
+
+test("editor keeps category internal, derives only automatic defaults, and uses the one photo input", async () => {
+  const h = harness({ seed: { kind: "lodging" }, formName: "" });
+  assert.equal(h.context.placeEditorDisplayName(null, { kind: "lodging" }), "");
+  assert.equal(h.context.defaultPlaceCategory("lodging"), "私人住宿");
+  await h.save();
+  assert.equal(h.context.state.places.length, 0);
+  assert.equal(h.toasts.at(-1), "請輸入地點名稱");
+  h.input("name", "我的新住宿");
+  h.input("address", "完整住宿地址");
+  const created = h.save(); h.reply(0); await created;
+  assert.equal(h.context.state.places[0].name, "我的新住宿");
+  assert.equal(h.context.state.places[0].category, "私人住宿");
+
+  const automatic = harness({ seed: { kind: "lodging" } });
+  automatic.input("kind", "attraction");
+  assert.equal(automatic.form.elements.category.value, "景點");
+  assert.equal(automatic.form.elements.name.placeholder, "輸入景點名稱");
+  automatic.form.querySelector("[data-place-photo-upload-zone]").fire("click");
+  assert.equal(automatic.form.querySelector("[data-place-photo-input]").clickCount, 1);
+
+  const existing = { ...good, name: "既有古寺", kind: "attraction", category: "歷史古蹟", manualLocation: true,
+    manualAddress: good.formattedAddress };
+  const edited = harness({ existing, address: existing.manualAddress });
+  edited.input("kind", "lodging");
+  assert.equal(edited.form.elements.category.value, "歷史古蹟");
+  await edited.save();
+  assert.equal(edited.context.state.places[0].category, "歷史古蹟");
+  assert.equal(edited.context.state.places[0].kind, "lodging");
 });
 
 test("both manual lodging entries expose the same blocked status without inventing source name or photo", async () => {

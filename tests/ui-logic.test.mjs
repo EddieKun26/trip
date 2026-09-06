@@ -88,6 +88,12 @@ test("places can be manually added and later edited with an exact address and pe
   assert.match(editor, /name="travelAreaZh"/);
   assert.match(editor, /name="travelAreaLocal"/);
   assert.match(editor, /data-place-photo-input/);
+  assert.match(editor, /<input type="hidden" name="category"/);
+  assert.doesNotMatch(editor, /<label for="place-editor-category">分類<\/label>/);
+  assert.match(editor, /data-place-photo-upload-zone/);
+  assert.match(editor, /data-replace-place-photo[^>]*>更換照片<\/label>/);
+  assert.doesNotMatch(editor, /從相簿或相機選擇/);
+  assert.match(editor, /function placeEditorDisplayName[\s\S]*existing\?\.name \|\| ""/);
   assert.match(editor, /function renamePlaceReferences/);
   assert.match(details, /data-edit-place=/);
   assert.match(details, /place\.formattedAddress/);
@@ -97,7 +103,16 @@ test("places can be manually added and later edited with an exact address and pe
   assert.match(submit, /detailsLocked: true/);
   assert.match(submit, /renamePlaceReferences\(originalName, name\)/);
   assert.match(stylesSource, /\.place-photo-preview\.has-photo\s*{[^}]*height:\s*190px/s);
+  assert.match(stylesSource, /\.place-photo-upload-zone:focus-visible/);
   assert.match(stylesSource, /\.place-editor-sheet \.field textarea/);
+});
+
+test("sticky place footer separates from the final card without an upward fade", () => {
+  const footer = stylesSource.slice(stylesSource.indexOf(".list-footer {"), stylesSource.indexOf(".list-footer .primary-button"));
+  assert.match(footer, /position:\s*sticky/);
+  assert.match(footer, /margin:\s*24px -3px 0/);
+  assert.match(footer, /border-top:\s*1px solid var\(--line\)/);
+  assert.doesNotMatch(footer, /-14px|rgba\(246,\s*241,\s*232,\s*0\.98\)/);
 });
 
 test("day map follows itinerary order and represents flights with the relevant airport", () => {

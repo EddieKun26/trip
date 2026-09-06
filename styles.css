@@ -1020,10 +1020,11 @@ h2 {
   z-index: 12;
   bottom: 0;
   isolation: isolate;
-  margin-inline: -3px;
-  padding: 16px 3px 5px;
+  margin: 24px -3px 0;
+  padding: 12px 3px 5px;
+  border-top: 1px solid var(--line);
   background: var(--paper);
-  box-shadow: 0 -14px 20px rgba(246, 241, 232, 0.98), 0 12px 0 var(--paper);
+  box-shadow: 0 12px 0 var(--paper);
   transform: translateZ(0);
 }
 
@@ -4361,7 +4362,12 @@ body.transport-sheet-open .app {
   margin-top: 13px;
 }
 
+.place-photo-editor [hidden] {
+  display: none;
+}
+
 .place-photo-preview {
+  width: 100%;
   display: grid;
   place-items: center;
   min-height: 128px;
@@ -4370,7 +4376,17 @@ body.transport-sheet-open .app {
   border-radius: 16px;
   background: var(--mineral-soft);
   color: var(--mineral);
+  font: inherit;
   text-align: center;
+}
+
+.place-photo-upload-zone {
+  cursor: pointer;
+}
+
+.place-photo-upload-zone:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--mineral) 40%, transparent);
+  outline-offset: 2px;
 }
 
 .place-photo-preview > span {

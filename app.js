@@ -6270,6 +6270,13 @@ function bindPlaceEditor(form, existing, seed) {
   };
   form.addEventListener("input", (event) => {
     session.dirty.add(event.target.name);
+    if (event.target.name === "kind") {
+      const category = form.elements.category;
+      const previousKind = category.dataset.categoryKind || event.target.value;
+      category.value = placeEditorCategory(category.value, previousKind, event.target.value);
+      category.dataset.categoryKind = event.target.value;
+      form.elements.name.placeholder = placeEditorNamePlaceholder(event.target.value);
+    }
     if (event.target.name === "address") { session.invalidate(); session.schedule(); }
     if (event.target.name === "referenceUrl") {
       session.syncSource();
@@ -6295,6 +6302,9 @@ function bindPlaceEditor(form, existing, seed) {
   form.elements.referenceUrl.addEventListener("blur", () => {
     clearTimeout(session.metadataTimer);
     fillPlaceEditorFromUrl(form);
+  });
+  form.querySelector("[data-place-photo-upload-zone]").addEventListener("click", () => {
+    if (!session.saving) form.querySelector("[data-place-photo-input]").click();
   });
   const cachedAuto = existing?.autoTravelArea || existing;
   if (Number(cachedAuto?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION
@@ -6424,17 +6434,37 @@ function renderPlacePhotoEditor(form) {
   if (!form) return;
   const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
   const photo = pendingPlacePhoto || (!removePendingPlacePhoto ? existing?.customPhotoDataUrl || "" : "");
+  const uploadZone = form.querySelector("[data-place-photo-upload-zone]");
   const preview = form.querySelector("[data-place-photo-preview]");
+  const replaceButton = form.querySelector("[data-replace-place-photo]");
   const removeButton = form.querySelector("[data-remove-place-photo]");
   const status = form.querySelector("[data-place-photo-status]");
+  if (uploadZone) uploadZone.hidden = Boolean(photo);
   if (preview) {
-    preview.classList.toggle("has-photo", Boolean(photo));
-    preview.innerHTML = photo
-      ? `<img src="${escapeHtml(photo)}" alt="地點照片預覽" />`
-      : `<span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small>`;
+    preview.hidden = !photo;
+    preview.innerHTML = photo ? `<img src="${escapeHtml(photo)}" alt="地點照片預覽" />` : "";
   }
+  if (replaceButton) replaceButton.hidden = !photo;
   if (removeButton) removeButton.hidden = !photo;
   if (status) status.textContent = photo ? "這張照片會顯示在地點詳情與地圖預覽" : "照片會壓縮後與旅伴共用";
+}
+
+function defaultPlaceCategory(kind) {
+  return kind === "lodging" ? "私人住宿" : kindLabel(kind);
+}
+
+function placeEditorCategory(category, previousKind, nextKind) {
+  const value = String(category || "").normalize("NFKC").trim().slice(0, 60);
+  const wasAutomatic = !value || value === defaultPlaceCategory(previousKind) || value === kindLabel(previousKind);
+  return wasAutomatic ? defaultPlaceCategory(nextKind) : value;
+}
+
+function placeEditorNamePlaceholder(kind) {
+  return kind === "lodging" ? "輸入住宿名稱" : `輸入${kindLabel(kind)}名稱`;
+}
+
+function placeEditorDisplayName(existing, seed = {}) {
+  return String(seed.name || existing?.name || "");
 }
 
 function openPlaceEditSheet(name = "", seed = {}) {
@@ -6445,8 +6475,8 @@ function openPlaceEditSheet(name = "", seed = {}) {
   const kind = seed.kind && seed.kind !== "auto" ? seed.kind : existing?.kind || "lodging";
   const address = seed.address || existing?.manualAddress || existing?.formattedAddress || "";
   const sourceUrl = seed.sourceUrl || existing?.sourceUrl || "";
-  const displayName = seed.name || existing?.name || (kind === "lodging" ? "私人住宿" : "");
-  const category = existing?.category || (kind === "lodging" ? "私人住宿" : kindLabel(kind));
+  const displayName = placeEditorDisplayName(existing, seed);
+  const category = existing?.category || seed.category || defaultPlaceCategory(kind);
   const referenceUrl = seed.referenceUrl || existing?.referenceUrl || "";
   const sourcePlatform = seed.sourcePlatform || existing?.sourcePlatform || placeReferenceMeta({ referenceUrl })?.platform || "";
   const sourceLodgingName = seed.sourceLodgingName ?? existing?.sourceLodgingName ?? "";
@@ -6473,9 +6503,9 @@ function openPlaceEditSheet(name = "", seed = {}) {
         <input type="hidden" name="photoOrigin" value="${escapeHtml(photoOrigin)}" />
         ${sourceReference ? `<div class="lodging-source-reference"><span>原始住宿來源</span><strong>${escapeHtml(sourceReference.platform)}</strong><button type="button" data-open-reference="${escapeHtml(sourceReference.url)}">開啟原始網址 ↗</button></div>` : ""}
         <div class="place-editor-grid">
-          <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="例如：江之島私人住宿" required /></div>
+          <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="${escapeHtml(placeEditorNamePlaceholder(kind))}" required /></div>
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
-          <div class="field"><label for="place-editor-category">分類</label><input id="place-editor-category" name="category" maxlength="60" value="${escapeHtml(category)}" placeholder="例如：私人住宿" /></div>
+          <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="請貼上房東提供的完整門牌地址" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
@@ -6485,8 +6515,9 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <button type="button" class="secondary-button" data-restore-auto-area>恢復自動分區</button></details>
         </div>
         <section class="place-photo-editor">
-          <div class="place-photo-preview ${editorPhoto ? "has-photo" : ""}" data-place-photo-preview>${editorPhoto ? `<img src="${escapeHtml(editorPhoto)}" alt="${escapeHtml(displayName)}地點照片" />` : `<span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small>`}</div>
-          <div class="place-photo-actions"><label class="secondary-button" for="place-photo-input">${editorPhoto ? "更換照片" : "從相簿或相機選擇"}</label><input class="visually-hidden" id="place-photo-input" type="file" accept="image/*" data-place-photo-input /><button type="button" data-remove-place-photo ${editorPhoto ? "" : "hidden"}>移除照片</button></div>
+          <button class="place-photo-preview place-photo-upload-zone" type="button" data-place-photo-upload-zone ${editorPhoto ? "hidden" : ""}><span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small></button>
+          <div class="place-photo-preview has-photo" data-place-photo-preview ${editorPhoto ? "" : "hidden"}>${editorPhoto ? `<img src="${escapeHtml(editorPhoto)}" alt="${escapeHtml(displayName || "地點")}地點照片" />` : ""}</div>
+          <div class="place-photo-actions"><label class="secondary-button" for="place-photo-input" data-replace-place-photo ${editorPhoto ? "" : "hidden"}>更換照片</label><input class="visually-hidden" id="place-photo-input" type="file" accept="image/*" data-place-photo-input /><button type="button" data-remove-place-photo ${editorPhoto ? "" : "hidden"}>移除照片</button></div>
           <small data-place-photo-status>${editorPhoto ? (photoOrigin === "lodging_source" ? "已帶入原住宿頁的照片，儲存時會壓縮保留" : "這張照片會顯示在地點詳情與地圖預覽") : "照片會壓縮後與旅伴共用"}</small>
         </section>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : "確認新增"}</button></div>
@@ -7940,7 +7971,7 @@ document.addEventListener("submit", async (event) => {
       return showToast("地址無法解析，尚未建立住宿");
     }
     const kind = String(form.get("kind") || "lodging");
-    const category = String(form.get("category") || "").normalize("NFKC").trim().slice(0, 60) || kindLabel(kind);
+    const category = String(form.get("category") || "").normalize("NFKC").trim().slice(0, 60) || defaultPlaceCategory(kind);
     const addressUnchanged = Boolean(existing && address === event.target.dataset.originalAddress);
     let customPhotoDataUrl = pendingPlacePhoto || (!removePendingPlacePhoto ? existing?.customPhotoDataUrl || "" : "");
     if (customPhotoDataUrl && customPhotoDataUrl.length > 260000) {
