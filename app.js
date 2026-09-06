@@ -5708,7 +5708,7 @@ async function rematchImportCandidateGroup(groupId) {
         sourceUrl: source.referenceUrl,
         sourcePlatform: source.sourcePlatform,
         sourceSummary: source.sourceSummary,
-        excludePlaceIds,
+        excludePlaceIds: excludedPlaceIds,
       }),
     });
     const payload = await response.json().catch(() => ({}));

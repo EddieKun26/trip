@@ -830,6 +830,109 @@ test("each social place group can be rematched or skipped without forcing a wron
   assert.match(stylesSource, /\.import-rematch-sheet input\s*{[^}]*font-size:\s*16px/s);
 });
 
+test("social place rematch builds the contracted request and reaches fetch", async () => {
+  const section = sourceSection("async function rematchImportCandidateGroup", "function closeImportCandidatePreview");
+  const button = { disabled: false, textContent: "重新搜尋" };
+  const status = { textContent: "", dataset: {} };
+  const queryInput = { value: "  Mugi Cafe 澀谷  " };
+  const root = {
+    querySelector(selector) {
+      if (selector === "[data-run-import-rematch]") return button;
+      if (selector === "[data-import-rematch-status]") return status;
+      if (selector === "#import-rematch-query") return queryInput;
+      return null;
+    },
+  };
+  const sheetRoot = {
+    querySelector(selector) {
+      return selector === "[data-import-rematch-root]" ? root : null;
+    },
+  };
+  const pending = [
+    {
+      candidateGroupId: "group-mugi",
+      candidateExcludedPlaceIds: ["place-prior", "place-duplicate"],
+      placeId: "place-current-1",
+      candidateCategory: "restaurant",
+      candidateAddress: "東京都澀谷區",
+      candidateCity: "東京",
+      candidateArea: "澀谷",
+      candidateCountry: "日本",
+      candidateSearchClues: "咖啡店",
+      sourceEvidence: "原貼文寫有店名",
+      sourceImageIndexes: [1],
+      referenceUrl: "https://www.instagram.com/reel/ABC123/",
+      sourcePlatform: "Instagram",
+      sourceSummary: "東京咖啡店",
+      kind: "restaurant",
+    },
+    {
+      candidateGroupId: "group-mugi",
+      placeId: "place-current-2",
+      candidateCategory: "restaurant",
+      kind: "restaurant",
+    },
+  ];
+  const fetchCalls = [];
+  const toasts = [];
+  const fetch = async (...args) => {
+    fetchCalls.push(args);
+    return {
+      ok: true,
+      async json() {
+        return {
+          candidates: [{
+            name: "Mugi Cafe Shibuya",
+            sourceUrl: "https://www.google.com/maps/place/?q=place_id:place-new",
+            placeId: "place-new",
+          }],
+        };
+      },
+    };
+  };
+  const harness = new Function(
+    "sheetRoot",
+    "state",
+    "currentMemberId",
+    "importAlreadyExists",
+    "closeImportRematchSheet",
+    "renderImportPreview",
+    "updateImportConfirmState",
+    "showToast",
+    "fetch",
+    "initialPending",
+    `let pendingPlaceImports = initialPending; ${section}; return { rematchImportCandidateGroup, pending: () => pendingPlaceImports };`,
+  )(
+    sheetRoot,
+    { tripId: "trip-123", profile: { nickname: "測試者" } },
+    () => "member-1",
+    () => false,
+    () => {},
+    () => {},
+    () => {},
+    (message) => toasts.push(message),
+    fetch,
+    pending,
+  );
+
+  await harness.rematchImportCandidateGroup("group-mugi");
+
+  assert.equal(fetchCalls.length, 1, "rematch must reach fetch exactly once instead of failing while constructing the request");
+  const [endpoint, options] = fetchCalls[0];
+  assert.equal(endpoint, "/api/social-place-import");
+  assert.equal(options.method, "POST");
+  assert.equal(options.headers["Content-Type"], "application/json");
+  const body = JSON.parse(options.body);
+  assert.equal(body.action, "rematch");
+  assert.equal(body.query, "Mugi Cafe 澀谷");
+  assert.deepEqual(body.excludePlaceIds, ["place-prior", "place-duplicate", "place-current-1", "place-current-2"]);
+  assert.equal(Object.hasOwn(body, "excludedPlaceIds"), false);
+  assert.equal(harness.pending()[0].placeId, "place-new");
+  assert.deepEqual(harness.pending()[0].candidateExcludedPlaceIds, body.excludePlaceIds);
+  assert.deepEqual(toasts, ["已為「Mugi Cafe 澀谷」找到 1 個新候選"]);
+  assert.notEqual(status.dataset.tone, "error");
+});
+
 test("general social candidates support independent multi-selection while lodging remains single-select", () => {
   const importer = sourceSection("function socialGroupsToImports", "async function recognizeSocialPlace");
   const { socialGroupsToImports } = new Function(
