@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readProductDraft } from "../lib/product-page.mjs";
 import { findProductImages, openAiSources, searchProductImageCandidates } from "../product-image-search.mjs";
 
 export const maxDuration = 90;
@@ -309,6 +310,10 @@ export default async function shoppingRecognizeHandler(request, response) {
     if (!tripId) return sendJson(response, 400, { error: "TRIP_REQUIRED" });
     const trip = await readJson(`${TRIP_PREFIX}${tripId}`);
     if (!trip?.members?.[member.id]) return sendJson(response, 403, { error: "TRIP_ACCESS_REQUIRED" });
+    if (body.action === "url-draft") {
+      const draft = await readProductDraft(body.sourceUrl);
+      return sendJson(response, 200, { draft });
+    }
     const imageDataUrl = String(body.imageDataUrl || "");
     if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > MAX_IMAGE_LENGTH) {
       return sendJson(response, 400, { error: "VALID_IMAGE_REQUIRED" });
