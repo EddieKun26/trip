@@ -170,7 +170,7 @@ if (!localStorage.getItem(cleanupMigrationKey)) {
 }
 
 const savedCustomPlaces = JSON.parse(localStorage.getItem("tokyo-custom-places") || "[]");
-const rawSavedProfile = JSON.parse(localStorage.getItem("tokyo-profile-v1") || "null");
+const rawSavedProfile = readUiPreference("tokyo-profile-v1");
 const savedProfile = rawSavedProfile?.authVersion === 2
   ? {
       ...rawSavedProfile,
@@ -215,19 +215,19 @@ function emptyShoppingState() {
 }
 
 const state = {
-  tripId: localStorage.getItem("active-trip-v1") || "",
+  tripId: "",
+  hydrationStatus: "loading",
+  hydratedMemberId: "",
+  hydratedTripId: "",
   trips: [],
-  tripTitle: "東京 7 日",
-  destination: "東京",
-  startDate: "2026-09-20",
-  endDate: "2026-09-26",
+  tripTitle: "",
+  destination: "",
+  startDate: "",
+  endDate: "",
   inviteCode: "",
   ownerId: "",
   pendingInviteCode: sharedInviteCode,
-  flights: [
-    { id: "flight-khh-nrt", direction: "去程", departureDate: "2026-09-20", departureTime: "09:55", departureCity: "高雄", departureCode: "KHH", arrivalDate: "2026-09-20", arrivalTime: "14:45", arrivalCity: "成田", arrivalCode: "NRT", travelers: "尚未註記" },
-    { id: "flight-nrt-khh", direction: "回程", departureDate: "2026-09-26", departureTime: "17:50", departureCity: "成田", departureCode: "NRT", arrivalDate: "2026-09-26", arrivalTime: "21:00", arrivalCity: "高雄", arrivalCode: "KHH", travelers: "尚未註記" },
-  ],
+  flights: [],
   activeTab: "overview",
   placesMode: "list",
   placeKind: "all",
@@ -239,33 +239,18 @@ const state = {
   mapPreference: "all",
   selectedDate: "9/22",
   itineraryPlaceKind: "all",
-  places: [
-    ...fallbackPlaces
-      .filter((place) => !savedDeletedPlaces.includes(place.name))
-      .map((place) => ({ ...place, ...placeDetails[place.name], kind: normalizedPlaceKind(place) })),
-    ...savedCustomPlaces.map((place) => ({
-      description: "這是家人新增的收藏地點，詳細介紹可以稍後再補上。",
-      highlights: ["自訂收藏"],
-      galleryLabels: ["地點照片", "環境照片", "附近街景"],
-      openingHours: "待 Google Maps 同步",
-      phone: "待 Google Maps 同步",
-      addedByName: "璋",
-      ...place,
-      kind: normalizedPlaceKind(place),
-    })),
-  ],
-  deletedPlaces: savedDeletedPlaces,
+  places: [],
+  deletedPlaces: [],
   profile: savedProfile,
   isGuest: savedAccessMode === "guest" && !savedProfile && !sharedInviteCode,
   members: savedProfile ? { [savedProfile.id]: savedProfile.nickname } : {},
   sharedRevision: 0,
-  votes: JSON.parse(
-    localStorage.getItem("tokyo-votes-v2") || JSON.stringify(defaultVotes),
-  ),
-  itinerary: JSON.parse(localStorage.getItem("tokyo-itinerary") || "{}"),
+  votes: {},
+  itinerary: {},
   transports: [],
   shopping: emptyShoppingState(),
   shoppingLoaded: false,
+  shoppingLoadStatus: "idle",
   shoppingFilter: "all",
   shoppingStatus: "all",
   shoppingRecipientFilter: "all",
@@ -284,6 +269,10 @@ let pendingPlacePhoto = "";
 let removePendingPlacePhoto = false;
 let sharedSaveTimer = 0;
 let sharedSyncBusy = false;
+let tripContextVersion = 0;
+let tripsLoadSequence = 0;
+let tripReadSequence = 0;
+let shoppingLoadSequence = 0;
 let mapRenderToken = 0;
 let activeLeafletMap = null;
 let activeGoogleMap = null;
@@ -355,11 +344,11 @@ function escapeHtml(value = "") {
 }
 
 function canEdit() {
-  return Boolean(state.profile) && !state.isGuest && Boolean(state.tripId) && state.trips.some((trip) => trip.id === state.tripId);
+  return tripIsHydrated() && Boolean(state.profile) && !state.isGuest && Boolean(state.tripId) && state.trips.some((trip) => trip.id === state.tripId);
 }
 
 function canManageShopping() {
-  return Boolean(state.profile) && !state.isGuest && Boolean(state.tripId) && state.trips.some((trip) => trip.id === state.tripId);
+  return canEdit();
 }
 
 function undoButtonMarkup(className = "page-undo-button") {
@@ -442,6 +431,7 @@ function restoreLastAction() {
 }
 
 function persist({ sync = true, recordUndo = sync, resetUndo = false } = {}) {
+  if (!tripIsHydrated()) return;
   const nextSnapshot = reversibleTripSnapshot();
   const nextBaseline = JSON.stringify(nextSnapshot);
   if (resetUndo) {
@@ -453,11 +443,10 @@ function persist({ sync = true, recordUndo = sync, resetUndo = false } = {}) {
   }
   undoBaseline = nextBaseline;
   if (state.profile) {
-    localStorage.setItem("tokyo-profile-v1", JSON.stringify(state.profile));
+    try { localStorage.setItem("tokyo-profile-v1", JSON.stringify(state.profile)); } catch {}
   }
   if (state.tripId) {
-    localStorage.setItem("active-trip-v1", state.tripId);
-    localStorage.setItem(`trip-cache-v1:${state.tripId}`, JSON.stringify(sharedTripPayload()));
+    saveUiPreference();
   }
   if (sync && canEdit()) {
     window.clearTimeout(sharedSaveTimer);
@@ -1426,6 +1415,10 @@ function applySharedTrip(payload) {
 async function saveSharedTrip() {
   if (!canEdit() || sharedSyncBusy) return;
   sharedSyncBusy = true;
+  const memberId = currentMemberId();
+  const tripId = state.tripId;
+  const context = tripContextVersion;
+  const current = () => context === tripContextVersion && memberId === currentMemberId() && tripId === state.tripId;
   try {
     state.members[currentMemberId()] = state.profile.nickname;
     const response = await fetch(`/api/trip?id=${encodeURIComponent(state.tripId)}`, {
@@ -1435,19 +1428,17 @@ async function saveSharedTrip() {
       },
       body: JSON.stringify(sharedTripPayload()),
     });
+    if (!current()) return;
     if (response.status === 401) {
-      state.profile = null;
-      localStorage.removeItem("tokyo-profile-v1");
-      sessionStorage.removeItem("tokyo-access-mode-v1");
-      render({ preserveScroll: true });
-      openProfileSheet(true);
+      expireAppSession();
       return showToast("登入已過期，請重新輸入暱稱與 PIN");
     }
     if (!response.ok) throw new Error("SAVE_FAILED");
     const payload = await response.json();
+    if (!current()) return;
     state.sharedRevision = Number(payload.revision) || state.sharedRevision;
   } catch {
-    showToast("共用資料暫時無法同步，稍後會再試");
+    if (current()) showToast("共用資料暫時無法同步，稍後會再試");
   } finally {
     sharedSyncBusy = false;
   }
@@ -1495,18 +1486,28 @@ function applyPrivateShopping(payload) {
 }
 
 async function loadShopping({ quiet = false, force = false } = {}) {
-  if (!canManageShopping()) return;
+  if (!canManageShopping() || state.shoppingLoadStatus === "loading") return;
   const tripId = state.tripId;
+  const memberId = currentMemberId();
+  const context = tripContextVersion;
+  const sequence = ++shoppingLoadSequence;
+  const current = () => tripIsHydrated() && context === tripContextVersion && sequence === shoppingLoadSequence
+    && tripId === state.tripId && memberId === currentMemberId();
+  state.shoppingLoadStatus = "loading";
+  if (state.activeTab === "shopping") render({ preserveScroll: true });
   try {
-    const response = await fetch(`/api/shopping?tripId=${encodeURIComponent(tripId)}`, { cache: "no-store" });
-    if (response.status === 401) return;
-    if (!response.ok) throw new Error("SHOPPING_LOAD_FAILED");
-    const payload = await response.json();
-    if (state.tripId !== tripId) return;
-    if (!force && state.shoppingLoaded && Number(payload.revision) <= Number(state.shopping.revision)) return;
-    applyPrivateShopping(payload);
+    const result = await readAppJson(`/api/shopping?tripId=${encodeURIComponent(tripId)}`);
+    if (!current()) return;
+    if (result.status === 401) { expireAppSession(); return; }
+    if (!result.ok || !Array.isArray(result.payload?.items)) throw new Error("SHOPPING_LOAD_FAILED");
+    const payload = result.payload;
+    if (force || !state.shoppingLoaded || Number(payload.revision) > Number(state.shopping.revision)) applyPrivateShopping(payload);
+    state.shoppingLoadStatus = "ready";
     if (state.activeTab === "shopping") render({ preserveScroll: true });
   } catch {
+    if (!current()) return;
+    state.shoppingLoadStatus = "error";
+    if (state.activeTab === "shopping") render({ preserveScroll: true });
     if (!quiet) showToast("私人採買清單暫時無法載入");
   }
 }
@@ -1519,6 +1520,9 @@ async function saveShopping() {
   }
   shoppingSaveBusy = true;
   const tripId = state.tripId;
+  const memberId = currentMemberId();
+  const context = tripContextVersion;
+  const current = () => context === tripContextVersion && tripId === state.tripId && memberId === currentMemberId() && tripIsHydrated();
   try {
     const response = await fetch(`/api/shopping?tripId=${encodeURIComponent(tripId)}`, {
       method: "PUT",
@@ -1527,13 +1531,14 @@ async function saveShopping() {
     });
     if (!response.ok) throw new Error("SHOPPING_SAVE_FAILED");
     const payload = await response.json();
-    if (state.tripId === tripId) {
+    if (!current()) return null;
+    if (current()) {
       state.shopping.revision = Number(payload.revision) || state.shopping.revision;
       state.shopping.updatedAt = payload.updatedAt || state.shopping.updatedAt;
     }
     return payload;
   } catch {
-    showToast("私人採買清單暫時無法儲存，請稍後重試");
+    if (current()) showToast("私人採買清單暫時無法儲存，請稍後重試");
     return null;
   } finally {
     shoppingSaveBusy = false;
@@ -1544,58 +1549,183 @@ async function saveShopping() {
   }
 }
 
-async function loadTrips({ selectNewest = false } = {}) {
-  if (!state.profile) return;
-  const response = await fetch("/api/trips", { cache: "no-store" });
-  if (response.status === 401) {
-    state.profile = null;
-    state.trips = [];
-    state.tripId = "";
-    localStorage.removeItem("tokyo-profile-v1");
+function appLoadingMarkup(failed = false) {
+  return `<section class="screen startup-state" role="status" aria-live="polite" aria-busy="${!failed}">
+    <h1>${failed ? "旅程暫時無法載入" : "正在載入你的旅程"}</h1>
+    <p>${failed ? "請檢查連線後重試。" : "正在確認旅程資料，請稍候。"}</p>
+    ${failed ? `<button type="button" class="primary-button" data-retry-startup>重新載入</button>` : `<div class="startup-skeleton" aria-hidden="true"></div>`}
+  </section>`;
+}
+
+function readUiPreference(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
+}
+
+function activeTripPreferenceKey() {
+  return `active-trip-v2:${encodeURIComponent(currentMemberId())}`;
+}
+
+function tripUiPreferenceKey() {
+  return `trip-ui-v1:${encodeURIComponent(currentMemberId())}:${encodeURIComponent(state.tripId)}`;
+}
+
+function tripIsHydrated() {
+  return state.hydrationStatus === "ready" && state.hydratedMemberId === currentMemberId()
+    && state.hydratedTripId === state.tripId;
+}
+
+function safeMainTab(value) {
+  return ["overview", "places", "itinerary", "shopping"].includes(value) ? value : "overview";
+}
+
+function saveUiPreference() {
+  if (!tripIsHydrated() || !currentMemberId() || !state.tripId) return;
+  try {
+    localStorage.setItem(activeTripPreferenceKey(), JSON.stringify(state.tripId));
+    // Explicit external intent is transient until the user reaches its destination.
+    if (!state.pendingInviteCode && !pendingShareTargetText) {
+      localStorage.setItem(tripUiPreferenceKey(), JSON.stringify({ mainTab: safeMainTab(state.activeTab) }));
+    }
+  } catch { /* Unavailable device storage must not block an authenticated trip. */ }
+}
+
+function restoreUiPreference() {
+  state.activeTab = state.pendingInviteCode ? "overview" : pendingShareTargetText ? "places"
+    : safeMainTab(readUiPreference(tripUiPreferenceKey())?.mainTab);
+}
+
+function clearTripView() {
+  Object.assign(state, { tripId: "", tripTitle: "", destination: "", startDate: "", endDate: "",
+    inviteCode: "", ownerId: "", flights: [], places: [], deletedPlaces: [], votes: {}, itinerary: {}, transports: [],
+    members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
+    placeKind: "all", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
+    shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
+    shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
+  shoppingUndoSnapshot = null;
+  shoppingSelectionMode = false;
+  shoppingSelectedIds.clear();
+  shoppingSavePending = false;
+}
+
+function beginTripHydration() {
+  tripContextVersion += 1;
+  clearTimeout(sharedSaveTimer);
+  sharedSaveTimer = 0;
+  closeSheet();
+  clearTripView();
+  state.hydrationStatus = "loading";
+  state.hydratedMemberId = "";
+  state.hydratedTripId = "";
+  return tripContextVersion;
+}
+
+function expireAppSession() {
+  beginTripHydration();
+  state.profile = null;
+  state.trips = [];
+  state.hydrationStatus = "ready";
+  try { localStorage.removeItem("tokyo-profile-v1"); sessionStorage.removeItem("tokyo-access-mode-v1"); } catch {}
+  closeSheet();
+  render();
+  openProfileSheet(true);
+}
+
+async function readAppJson(url, options = {}) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, { ...options, cache: "no-store", signal: controller.signal });
+        if (!response.ok) return { status: response.status, ok: false };
+        return { status: response.status, ok: true, payload: await response.json() };
+      })(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new Error("APP_LOAD_TIMEOUT")); }, 20000);
+      }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function loadTrips({ selectNewest = false, preferredTripId = "" } = {}) {
+  if (!state.profile) return false;
+  const memberId = currentMemberId();
+  const sequence = ++tripsLoadSequence;
+  const context = beginTripHydration();
+  state.trips = [];
+  render();
+  const current = () => context === tripContextVersion && sequence === tripsLoadSequence && memberId === currentMemberId();
+  try {
+    const result = await readAppJson("/api/trips");
+    if (!current()) return false;
+    if (result.status === 401) { expireAppSession(); return false; }
+    if (!result.ok || !Array.isArray(result.payload?.trips)) throw new Error("TRIPS_LOAD_FAILED");
+    state.trips = result.payload.trips.filter((trip) => typeof trip?.id === "string" && trip.id);
+    let preferred = preferredTripId || (selectNewest ? state.trips.at(-1)?.id : readUiPreference(activeTripPreferenceKey()));
+    // One-time compatibility for the member whose profile was present at page load.
+    // The legacy ID is only a selection hint; the authorized list and trip GET validate it.
+    if (!preferred && savedProfile?.id === memberId) {
+      try {
+        if (localStorage.getItem(activeTripPreferenceKey()) === null) preferred = localStorage.getItem("active-trip-v1");
+      } catch {}
+    }
+    const candidates = [...state.trips].sort((a, b) => Number(b.id === preferred) - Number(a.id === preferred));
+    for (const trip of candidates) {
+      state.tripId = trip.id;
+      const outcome = await loadSharedTrip({ quiet: true, force: true, hydrating: true });
+      if (!current()) return false;
+      if (outcome === "ready") {
+        // Private shopping has its own loading state and never blocks the first trip render.
+        void loadShopping({ quiet: true, force: true });
+        return true;
+      }
+      if (outcome !== "unavailable") throw new Error("TRIP_LOAD_FAILED");
+      state.trips = state.trips.filter((item) => item.id !== trip.id);
+    }
+    clearTripView();
+    state.hydrationStatus = "ready";
+    state.hydratedMemberId = memberId;
+    state.hydratedTripId = "";
+    try { localStorage.setItem(activeTripPreferenceKey(), JSON.stringify("")); } catch {}
     render();
-    openProfileSheet(true);
-    return;
+    return true;
+  } catch {
+    if (!current()) return false;
+    clearTripView();
+    state.hydrationStatus = "error";
+    render();
+    return false;
   }
-  if (!response.ok) throw new Error("TRIPS_LOAD_FAILED");
-  state.trips = (await response.json()).trips || [];
-  const preferred = selectNewest ? state.trips.at(-1)?.id : localStorage.getItem("active-trip-v1");
-  const nextId = state.trips.some((trip) => trip.id === preferred) ? preferred : state.trips[0]?.id || "";
-  state.tripId = nextId;
-  state.sharedRevision = 0;
-  if (nextId) {
-    await loadSharedTrip({ quiet: true, force: true });
-    state.shoppingLoaded = false;
-    state.shopping = emptyShoppingState();
-    await loadShopping({ quiet: true, force: true });
-  }
-  else render();
 }
 
 async function switchTrip(tripId) {
   if (!state.trips.some((trip) => trip.id === tripId)) return;
+  const memberId = currentMemberId();
+  const previousContext = tripContextVersion;
+  saveUiPreference();
   if (sharedSaveTimer) {
     window.clearTimeout(sharedSaveTimer);
     sharedSaveTimer = 0;
     await saveSharedTrip();
   }
+  if (memberId !== currentMemberId() || previousContext !== tripContextVersion) return;
+  const context = beginTripHydration();
   state.tripId = tripId;
-  state.sharedRevision = 0;
-  state.placeKind = "all";
-  state.mapCategory = "all";
-  state.mapView = "planning";
-  state.mapDate = "all";
-  state.shoppingLoaded = false;
-  state.shopping = emptyShoppingState();
-  state.shoppingFilter = "all";
-  state.shoppingRecipientFilter = "all";
-  shoppingUndoSnapshot = null;
-  shoppingSelectionMode = false;
-  shoppingSelectedIds.clear();
-  localStorage.setItem("active-trip-v1", tripId);
   closeSheet();
-  await loadSharedTrip({ force: true });
-  await loadShopping({ quiet: true, force: true });
-  maybeOpenShareTargetImport();
+  render();
+  const outcome = await loadSharedTrip({ force: true, hydrating: true });
+  if (context !== tripContextVersion || memberId !== currentMemberId()) return;
+  if (outcome === "unavailable") {
+    // Refresh the authorized list once; loadTrips tries each remaining ID at most once.
+    await loadTrips();
+  } else if (outcome !== "ready") {
+    clearTripView();
+    state.hydrationStatus = "error";
+    render();
+  } else {
+    void loadShopping({ quiet: true, force: true });
+    if (!state.pendingInviteCode) maybeOpenShareTargetImport();
+  }
 }
 
 async function mutateTrips(payload) {
@@ -1664,29 +1794,43 @@ async function shareCurrentTrip() {
   return showToast(copied ? "邀請連結已複製" : "暫時無法複製連結");
 }
 
-async function loadSharedTrip({ quiet = false, force = false } = {}) {
-  if (sharedSyncBusy) return;
+async function loadSharedTrip({ quiet = false, force = false, hydrating = false } = {}) {
+  if ((!hydrating && (sharedSyncBusy || !tripIsHydrated())) || !state.tripId || !currentMemberId()) return "stale";
+  const tripId = state.tripId;
+  const memberId = currentMemberId();
+  const context = tripContextVersion;
+  const sequence = ++tripReadSequence;
+  const current = () => context === tripContextVersion && sequence === tripReadSequence
+    && tripId === state.tripId && memberId === currentMemberId();
   try {
-    if (!state.tripId) return;
-    const response = await fetch(`/api/trip?id=${encodeURIComponent(state.tripId)}`, { cache: "no-store" });
-    if (response.status === 403) {
-      localStorage.removeItem("active-trip-v1");
-      state.tripId = "";
-      await loadTrips();
-      return showToast("你已不在這趟旅程中");
+    const result = await readAppJson(`/api/trip?id=${encodeURIComponent(tripId)}`);
+    if (!current()) return "stale";
+    if (result.status === 401) { expireAppSession(); return "stale"; }
+    if ([403, 404].includes(result.status)) {
+      if (!hydrating) await loadTrips();
+      return "unavailable";
     }
-    if (!response.ok) throw new Error("LOAD_FAILED");
-    const payload = await response.json();
-    if (!force && (Number(payload.revision) || 0) <= state.sharedRevision) return;
-    if (!force && state.activeTab === "places" && state.placesMode === "map" && Date.now() < mapInteractionUntil) return;
+    if (!result.ok) throw new Error("LOAD_FAILED");
+    const payload = result.payload;
+    if (payload?.id !== tripId || !Array.isArray(payload.places)) throw new Error("INVALID_TRIP_PAYLOAD");
+    if (!force && (Number(payload.revision) || 0) <= state.sharedRevision) return "ready";
+    if (!force && state.activeTab === "places" && state.placesMode === "map" && Date.now() < mapInteractionUntil) return "ready";
     if (applySharedTrip(payload)) {
+      if (hydrating) {
+        restoreUiPreference();
+        state.hydrationStatus = "ready";
+        state.hydratedMemberId = memberId;
+        state.hydratedTripId = tripId;
+      }
       persist({ sync: false, resetUndo: true });
       render({ preserveScroll: true });
       window.setTimeout(resolveStoredPlacePlanningRegions, 0);
+      return "ready";
     }
   } catch {
-    if (!quiet) showToast("目前顯示離線資料");
+    if (current() && !quiet && !hydrating) showToast("旅程更新暫時失敗，目前保留已載入的資料");
   }
+  return current() ? "error" : "stale";
 }
 
 function guestOnlyMessage() {
@@ -1694,6 +1838,8 @@ function guestOnlyMessage() {
 }
 
 async function setTab(tab) {
+  if (!tripIsHydrated()) return;
+  tab = safeMainTab(tab);
   if (tab !== "shopping") {
     shoppingSelectionMode = false;
     shoppingSelectedIds.clear();
@@ -3256,6 +3402,14 @@ function shoppingItemMarkup(item) {
 }
 
 function shoppingScreen() {
+  if (!state.shoppingLoaded || state.shoppingLoadStatus === "error") {
+    const failed = state.shoppingLoadStatus === "error";
+    return `<section class="screen shopping-screen"><h1>採買清單</h1><p class="meta">${escapeHtml(state.tripTitle)} · 只有你看得到</p>
+      <div class="startup-state" role="status" aria-live="polite" aria-busy="${!failed}">
+        <h2>${failed ? "私人清單暫時無法載入" : "正在載入你的私人清單"}</h2>
+        ${failed ? `<button type="button" class="secondary-button" data-retry-shopping>重新載入</button>` : `<div class="startup-skeleton" aria-hidden="true"></div>`}
+      </div></section>`;
+  }
   const existingIds = new Set(state.shopping.items.map((item) => item.id));
   shoppingSelectedIds = new Set([...shoppingSelectedIds].filter((id) => existingIds.has(id)));
   const total = state.shopping.items.length;
@@ -3583,6 +3737,7 @@ async function handleManualShoppingPhotoFile(input) {
   const status = form?.querySelector("[data-shopping-manual-photo-status]");
   const file = input.files?.[0];
   if (!form || !file) return;
+  const context = tripContextVersion;
   if (!String(file.type || "").startsWith("image/")) {
     input.value = "";
     if (status) status.textContent = "請選擇圖片檔案";
@@ -3591,7 +3746,9 @@ async function handleManualShoppingPhotoFile(input) {
   form.dataset.shoppingPhotoBusy = "true";
   if (status) status.textContent = "正在準備圖片…";
   try {
-    pendingManualShoppingPhoto = await compressShoppingScreenshot(file);
+    const photo = await compressShoppingScreenshot(file);
+    if (context !== tripContextVersion || !form.isConnected) return;
+    pendingManualShoppingPhoto = photo;
     removeManualShoppingPhoto = false;
     if (status) status.textContent = `已選擇：${file.name}`;
     renderManualShoppingPhotoPreview(form);
@@ -3664,6 +3821,11 @@ async function researchShoppingItem(itemId, button) {
   if (!canManageShopping()) return guestOnlyMessage();
   const item = state.shopping.items.find((candidate) => candidate.id === itemId);
   if (!item) return;
+  const context = tripContextVersion;
+  const memberId = currentMemberId();
+  const tripId = state.tripId;
+  const current = () => context === tripContextVersion && memberId === currentMemberId() && tripId === state.tripId
+    && tripIsHydrated() && state.shopping.items.includes(item);
   const originalLabel = button?.textContent || "用 AI 查詢商品資料";
   if (button) {
     button.disabled = true;
@@ -3676,17 +3838,21 @@ async function researchShoppingItem(itemId, button) {
       body: JSON.stringify({ tripId: state.tripId, itemId }),
     });
     const payload = await response.json().catch(() => ({}));
+    if (!current()) return;
     if (!response.ok) throw new Error(payload.error || "AI_RESEARCH_FAILED");
     recordShoppingUndo();
     const rawProductImage = payload.annotation?.productImages?.[0] || null;
     const productImage = await compressAiProductImage(rawProductImage);
+    if (!current()) return;
     item.aiAnnotation = payload.annotation ? { ...payload.annotation, productImages: productImage ? [productImage] : [] } : null;
     item.preferredProductImageUrl = shoppingAiProductImages(item)[0]?.url || "";
     item.updatedAt = new Date().toISOString();
     await saveShopping();
+    if (!current()) return;
     openShoppingDetailSheet(item.id);
     showToast(item.preferredProductImageUrl ? "商品資料與商品圖已更新" : "商品資料已更新", { allowUndo: false });
   } catch (error) {
+    if (!current()) return;
     if (button?.isConnected) {
       button.disabled = false;
       button.textContent = originalLabel;
@@ -4139,6 +4305,15 @@ function itineraryScreen() {
 }
 
 function render({ preserveScroll = false } = {}) {
+  if (state.hydrationStatus === "loading" || (state.hydrationStatus === "ready" && !tripIsHydrated())) {
+    app.innerHTML = appLoadingMarkup();
+    return;
+  }
+  if (state.hydrationStatus === "error") {
+    app.innerHTML = appLoadingMarkup(true);
+    return;
+  }
+  saveUiPreference();
   const previousScrollTop = app.scrollTop;
   syncTabBarState();
   const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
@@ -6809,6 +6984,8 @@ let suppressPreviewCardClick = false;
 let itineraryPlaceSelection = new Set();
 
 document.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-retry-startup]")) return startApp();
+  if (event.target.closest("[data-retry-shopping]")) return loadShopping({ force: true });
   if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
 
   const previewShoppingImage = event.target.closest("[data-preview-shopping-image]");
@@ -6883,11 +7060,13 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.closest("[data-enter-guest]")) {
+    beginTripHydration();
     state.isGuest = true;
     state.profile = null;
     state.tripId = "";
     state.trips = [];
     state.sharedRevision = 0;
+    state.hydrationStatus = "ready";
     sessionStorage.setItem("tokyo-access-mode-v1", "guest");
     closeSheet();
     render();
@@ -7247,7 +7426,7 @@ document.addEventListener("click", async (event) => {
       }
       const previousTitle = state.tripTitle;
       await mutateTrips({ action: "leave", tripId: state.tripId });
-      localStorage.removeItem("active-trip-v1");
+      try { localStorage.removeItem(activeTripPreferenceKey()); } catch {}
       state.tripId = "";
       state.ownerId = "";
       closeSheet();
@@ -8105,6 +8284,9 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "shopping-import-form") {
     event.preventDefault();
     if (!canManageShopping()) return guestOnlyMessage();
+    const context = tripContextVersion;
+    const memberId = currentMemberId();
+    const tripId = state.tripId;
     const form = new FormData(event.target);
     syncPendingShoppingImportEdits(event.target);
     const imports = pendingShoppingImports.filter((entry) => entry.details?.name).slice(0, SHOPPING_IMPORT_MAX_FILES);
@@ -8141,6 +8323,7 @@ document.addEventListener("submit", async (event) => {
         updatedAt: now,
       };
     }));
+    if (context !== tripContextVersion || memberId !== currentMemberId() || tripId !== state.tripId || !tripIsHydrated()) return;
     state.shopping.items.unshift(...additions);
     pruneShoppingPhotos();
     const categories = [...new Set(additions.map((item) => item.categoryId))];
@@ -8282,15 +8465,16 @@ document.addEventListener("submit", async (event) => {
       return showToast(messages[error.message] || "目前無法登入，請稍後再試");
     }
     const { id } = member;
+    beginTripHydration();
     state.profile = member;
     state.isGuest = false;
     state.members[id] = member.nickname;
     sessionStorage.setItem("tokyo-access-mode-v1", "member");
     state.pendingInviteCode = inviteCode;
-    persist({ sync: false });
+    try { localStorage.setItem("tokyo-profile-v1", JSON.stringify(member)); } catch {}
     closeSheet();
     try {
-      await loadTrips();
+      if (!await loadTrips()) return;
     } catch {
       render();
       showToast("已登入，但旅程清單暫時無法載入");
@@ -8300,8 +8484,8 @@ document.addEventListener("submit", async (event) => {
       try {
         const trip = await mutateTrips({ action: "join", inviteCode });
         clearSharedInviteFromUrl();
-        await loadTrips();
-        await switchTrip(trip.id);
+        if (!await loadTrips({ preferredTripId: trip.id })) return;
+        maybeOpenShareTargetImport();
         return showToast(`已登入並加入「${trip.title}」`);
       } catch (error) {
         state.pendingInviteCode = inviteCode;
@@ -8327,8 +8511,9 @@ document.addEventListener("submit", async (event) => {
     submitButton.textContent = editing ? "儲存中…" : "建立中…";
     try {
       const trip = await mutateTrips({ action: editing ? "update" : "create", tripId: editing ? state.tripId : undefined, destination, title, startDate, endDate });
-      await loadTrips();
-      await switchTrip(trip.id);
+      if (!await loadTrips({ preferredTripId: trip.id })) return;
+      closeSheet();
+      maybeOpenShareTargetImport();
       return showToast(editing ? "旅程資訊已更新" : `已建立「${trip.title}」`);
     } catch (error) {
       submitButton.disabled = false;
@@ -8344,8 +8529,9 @@ document.addEventListener("submit", async (event) => {
     try {
       const trip = await mutateTrips({ action: "join", inviteCode });
       clearSharedInviteFromUrl();
-      await loadTrips();
-      await switchTrip(trip.id);
+      if (!await loadTrips({ preferredTripId: trip.id })) return;
+      closeSheet();
+      maybeOpenShareTargetImport();
       return showToast(`已加入「${trip.title}」`);
     } catch (error) {
       return showToast(error.message === "INVITE_NOT_FOUND" ? "找不到這組邀請碼" : "目前無法加入旅程");
@@ -8506,22 +8692,22 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
-persist({ sync: false, resetUndo: true });
-render();
-if (!state.profile && !state.isGuest) openProfileSheet(true);
-if (state.profile) {
-  loadTrips()
-    .then(() => {
-      if (state.pendingInviteCode) openJoinTripSheet();
-      else maybeOpenShareTargetImport();
-    })
-    .catch(() => showToast("旅程清單暫時無法載入"));
-} else if (state.isGuest) {
-  state.tripId = "";
-  render();
+async function startApp() {
+  if (!state.profile) {
+    beginTripHydration();
+    state.trips = [];
+    state.hydrationStatus = "ready";
+    render();
+    if (!state.isGuest) openProfileSheet(true);
+    return;
+  }
+  if (!await loadTrips()) return;
+  if (state.pendingInviteCode) openJoinTripSheet();
+  else maybeOpenShareTargetImport();
 }
+startApp();
 window.setInterval(() => {
-  if (!document.hidden && state.tripId) {
+  if (!document.hidden && state.tripId && tripIsHydrated()) {
     loadSharedTrip({ quiet: true });
     if (state.activeTab === "shopping") loadShopping({ quiet: true });
   }

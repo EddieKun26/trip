@@ -229,6 +229,22 @@ button {
   font-weight: 800;
 }
 
+.startup-state {
+  padding: 32px 20px;
+  color: var(--ink);
+}
+
+.startup-state p {
+  color: var(--muted);
+}
+
+.startup-skeleton {
+  height: 112px;
+  margin-top: 24px;
+  border-radius: 16px;
+  background: var(--line);
+}
+
 .page-undo-button,
 .sheet-undo-button {
   width: 40px;
