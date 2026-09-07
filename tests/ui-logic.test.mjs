@@ -389,7 +389,7 @@ test("overview is a decision dashboard and one-level undo is available", () => {
   assert.match(stylesSource, /\.toast button/);
 });
 
-test("overview titles stay complete and undo is available across pages and edit sheets", () => {
+test("overview titles stay complete and undo is available across pages and eligible sheets", () => {
   const titleRule = stylesSource.slice(stylesSource.indexOf(".overview-screen .trip-title-button h1"), stylesSource.indexOf(".overview-screen .subtitle"));
   assert.doesNotMatch(titleRule, /text-overflow:\s*ellipsis/);
   assert.match(titleRule, /white-space:\s*normal/);
@@ -546,7 +546,7 @@ test("lodging imports always expose a self-create draft and require successful a
   assert.match(importer, /pendingLodgingDrafts/);
   assert.match(importer, /data-create-lodging-draft/);
   assert.match(importer, /自行建立住宿/);
-  assert.match(importer, /這是住宿大約位置，不是入住地址/);
+  assert.match(importer, /大約位置，不是入住地址/);
   assert.match(importer, /candidate\.recommended === true/);
   assert.match(submit, /if \(!resolved \|\| !validMapCoordinates/);
   assert.match(submit, /地址無法解析，尚未建立住宿/);
@@ -1368,4 +1368,41 @@ test("shopping categories and recipient filters can be managed from the list and
   assert.match(appSource, /data-shopping-category-select/);
   assert.match(stylesSource, /\.shopping-tag-option-row > button/);
   assert.match(stylesSource, /\.shopping-custom-category-field\[hidden\]/);
+});
+
+
+test("Ticket A3 editor deny rule preserves eligible sheet and page global undo", () => {
+  const code = sourceSection("function undoButtonMarkup", "function currentMemberId");
+  for (const snapshot of [null, { places: [] }]) {
+    for (const kind of ["place", "lodging", "eligible", "nested-editor", "shopping"]) {
+      const children = [];
+      const sheet = {
+        hasAttribute: () => kind === "shopping",
+        matches: selector => selector === "#place-editor-form" ? ["place", "lodging"].includes(kind) : true,
+        querySelector: selector => selector === "#place-editor-form" ? kind === "nested-editor" : selector === "[data-sheet-undo]" ? children[0] : null,
+        append: button => children.push(button),
+      };
+      const doc = { createElement: () => ({ dataset: {}, setAttribute() {} }), querySelectorAll: () => children };
+      const helpers = new Function("sheetRoot", "document", "canEdit", "undoSnapshot", `${code}; return { decorateEditableSheetUndo, undoButtonMarkup, syncUndoButtons };`)({ querySelector: () => sheet }, doc, () => true, snapshot);
+      helpers.decorateEditableSheetUndo(); helpers.decorateEditableSheetUndo();
+      assert.equal(children.length, kind === "eligible" ? 1 : 0, kind);
+      helpers.syncUndoButtons();
+      if (children.length) assert.equal(children[0].disabled, !snapshot);
+      const page = helpers.undoButtonMarkup();
+      assert.match(page, /data-undo-last/);
+      assert.equal(page.includes("disabled"), !snapshot);
+    }
+  }
+});
+
+test("Ticket A3 restoreLastAction retains one saved shared snapshot and persist/close contract", () => {
+  const code = sourceSection("function restoreLastAction", "function persist(");
+  for (const snapshot of [null, { places: [{ name: "saved" }], flights: [], deletedPlaces: [], votes: {}, itinerary: {}, transports: [] }]) {
+    const state = { places: [{ name: "current" }] }, calls = [];
+    const restore = new Function("state", "undoSnapshot", "canEdit", "cloneValue", "ensureItineraryItemIds", "reconcileTransportSegments", "resetUndoBaseline", "persist", "closeSheet", "render", "showToast", `let offerUndoWithNextToast = true; ${code}; return restoreLastAction;`)(state, snapshot, () => true, structuredClone, () => {}, () => {}, () => {}, opts => calls.push(["persist", opts]), () => calls.push(["close"]), () => {}, () => {});
+    assert.equal(restore(), !!snapshot);
+    assert.equal(state.places[0].name, snapshot ? "saved" : "current");
+    assert.deepEqual(calls, snapshot ? [["persist", { recordUndo: false }], ["close"]] : []);
+    assert.equal(restore(), false);
+  }
 });

@@ -364,7 +364,7 @@ function syncUndoButtons() {
 
 function decorateEditableSheetUndo() {
   const sheet = sheetRoot.querySelector(".modal-sheet");
-  if (!sheet || sheet.hasAttribute("data-shopping-sheet") || !canEdit() || sheet.querySelector("[data-sheet-undo]")) return;
+  if (!sheet || sheet.hasAttribute("data-shopping-sheet") || sheet.matches("#place-editor-form") || sheet.querySelector("#place-editor-form") || !canEdit() || sheet.querySelector("[data-sheet-undo]")) return;
   const editable = sheet.matches("form") || sheet.querySelector("form, [data-confirm-time], [data-move-item]");
   if (!editable) return;
   const button = document.createElement("button");
@@ -6079,13 +6079,13 @@ function openImportCandidatePreview(identity) {
 
 function lodgingDraftsMarkup() {
   return pendingLodgingDrafts.map((draft, index) => {
-    const approximate = draft.locationPrecision === "approximate";
+    const primaryMessage = lodgingSourceStatusMessage(draft);
     const image = draft.sourceImageDataUrl
       ? `<img src="${escapeHtml(draft.sourceImageDataUrl)}" alt="${escapeHtml(draft.sourceLodgingName || "住宿")}來源照片" />`
       : `<span aria-hidden="true">住</span>`;
     const address = draft.address
       ? `<small>${escapeHtml(draft.address)}</small>`
-      : `<small class="missing">尚未取得入住地址，建立前必須補上</small>`;
+      : "";
     return `<article class="lodging-draft-card">
       <div class="lodging-draft-photo">${image}</div>
       <div class="lodging-draft-copy">
@@ -6093,8 +6093,7 @@ function lodgingDraftsMarkup() {
         <strong>${escapeHtml(draft.sourceLodgingName || "住宿名稱待補")}</strong>
         ${address}
       </div>
-      ${approximate ? `<p class="coordinate-fallback-notice"><strong>這是住宿大約位置，不是入住地址</strong><span>建立前請使用房東或訂單提供的完整地址。</span></p>` : ""}
-      ${(draft.sourceReadStatus || draft.notice) ? `<p class="lodging-draft-notice">${escapeHtml(draft.sourceReadStatus ? lodgingSourceStatusMessage(draft) : draft.notice)}</p>` : ""}
+      ${primaryMessage ? `<p class="lodging-draft-notice" data-lodging-primary-message>${escapeHtml(primaryMessage)}</p>` : ""}
       <button class="primary-button" type="button" data-create-lodging-draft="${index}">自行建立住宿</button>
     </article>`;
   }).join("");
@@ -6279,12 +6278,13 @@ function lodgingSourceMetadata(source = {}) {
   };
 }
 
-function lodgingSourceStatusMessage(source = {}) {
+function lodgingSourceStatusMessage(source = {}, address = source.locationPrecision === "approximate" ? "" : source.address || "") {
   if (["blocked", "unavailable"].includes(source.sourceReadStatus)) {
     return `${source.sourcePlatform || "住宿平台"} 目前無法自動讀取來源資料；請自行補上名稱、完整地址與照片，原始連結已保留。`;
   }
-  if (source.locationPrecision === "approximate") return "已帶入來源資料；平台僅提供大約位置，請補入住完整地址";
-  return source.referenceUrl ? "已帶入可取得的來源資料，請補齊缺少的名稱、完整地址或照片" : "";
+  if (source.locationPrecision === "approximate") return address.trim() ? "" : "尚未取得完整入住地址：Airbnb 僅提供大約位置，不是入住地址；請貼上房東或訂單提供的完整地址。";
+  if (!source.sourceReadStatus && source.notice) return source.notice;
+  return source.referenceUrl ? "已帶入可取得的來源資料，請補齊缺少的名稱、完整地址或照片" : address ? "" : "尚未取得入住地址，建立前必須補上";
 }
 
 function lodgingCandidateSource(candidate, draft) {
@@ -6349,8 +6349,9 @@ function bindPlaceEditor(form, existing, seed) {
     result: null, request: null, timer: null, composing: false, restoreAuto: false, saving: false };
   form.placeEditorSession = session;
   session.referenceUrl = form.elements.referenceUrl.value.trim();
-  session.sourceMetadata = lodgingSourceMetadata(seed.lodgingDraft || { ...existing, ...seed, referenceUrl: session.referenceUrl });
-  if (existing?.sourceReadStatus) form.querySelector("[data-lodging-source-status]").textContent = lodgingSourceStatusMessage(session.sourceMetadata);
+  session.sourceMetadata = { ...lodgingSourceMetadata(seed.lodgingDraft || { ...existing, ...seed, referenceUrl: session.referenceUrl }),
+    locationPrecision: seed.lodgingDraft?.locationPrecision || seed.locationPrecision || existing?.locationPrecision || "" };
+  if (existing?.sourceReadStatus) form.querySelector("[data-lodging-source-status]").textContent = lodgingSourceStatusMessage(session.sourceMetadata, placeEditorAddress(form));
   if (existing) {
     session.dirty.add("name");
     session.dirty.add("address");
@@ -6362,6 +6363,7 @@ function bindPlaceEditor(form, existing, seed) {
     clearTimeout(session.timer);
     session.sequence += 1;
     session.address = placeEditorAddress(form);
+    form.querySelector("[data-lodging-source-status]").textContent = session.referenceUrl ? lodgingSourceStatusMessage(session.sourceMetadata, session.address) : "";
     session.result = null;
     session.request = null;
     session.status("");
@@ -6492,7 +6494,7 @@ function bindPlaceEditor(form, existing, seed) {
   if (seed.lodgingDraft) {
     session.loadedUrl = seed.referenceUrl;
     session.sourceAddress = placeEditorAddress(form);
-    form.querySelector("[data-lodging-source-status]").textContent = lodgingSourceStatusMessage(seed.lodgingDraft);
+    form.querySelector("[data-lodging-source-status]").textContent = lodgingSourceStatusMessage(seed.lodgingDraft, placeEditorAddress(form));
     const photoSequence = session.metadataSequence;
     if (!seed.customPhotoDataUrl) form.querySelector("[data-place-photo-status]").textContent = "未取得來源照片，可自行補照片";
     else {
@@ -6541,13 +6543,13 @@ async function fillPlaceEditorFromUrl(form) {
     }
     if (!current()) return;
     const seed = lodgingDraftToEditorSeed(draft);
-    session.sourceMetadata = lodgingSourceMetadata(draft);
+    session.sourceMetadata = { ...lodgingSourceMetadata(draft), locationPrecision: draft.locationPrecision || "" };
     for (const field of ["name", "address", "sourcePlatform", "sourceLodgingName", "sourceListingId"]) {
       if (untouched(field) && seed[field]) form.elements[field].value = seed[field];
     }
     if (untouched("address") && seed.address) { session.sourceAddress = placeEditorAddress(form); session.invalidate(); session.schedule(); }
     session.loadedUrl = url;
-    status.textContent = lodgingSourceStatusMessage(draft);
+    status.textContent = lodgingSourceStatusMessage(draft, placeEditorAddress(form));
     if (untouched("photo")) {
       session.sourcePhotoPreparing = (session.sourcePhotoPreparing || 0) + 1;
       try {
@@ -6569,7 +6571,7 @@ async function fillPlaceEditorFromUrl(form) {
       session.loadedUrl = url;
       session.sourceMetadata = lodgingSourceMetadata({ referenceUrl: url,
         sourcePlatform: form.elements.sourcePlatform.value, sourceReadStatus: "unavailable" });
-      status.textContent = lodgingSourceStatusMessage(session.sourceMetadata);
+      status.textContent = lodgingSourceStatusMessage(session.sourceMetadata, placeEditorAddress(form));
     }
   } finally {
     if (session.loadingSequence === sequence) session.loadingUrl = "";
@@ -6640,6 +6642,53 @@ function placeEditorNamePlaceholder(kind) {
 
 function placeEditorDisplayName(existing, seed = {}) {
   return String(seed.name || existing?.name || "");
+}
+
+function openPlacePhotoRemovalConfirmation(trigger) {
+  const form = trigger.closest("#place-editor-form");
+  const session = form?.placeEditorSession;
+  if (!session?.active() || session.saving || sheetRoot.querySelector("[data-place-photo-confirm]")) return;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.dataset.placePhotoConfirm = "";
+  overlay.innerHTML = `<section class="modal-sheet confirm-sheet" role="alertdialog" aria-modal="true" aria-labelledby="place-photo-remove-title" aria-describedby="place-photo-remove-description">
+    <div class="danger-mark">刪</div>
+    <h2 id="place-photo-remove-title">移除這張照片？</h2>
+    <p id="place-photo-remove-description">照片會從這筆地點移除；儲存後才會正式套用。</p>
+    <div class="modal-actions"><button class="secondary-button" type="button" data-cancel-photo-removal>取消</button><button class="danger-button" type="button" data-confirm-photo-removal>移除照片</button></div>
+  </section>`;
+  const cancel = overlay.querySelector("[data-cancel-photo-removal]");
+  const confirm = overlay.querySelector("[data-confirm-photo-removal]");
+  const wasInert = form.inert;
+  form.inert = true;
+  const close = (removed = false) => {
+    overlay.remove();
+    form.inert = wasInert;
+    if (session.active()) (removed ? form.querySelector("[data-place-photo-upload-zone]") : trigger).focus();
+  };
+  overlay.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (event.target === overlay || event.target.closest("[data-cancel-photo-removal]")) return close();
+    if (!event.target.closest("[data-confirm-photo-removal]")) return;
+    if (!session.active() || session.saving) return close();
+    pendingPlacePhoto = "";
+    removePendingPlacePhoto = true;
+    session.dirty.add("photo");
+    form.querySelector("[data-place-photo-input]").value = "";
+    form.elements.photoOrigin.value = "";
+    renderPlacePhotoEditor(form);
+    close(true);
+  });
+  overlay.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") { event.preventDefault(); close(); }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      (document.activeElement === cancel ? confirm : cancel).focus();
+    }
+  });
+  sheetRoot.append(overlay);
+  cancel.focus();
 }
 
 function openPlaceEditSheet(name = "", seed = {}) {
@@ -7570,19 +7619,7 @@ document.addEventListener("click", async (event) => {
   if (editPlace) return canEdit() ? openPlaceEditSheet(editPlace.dataset.editPlace) : guestOnlyMessage();
 
   const removePlacePhoto = event.target.closest("[data-remove-place-photo]");
-  if (removePlacePhoto) {
-    if (removePlacePhoto.closest("#place-editor-form")?.placeEditorSession?.saving) return;
-    pendingPlacePhoto = "";
-    removePendingPlacePhoto = true;
-    const form = removePlacePhoto.closest("#place-editor-form");
-    form?.placeEditorSession?.dirty.add("photo");
-    const input = form?.querySelector("[data-place-photo-input]");
-    if (input) input.value = "";
-    const photoOrigin = form?.elements.photoOrigin;
-    if (photoOrigin) photoOrigin.value = "";
-    renderPlacePhotoEditor(form);
-    return;
-  }
+  if (removePlacePhoto) return openPlacePhotoRemovalConfirmation(removePlacePhoto);
 
   const analyzePlaces = event.target.closest("[data-analyze-places]");
   if (analyzePlaces) {

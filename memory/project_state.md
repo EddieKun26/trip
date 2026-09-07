@@ -68,3 +68,13 @@
 - A reviewable handoff set now lives in `documentation/` (architecture, protected flows, permissions, variables, AI automation, and test coverage), with a Fable-oriented summary at `memory/FABLE_HANDOFF.md`.
 - iPhone 15 Pro browser verification at 393×852 confirms the compact place-import sheet uses a 56px link field, keeps 16px form text, gives multi-candidate results a 316px independently scrollable region, and keeps confirmation actions fixed and visible while that region scrolls.
 - 2026-08-07 audit: the canonical source, deployment mirror, and public Vercel assets remain aligned; core documented features showed no implementation drift.
+
+
+## Ticket A — local implementation, 2026-09-07
+
+- Scope: A1 Airbnb primary source notice, A2 nested photo-removal confirmation, A3 exclude place/lodging editor from global undo injection. Baseline HEAD and fetched origin/main both `fc13d4d483676f59e3620fbb422e7bcd43a7ca38`; worktree was clean.
+- Source card/editor share `lodgingSourceStatusMessage`; approximate source precision remains in editor session. Address entry removes the missing-address notice and uses existing strict geocode statuses. Saved geocoded places retain the existing exact-location contract; candidate identity is unchanged.
+- Photo removal reuses confirm-sheet as a sibling overlay, retains the editor DOM/session, makes the editor inert while confirming, supports keyboard cancel/focus return, and only marks photo touched/clears pending photo and photoOrigin on confirmation. Source name/URL are retained; persistence still requires Save. Existing stale/session/touched guards prevent late source images from returning.
+- Global undo excludes only place-editor-form (including lodging); restoreLastAction and eligible screens are unchanged. Other form sheets (profile, trip/join, flight, transport, import, area/day assignment) may share the same misleading field-undo implication and were left outside this ticket.
+- Validation: targeted 101/101; full regression 220/220, including unchanged startup 22/22; app.js and all 12 API modules pass syntax; API functions remain 12; git diff --check passes. Tests use the existing Node runtime harness; no production App or real-device visual test was opened.
+- Local review only: no staging, commit, push, deployment, source-mirror copying, or edits to protected trip-deploy / p1-address-selection. Ticket B stays closed; no Ticket C or other deferred scope implemented.

@@ -481,3 +481,138 @@ test("lodging rematch keeps source provenance and photos while accepting only th
   assert.equal(candidate.sourceListingId, "123"); assert.equal(candidate.sourceReadStatus, "available");
   assert.equal(candidate.customPhotoDataUrl, "source photo"); assert.equal(candidate.selected, true);
 });
+
+
+test("Ticket A1 approximate card has one primary message and shares editor semantics", () => {
+  const h = harness();
+  h.context.escapeHtml = String;
+  const markup = source.slice(source.indexOf("function lodgingDraftsMarkup"), source.indexOf("function lodgingDraftsMarkup") + source.slice(source.indexOf("function lodgingDraftsMarkup")).indexOf('\nfunction ', 1));
+  vm.runInContext(markup, h.context);
+  h.context.pendingLodgingDrafts = [{ sourcePlatform: "Airbnb", locationPrecision: "approximate", address: "大約新宿", sourceReadStatus: "success", referenceUrl: "https://airbnb.com/rooms/1" }];
+  const html = h.context.lodgingDraftsMarkup();
+  assert.equal((html.match(/data-lodging-primary-message/g) || []).length, 1);
+  assert.equal((html.match(/尚未取得/g) || []).length, 1);
+  assert.match(html, /大約位置，不是入住地址/);
+  assert.doesNotMatch(html, /已帶入來源資料|建立前必須補上/);
+  assert.equal(h.context.lodgingSourceStatusMessage(h.context.pendingLodgingDrafts[0], "完整地址 1-2-3"), "");
+  for (const sourceReadStatus of ["blocked", "unavailable"]) assert.match(h.context.lodgingSourceStatusMessage({ sourceReadStatus, locationPrecision: "approximate", sourcePlatform: "Booking" }), /無法自動讀取/);
+  assert.match(h.context.lodgingSourceStatusMessage({ locationPrecision: "exact", referenceUrl: "https://booking.com" }), /已帶入可取得/);
+});
+
+test("Ticket A1 entering an address switches approximate notice to geocode status", async () => {
+  const h = harness({ seed: { referenceUrl: "https://airbnb.com/rooms/1", lodgingDraft: { referenceUrl: "https://airbnb.com/rooms/1", sourcePlatform: "Airbnb", locationPrecision: "approximate" } } });
+  const status = h.form.querySelector("[data-lodging-source-status]");
+  assert.match(status.textContent, /尚未取得完整入住地址/);
+  h.input("address", "完整地址 1-2-3");
+  assert.equal(status.textContent, "");
+  await h.advance(700);
+  assert.match(h.form.querySelector("[data-place-address-status]").textContent, /定位|解析/);
+  h.reply(0); await tick();
+  assert.match(h.form.querySelector("[data-place-address-status]").textContent, /地址已定位/);
+  assert.equal(status.textContent, "");
+  h.input("address", "");
+  assert.match(status.textContent, /尚未取得完整入住地址/);
+  assert.equal(h.session.sourceMetadata.locationPrecision, "approximate");
+});
+
+function photoConfirmation(h) {
+  let overlay;
+  const focus = (item) => () => { h.context.document.activeElement = item; };
+  const trigger = { closest: () => h.form }; trigger.focus = focus(trigger);
+  const upload = h.form.querySelector("[data-place-photo-upload-zone]"); upload.focus = focus(upload);
+  h.context.document = { createElement() {
+    const buttons = {};
+    overlay = { dataset: {}, listeners: {},
+      querySelector(selector) { if (!buttons[selector]) { buttons[selector] = {}; buttons[selector].focus = focus(buttons[selector]); } return buttons[selector]; },
+      addEventListener(type, fn) { this.listeners[type] = fn; }, remove() { this.removed = true; },
+    }; return overlay;
+  } };
+  h.context.sheetRoot = { querySelector: () => overlay && !overlay.removed ? overlay : null, append(node) { assert.equal(node, overlay); } };
+  h.context.openPlacePhotoRemovalConfirmation(trigger);
+  return { overlay, trigger, click(selector) { overlay.listeners.click({ target: { closest: (value) => value === selector }, stopPropagation() {} }); } };
+}
+
+for (const photoOrigin of ["lodging_source", "user_upload"]) test(`Ticket A2 ${photoOrigin}: cancel preserves session; confirm only changes pending photo`, async () => {
+  const h = harness({ seed: { customPhotoDataUrl: "photo", photoOrigin, referenceUrl: "https://airbnb.com/rooms/1", sourceLodgingName: "來源住宿" } });
+  let persists = 0; h.context.persist = () => { persists++; };
+  const metadata = JSON.stringify(h.session.sourceMetadata);
+  const dirty = [...h.session.dirty];
+  const first = photoConfirmation(h);
+  assert.match(first.overlay.innerHTML, /confirm-sheet.*role="alertdialog"/);
+  assert.equal(h.context.pendingPlacePhoto, "photo");
+  assert.equal(h.form.placeEditorSession, h.session);
+  assert.equal(h.form.inert, true);
+  first.click("[data-cancel-photo-removal]");
+  assert.equal(h.context.pendingPlacePhoto, "photo");
+  assert.deepEqual([...h.session.dirty], dirty);
+  assert.equal(JSON.stringify(h.session.sourceMetadata), metadata);
+  assert.equal(h.form.elements.photoOrigin.value, photoOrigin);
+  assert.equal(h.context.document.activeElement, first.trigger);
+  const second = photoConfirmation(h);
+  second.click("[data-confirm-photo-removal]");
+  assert.equal(h.context.pendingPlacePhoto, "");
+  assert.equal(h.context.removePendingPlacePhoto, true);
+  assert.ok(h.session.dirty.has("photo"));
+  assert.equal(h.form.elements.photoOrigin.value, "");
+  assert.equal(h.form.elements.referenceUrl.value, "https://airbnb.com/rooms/1");
+  assert.equal(h.form.elements.sourceLodgingName.value, "來源住宿");
+  assert.equal(JSON.stringify(h.session.sourceMetadata), metadata);
+  assert.equal(persists, 0);
+  assert.equal(h.form.placeEditorSession, h.session);
+  assert.equal(h.form.isConnected, true);
+});
+
+test("Ticket A2 late source image cannot revive confirmed removal", async () => {
+  const h = harness({ seed: { customPhotoDataUrl: "photo" }, drafts: [{ referenceUrl: "https://airbnb.com/rooms/1", sourceImageDataUrl: "source", sourceLodgingName: "來源住宿" }] });
+  let resolvePhoto;
+  h.context.compressPlacePhotoDataUrl = () => new Promise(resolve => { resolvePhoto = resolve; });
+  h.form.elements.referenceUrl.value = "https://airbnb.com/rooms/1";
+  const request = h.context.fillPlaceEditorFromUrl(h.form);
+  const dialog = photoConfirmation(h);
+  dialog.click("[data-confirm-photo-removal]");
+  resolvePhoto("late photo"); await request;
+  assert.equal(h.context.pendingPlacePhoto, "");
+  assert.equal(h.form.elements.photoOrigin.value, "");
+  assert.ok(h.session.dirty.has("photo"));
+});
+
+
+test("Ticket A1 failed strict geocode owns status after address entry", async () => {
+  const h = harness({ seed: { referenceUrl: "https://airbnb.com/rooms/1", lodgingDraft: { referenceUrl: "https://airbnb.com/rooms/1", locationPrecision: "approximate" } } });
+  h.input("address", "未能定位的完整地址 1-2-3");
+  await h.advance(700);
+  h.requests[0].resolve({ ok: true, json: async () => ({ places: [] }) }); await tick();
+  assert.equal(h.form.querySelector("[data-lodging-source-status]").textContent, "");
+  assert.match(h.form.querySelector("[data-place-address-status]").textContent, /無法|失敗/);
+  assert.equal(h.session.result, null);
+});
+
+test("Ticket A2 keyboard cancel restores focus without mutating pending state", () => {
+  const h = harness({ seed: { customPhotoDataUrl: "photo", photoOrigin: "lodging_source" } });
+  const dialog = photoConfirmation(h);
+  let prevented = 0;
+  dialog.overlay.listeners.keydown({ key: "Tab", preventDefault() { prevented++; }, stopPropagation() {} });
+  assert.equal(h.context.document.activeElement, dialog.overlay.querySelector("[data-confirm-photo-removal]"));
+  dialog.overlay.listeners.keydown({ key: "Escape", preventDefault() { prevented++; }, stopPropagation() {} });
+  assert.equal(prevented, 2);
+  assert.equal(h.context.document.activeElement, dialog.trigger);
+  assert.equal(h.context.pendingPlacePhoto, "photo");
+  assert.equal(h.session.dirty.has("photo"), false);
+  assert.equal(h.form.elements.photoOrigin.value, "lodging_source");
+});
+
+test("Ticket A2 cached source compression cannot revive confirmed removal", async () => {
+  const h = harness();
+  let resolvePhoto;
+  h.context.compressPlacePhotoDataUrl = () => new Promise(resolve => { resolvePhoto = resolve; });
+  h.form.elements.referenceUrl.value = "https://airbnb.com/rooms/1";
+  h.context.pendingPlacePhoto = "original source";
+  const seed = { referenceUrl: h.form.elements.referenceUrl.value, customPhotoDataUrl: "source", lodgingDraft: { referenceUrl: h.form.elements.referenceUrl.value } };
+  const session = h.context.bindPlaceEditor(h.form, null, seed);
+  const dialog = photoConfirmation(h);
+  dialog.click("[data-confirm-photo-removal]");
+  resolvePhoto("late cached photo"); await tick();
+  assert.equal(h.context.pendingPlacePhoto, "");
+  assert.equal(h.form.placeEditorSession, session);
+  assert.ok(session.dirty.has("photo"));
+});
