@@ -33,6 +33,7 @@ let socialHtmlOverride = "";
 let bookingBlocked = false;
 let forceNearbyLodgings = false;
 let sourceImageFailure = false;
+let googleEmptyResults = false;
 
 process.env.KV_REST_API_URL = "https://redis.test";
 process.env.KV_REST_API_TOKEN = "test-token";
@@ -115,6 +116,7 @@ globalThis.fetch = async (url, options = {}) => {
   if (target.includes("places.googleapis.com/v1/places:searchText")) {
     const requestBody = JSON.parse(options.body);
     googleRequests.push({ body: requestBody, headers: options.headers });
+    if (googleEmptyResults) return Response.json({ places: [] });
     const returnsNamedLodging = /Mitsui Garden Hotel|THE KUKUNA/i.test(requestBody.textQuery);
     if (googleRejectLocationBias && requestBody.locationBias) {
       return new Response(JSON.stringify({ error: { message: "locationBias.circle.radius must be at most 50000" } }), {
@@ -261,11 +263,11 @@ async function loginAndCreateTrip() {
   return { cookie, trip: create.payload.trip };
 }
 
-async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.instagram.com/reel/ABC123/", sharedText = "", imageDataUrl = "", requestedKind = "auto", action = "", query = "", excludePlaceIds = [] } = {}) {
+async function recognize({ cookie = "", tripId = "", sourceUrl = "https://www.instagram.com/reel/ABC123/", sharedText = "", imageDataUrl = "", requestedKind = "auto", action = "", query = "", excludePlaceIds = [], ...searchOptions } = {}) {
   const response = responseMock();
   await socialPlaceImportHandler({
     method: "POST",
-    body: { tripId, sourceUrl, sharedText, imageDataUrl, requestedKind, action, query, excludePlaceIds },
+    body: { tripId, sourceUrl, sharedText, imageDataUrl, requestedKind, action, query, excludePlaceIds, ...searchOptions },
     headers: cookie ? { cookie } : {},
   }, response);
   return response;
@@ -1173,4 +1175,51 @@ test("hidden lodging names use an explicit address, conditional web search, and 
 
   socialHtmlOverride = "";
   recognitionPlaceOverride = null;
+});
+
+test("empty automatic restaurant candidates retain recognized evidence for search and manual fallback", async () => {
+  store.clear();
+  const { cookie, trip } = await loginAndCreateTrip();
+  googleEmptyResults = true;
+  try {
+    const response = await recognize({ cookie, tripId: trip.id, requestedKind: "restaurant" });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.groups[0].extracted.category, "restaurant");
+    assert.match(response.payload.groups[0].extracted.name, /Cafe Mugi/);
+    assert.equal(response.payload.groups[0].candidates.length, 0);
+    assert.match(response.payload.source.url, /instagram/);
+    assert.equal(response.payload.lodgingDraft, undefined);
+  } finally { googleEmptyResults = false; }
+});
+
+test("keyword rematch preserves literal query without destination bias and keeps Google identity", async () => {
+  store.clear();
+  const { cookie, trip } = await loginAndCreateTrip();
+  googleRequests.length = 0;
+  openAiRequests.length = 0;
+  const query = "Ｃａｆｅ  Mugi 台北";
+  const response = await recognize({ cookie, tripId: trip.id, action: "rematch", searchMode: "keyword",
+    query, requestedKind: "restaurant", city: "東京", address: "錯誤舊地址" });
+  assert.equal(response.statusCode, 200);
+  assert.equal(googleRequests[0].body.textQuery, query);
+  assert.equal(googleRequests[0].body.locationBias, undefined);
+  assert.equal(googleRequests[0].body.regionCode, undefined);
+  assert.equal(googleRequests[0].body.includedType, undefined);
+  assert.equal(openAiRequests.length, 0);
+  assert.equal(response.payload.candidates[0].placeId, "place-cafe-mugi");
+  assert.equal(response.payload.candidates[0].name, "Cafe Mugi 新宿");
+  assert.equal(response.payload.candidates[0].formattedAddress, "東京都新宿區西新宿 1-2-3");
+  assert.equal(response.payload.candidates[0].kind, "restaurant");
+});
+
+test("keyword rematch still excludes previous IDs and rejects restaurant results for lodging", async () => {
+  store.clear();
+  const { cookie, trip } = await loginAndCreateTrip();
+  const excluded = await recognize({ cookie, tripId: trip.id, action: "rematch", searchMode: "keyword",
+    query: "Cafe Mugi", requestedKind: "restaurant", excludePlaceIds: ["place-cafe-mugi", "place-mugi-second"] });
+  assert.equal(excluded.statusCode, 422);
+  const lodging = await recognize({ cookie, tripId: trip.id, action: "rematch", searchMode: "keyword",
+    query: "Cafe Mugi", requestedKind: "lodging" });
+  assert.equal(lodging.statusCode, 422);
+  assert.equal(lodging.payload.error, "GOOGLE_PLACE_NOT_FOUND");
 });

@@ -185,3 +185,7 @@
 - Added Google Maps interactive planning/day maps, airport markers, route ordering, and flight paths.
 - Added place categories, Google Maps enrichment, notes, photos, hours, phone, and voting attribution.
 - Added itinerary time confirmation, chronological sorting, touch reordering, and swipe deletion.
+
+## 2026-09-08
+
+- Fixed non-lodging manual import routing and retained empty recognized groups for keyword Google Places search/manual fallback. Assets 20260908.2; API functions remain 12. See project_state.md for tests and acceptance steps. Shopping unchanged.

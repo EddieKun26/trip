@@ -5786,7 +5786,16 @@ function socialGroupsToImports(payload, sourceIndex = 0, uploadedImageDataUrl = 
       .map((index) => allSourceImages[Number(index) - 1])
       .filter(Boolean);
     const sourceOriginalImages = requestedSourceImages.length ? requestedSourceImages : allSourceImages;
-    const candidates = (group.candidates || []).map((candidate, candidateIndex) => ({
+    const groupCandidates = group.candidates?.length ? group.candidates : [{
+      name: group.extracted?.name || "尚未辨識地點",
+      kind: group.extracted?.category || "auto",
+      referenceUrl: payload.source?.url || "",
+      sourcePlatform: payload.source?.platform || "",
+      sourceSummary: payload.source?.summary || "",
+      isSearchPlaceholder: true,
+      importEligible: false,
+    }];
+    const candidates = groupCandidates.map((candidate, candidateIndex) => ({
       ...(payload.lodgingDraft && (candidate.kind === "lodging" || group.extracted?.category === "lodging")
         ? lodgingCandidateSource(candidate, payload.lodgingDraft) : candidate),
       addedBy: currentMemberId(),
@@ -5865,7 +5874,7 @@ function socialImportStats(entries) {
   let candidateCount = 0;
   entries.forEach((place) => {
     if (!place?.isSocialCandidate || !place.candidateGroupId) return;
-    candidateCount += 1;
+    if (!place.isSearchPlaceholder) candidateCount += 1;
     if (!groups.has(place.candidateGroupId)) {
       groups.set(place.candidateGroupId, {
         candidateCount: 0,
@@ -5877,7 +5886,7 @@ function socialImportStats(entries) {
       });
     }
     const group = groups.get(place.candidateGroupId);
-    group.candidateCount += 1;
+    if (!place.isSearchPlaceholder) group.candidateCount += 1;
     if (place.canImport && place.recognition !== "unresolved" && !importAlreadyExists(place)) group.importable = true;
     if (importCanBeAdded(place)) {
       group.selected = true;
@@ -5950,7 +5959,7 @@ function openImportRematchSheet(groupId) {
   const place = importSourcePlace(groupId);
   if (!place) return;
   closeImportRematchSheet();
-  const query = place.candidateSearchQuery || place.candidateLabel || place.name;
+  const query = place.candidateLabel === "尚未辨識地點" ? "" : place.candidateSearchQuery || place.candidateLabel || place.name;
   sheetRoot.insertAdjacentHTML("beforeend", `
     <div class="import-rematch-backdrop" data-import-rematch-root data-dismiss-import-rematch>
       <section class="modal-sheet import-rematch-sheet" role="dialog" aria-modal="true" aria-labelledby="import-rematch-title">
@@ -5962,6 +5971,7 @@ function openImportRematchSheet(groupId) {
         <label class="field" for="import-rematch-query"><span>店名、分店或地址</span><input id="import-rematch-query" type="text" value="${escapeHtml(query)}" maxlength="300" autocomplete="off" /></label>
         <p class="import-rematch-status" data-import-rematch-status>會排除剛才已顯示的錯誤候選，再找一批新的 Google Maps 結果。</p>
         <div class="modal-actions">
+          <button class="secondary-button" type="button" data-manual-import-group="${escapeHtml(groupId)}">手動新增</button>
           <button class="secondary-button" type="button" data-close-import-rematch>取消</button>
           <button class="primary-button" type="button" data-run-import-rematch="${escapeHtml(groupId)}">重新搜尋</button>
         </div>
@@ -5974,7 +5984,7 @@ async function rematchImportCandidateGroup(groupId) {
   const root = sheetRoot.querySelector("[data-import-rematch-root]");
   const button = root?.querySelector("[data-run-import-rematch]");
   const status = root?.querySelector("[data-import-rematch-status]");
-  const query = String(root?.querySelector("#import-rematch-query")?.value || "").normalize("NFKC").trim();
+  const query = String(root?.querySelector("#import-rematch-query")?.value || "").trim();
   const group = pendingPlaceImports.filter((place) => place.candidateGroupId === groupId);
   const source = group[0];
   if (!root || !button || !status || !source) return;
@@ -5997,6 +6007,7 @@ async function rematchImportCandidateGroup(groupId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "rematch",
+        searchMode: "keyword",
         tripId: state.tripId,
         query,
         requestedKind: ["attraction", "restaurant", "lodging", "shopping"].includes(source.candidateCategory) ? source.candidateCategory : source.kind,
@@ -6058,7 +6069,7 @@ async function rematchImportCandidateGroup(groupId) {
     showToast(`已為「${query}」找到 ${replacements.length} 個新候選`);
   } catch (error) {
     status.textContent = String(error?.message || "").startsWith("GOOGLE_")
-      ? "這次仍找不到新的吻合結果。可修改店名或地址再搜尋，也可返回後略過不加入。"
+      ? "這次仍找不到新的吻合結果。可修改關鍵字再搜尋，或點「手動新增」。"
       : "重新搜尋暫時失敗，請稍後再試；你仍可略過這個地點。";
     status.dataset.tone = "error";
     button.disabled = false;
@@ -6265,7 +6276,7 @@ function importPreviewMarkup(entries) {
         seenCandidateGroups.add(place.candidateGroupId);
         groupNumber += 1;
         const groupState = socialStats.groups.get(place.candidateGroupId);
-        const groupCandidateCount = groupState?.candidateCount || 1;
+        const groupCandidateCount = groupState?.candidateCount || 0;
         groupHeader = `
           <div class="import-candidate-group-label ${groupState?.skipped ? "skipped" : ""}">
             <span>辨識地點 ${groupNumber}</span>
@@ -6273,7 +6284,8 @@ function importPreviewMarkup(entries) {
             <small>${groupState?.skipped ? "已略過，不會加入旅程" : `${groupCandidateCount} 個 Google Maps 候選 · ${groupState?.selectionMode === "multiple" ? "可複選或略過" : "可擇一或略過"}`}</small>
             <div class="import-candidate-group-actions">
               <button type="button" data-preview-import-source="${escapeHtml(place.candidateGroupId)}">原文／原圖</button>
-              <button type="button" data-rematch-import-group="${escapeHtml(place.candidateGroupId)}">重新搜尋</button>
+              <button type="button" data-rematch-import-group="${escapeHtml(place.candidateGroupId)}">搜尋其他地點</button>
+              <button type="button" data-manual-import-group="${escapeHtml(place.candidateGroupId)}">手動新增</button>
               <button type="button" data-skip-import-group="${escapeHtml(place.candidateGroupId)}" data-skip-value="${groupState?.skipped ? "false" : "true"}">${groupState?.skipped ? "取消略過" : "略過不加"}</button>
             </div>
           </div>`;
@@ -6282,6 +6294,7 @@ function importPreviewMarkup(entries) {
         }
       }
       if (place.candidateGroupSkipped) return "";
+      if (place.isSearchPlaceholder) return `${groupHeader}<div class="import-empty"><strong>沒有合適候選</strong><span>請搜尋其他地點，或手動新增。</span></div>`;
       return `
         ${groupHeader}
         <article class="import-place-row ${place.candidateGroupId ? "social-candidate" : ""} ${place.selected ? "selected" : ""} ${status[0]}"${previewTarget}>
@@ -6351,7 +6364,7 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
             <button class="analyze-button" type="button" data-analyze-places>⌁　辨識地點</button>
           </div>
         </details>
-        <button class="manual-place-entry" type="button" data-manual-place><span>找不到正確地點？</span><strong>手動新增住宿／自訂地點</strong><small>名稱、完整地址、Maps 連結與照片都由你確認</small></button>
+        <button class="manual-place-entry" type="button" data-manual-place><span>找不到正確地點？</span><strong>手動新增地點</strong><small>名稱、完整地址、Maps 連結與照片都由你確認</small></button>
         <div id="import-preview" class="import-preview" aria-live="polite"></div>
         <div class="modal-actions import-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>尚未選擇地點</button></div>
       </form>
@@ -6362,18 +6375,19 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
   }
 }
 
-function manualPlaceSeed(value = "") {
+function manualPlaceSeed(value = "", requestedKind = "auto") {
   const lines = String(value).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const urls = lines.flatMap((line) => line.match(/https?:\/\/[^\s<>"']+/g) || []);
   const sourceUrl = urls.find(isGoogleMapsUrl) || "";
-  const referenceUrl = urls.find(isLodgingShareUrl) || "";
+  const referenceUrl = urls.find(isLodgingShareUrl) || urls.find((url) => socialPlaceUrls(url).length) || "";
   const reference = placeReferenceMeta({ referenceUrl });
   const textLines = lines.map((line) => urls.reduce((text, url) => text.replace(url, ""), line).trim()).filter(Boolean);
   const labelledName = textLines.map((line) => line.match(/^(?:公寓|住宿|飯店|酒店|民宿|房源)名稱\s*[：:]\s*(.+)$/u)?.[1]).find(Boolean) || "";
   const labelledAddress = textLines.map((line) => line.match(/^(?:公寓|住宿|飯店|酒店|民宿|房源)?地址\s*[：:]\s*(.+)$/u)?.[1]).find(Boolean) || "";
   const address = labelledAddress || textLines.find((line) => /\d/.test(line) && /(?:縣|県|市|區|区|町|村|路|街|丁目|番|號|号)/u.test(line)) || "";
   const draft = pendingLodgingDrafts.find((item) => lodgingSourceKey(item.referenceUrl) === lodgingSourceKey(referenceUrl));
-  const seed = lodgingDraftToEditorSeed(draft || {});
+  const kind = isLodgingShareUrl(referenceUrl) || labelledName ? "lodging" : requestedKind;
+  const seed = kind === "lodging" ? lodgingDraftToEditorSeed(draft || {}) : { kind };
   const touchedFields = new Set(seed.touchedFields || []);
   if (labelledName) touchedFields.add("name");
   if (address) touchedFields.add("address");
@@ -6814,12 +6828,34 @@ function openPlacePhotoRemovalConfirmation(trigger) {
   cancel.focus();
 }
 
+let pendingManualPlaceSeed = null;
+
+function openManualPlaceEditor(seed) {
+  if (["attraction", "restaurant", "shopping", "lodging"].includes(seed.kind)) return openPlaceEditSheet("", seed);
+  pendingManualPlaceSeed = seed;
+  sheetRoot.insertAdjacentHTML("beforeend", `<div class="import-rematch-backdrop" data-import-rematch-root data-dismiss-import-rematch><section class="modal-sheet import-rematch-sheet" role="dialog" aria-modal="true" aria-label="選擇地點類型"><h2>這是哪一種地點？</h2><p>尚未確認類型，請選擇後繼續。</p><div class="modal-actions">${[["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"], ["shopping", "購物"]].map(([kind, label]) => `<button class="secondary-button" type="button" data-manual-place-kind="${kind}">${label}</button>`).join("")}</div><button class="secondary-button" type="button" data-close-import-rematch>取消</button></section></div>`);
+}
+
+function manualImportGroupSeed(place) {
+  if (place.candidateCategory === "lodging" || place.kind === "lodging") {
+    const draft = pendingLodgingDrafts.find((item) => item.referenceUrl === place.referenceUrl);
+    if (draft) return lodgingDraftToEditorSeed(draft);
+  }
+  return {
+    kind: place.candidateCategory || place.kind || "auto",
+    name: place.candidateLabel === "尚未辨識地點" ? "" : place.candidateLabel || "",
+    address: place.candidateAddress || "",
+    referenceUrl: place.referenceUrl || "",
+    sourcePlatform: place.sourcePlatform || "",
+  };
+}
+
 function openPlaceEditSheet(name = "", seed = {}) {
   const existing = name ? state.places.find((place) => place.name === name) : null;
   if (name && !existing) return showToast("找不到這個地點");
   pendingPlacePhoto = String(seed.customPhotoDataUrl || "");
   removePendingPlacePhoto = false;
-  const kind = seed.kind && seed.kind !== "auto" ? seed.kind : existing?.kind || "lodging";
+  const kind = seed.kind && seed.kind !== "auto" ? seed.kind : existing?.kind || "attraction";
   const address = seed.address || existing?.manualAddress || existing?.formattedAddress || "";
   const sourceUrl = seed.sourceUrl || existing?.sourceUrl || "";
   const displayName = placeEditorDisplayName(existing, seed);
@@ -6842,18 +6878,18 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div><p class="section-kicker">${existing ? "地點資料" : "不依賴商家搜尋"}</p><h2>${existing ? "編輯地點" : "手動新增地點"}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p class="place-editor-intro">私人住宿不一定有 Google 商家頁面。這裡會用門牌定位，名稱、地址與照片則以你填寫的內容為準。</p>
-        <div class="field"><label for="place-editor-reference">住宿來源連結（選填）</label><input id="place-editor-reference" name="referenceUrl" inputmode="url" maxlength="1000" value="${escapeHtml(referenceUrl)}" placeholder="Airbnb、Booking、Agoda 或 Trip.com 連結" /><small data-lodging-source-status aria-live="polite"></small></div>
+        <p class="place-editor-intro">${kind === "lodging" ? "私人住宿不一定有 Google 商家頁面。這裡會用門牌定位，名稱、地址與照片則以你填寫的內容為準。" : "填寫地點名稱與完整地址，確認後加入旅程。"}</p>
+        <div class="field"><label for="place-editor-reference">${kind === "lodging" ? "住宿來源連結" : "原始來源連結"}（選填）</label><input id="place-editor-reference" name="referenceUrl" inputmode="url" maxlength="1000" value="${escapeHtml(referenceUrl)}" placeholder="${kind === "lodging" ? "Airbnb、Booking、Agoda 或 Trip.com 連結" : "Instagram、Threads 或其他來源連結"}" /><small data-lodging-source-status aria-live="polite"></small></div>
         <input type="hidden" name="sourcePlatform" value="${escapeHtml(sourcePlatform)}" />
         <input type="hidden" name="sourceLodgingName" value="${escapeHtml(sourceLodgingName)}" />
         <input type="hidden" name="sourceListingId" value="${escapeHtml(sourceListingId)}" />
         <input type="hidden" name="photoOrigin" value="${escapeHtml(photoOrigin)}" />
-        ${sourceReference ? `<div class="lodging-source-reference"><span>原始住宿來源</span><strong>${escapeHtml(sourceReference.platform)}</strong><button type="button" data-open-reference="${escapeHtml(sourceReference.url)}">開啟原始網址 ↗</button></div>` : ""}
+        ${sourceReference ? `<div class="lodging-source-reference"><span>${kind === "lodging" ? "原始住宿來源" : "原始地點來源"}</span><strong>${escapeHtml(sourceReference.platform)}</strong><button type="button" data-open-reference="${escapeHtml(sourceReference.url)}">開啟原始網址 ↗</button></div>` : ""}
         <div class="place-editor-grid">
           <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="${escapeHtml(placeEditorNamePlaceholder(kind))}" required /></div>
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
-          <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="請貼上房東提供的完整門牌地址" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
+          <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
           <div class="field"><label for="place-editor-travel-area-zh">旅遊分區（繁中，選填）</label><input id="place-editor-travel-area-zh" name="travelAreaZh" maxlength="60" value="${escapeHtml(travelAreaZh)}" placeholder="例如：淺草" /></div>
@@ -6862,7 +6898,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <button type="button" class="secondary-button" data-restore-auto-area>恢復自動分區</button></details>
         </div>
         <section class="place-photo-editor">
-          <button class="place-photo-preview place-photo-upload-zone" type="button" data-place-photo-upload-zone ${editorPhoto ? "hidden" : ""}><span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>可用房東照片、建築外觀或門口照片</small></button>
+          <button class="place-photo-preview place-photo-upload-zone" type="button" data-place-photo-upload-zone ${editorPhoto ? "hidden" : ""}><span aria-hidden="true">▧</span><strong>加入一張你認得的照片</strong><small>${kind === "lodging" ? "可用房東照片、建築外觀或門口照片" : "可用店家外觀或地點照片"}</small></button>
           <div class="place-photo-preview has-photo" data-place-photo-preview ${editorPhoto ? "" : "hidden"}>${editorPhoto ? `<img src="${escapeHtml(editorPhoto)}" alt="${escapeHtml(displayName || "地點")}地點照片" />` : ""}</div>
           <div class="place-photo-actions"><label class="secondary-button" for="place-photo-input" data-replace-place-photo ${editorPhoto ? "" : "hidden"}>更換照片</label><input class="visually-hidden" id="place-photo-input" type="file" accept="image/*" data-place-photo-input /><button type="button" data-remove-place-photo ${editorPhoto ? "" : "hidden"}>移除照片</button></div>
           <small data-place-photo-status>${editorPhoto ? (photoOrigin === "lodging_source" ? "已帶入原住宿頁的照片，儲存時會壓縮保留" : "這張照片會顯示在地點詳情與地圖預覽") : "照片會壓縮後與旅伴共用"}</small>
@@ -6941,6 +6977,12 @@ async function analyzePlaceImportSheet(analyzePlaces) {
         if (socialResult.draft) pendingLodgingDrafts.push(socialResult.draft);
       } catch (error) {
         notices.push(socialImportErrorMessage(error));
+        const kind = requestedKind === "auto" && isLodgingShareUrl(socialSources[sourceIndex]) ? "lodging" : requestedKind;
+        const fallback = socialGroupsToImports({
+          source: { url: socialSources[sourceIndex], platform: placeReferenceMeta({ referenceUrl: socialSources[sourceIndex] })?.platform || "社群貼文" },
+          groups: [{ id: "fallback", extracted: { name: "", category: kind }, candidates: [] }],
+        }, sourceIndex, sourceIndex === 0 ? pendingPlaceImportScreenshot : "");
+        pendingPlaceImports.push(...fallback.imports);
       }
     }
     pendingPlaceImports = mergeLodgingMapEvidence(pendingPlaceImports, textarea.value);
@@ -7724,13 +7766,27 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("[data-add-place]")) return canEdit() ? openAddPlaceSheet() : guestOnlyMessage();
 
+  const manualKind = event.target.closest("[data-manual-place-kind]");
+  if (manualKind) {
+    if (!canEdit()) return guestOnlyMessage();
+    const seed = { ...pendingManualPlaceSeed, kind: manualKind.dataset.manualPlaceKind };
+    pendingManualPlaceSeed = null;
+    return openManualPlaceEditor(seed);
+  }
+  const manualGroup = event.target.closest("[data-manual-import-group]");
+  if (manualGroup) {
+    if (!canEdit()) return guestOnlyMessage();
+    const place = importSourcePlace(manualGroup.dataset.manualImportGroup);
+    if (!place) return;
+    closeImportRematchSheet();
+    return openManualPlaceEditor(manualImportGroupSeed(place));
+  }
   const manualPlace = event.target.closest("[data-manual-place]");
   if (manualPlace) {
     if (!canEdit()) return guestOnlyMessage();
     const importForm = manualPlace.closest("#import-places-form");
-    const seed = manualPlaceSeed(importForm?.elements.mapsList?.value || "");
-    seed.kind = String(importForm?.elements.placeKind?.value || "lodging");
-    return openPlaceEditSheet("", seed);
+    const seed = manualPlaceSeed(importForm?.elements.mapsList?.value || "", document.querySelector("#import-place-kind")?.value || "auto");
+    return openManualPlaceEditor(seed);
   }
 
   const lodgingDraftButton = event.target.closest("[data-create-lodging-draft]");

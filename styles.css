@@ -4954,6 +4954,11 @@ body.transport-sheet-open .app {
   overscroll-behavior: contain;
 }
 
+.import-rematch-sheet .modal-actions > [data-manual-import-group] {
+  grid-column: 1 / -1;
+  order: 1;
+}
+
 .import-rematch-copy {
   margin: 8px 0 14px;
   color: var(--muted);

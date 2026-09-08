@@ -84,3 +84,9 @@
 - Overview keeps the complete flight list and an explicit add-flight button because flights are a primary planning object rather than a summary-only metric.
 - The Places list has one add-place entry point: the persistent bottom action. Swipe-delete controls remain fully hidden until a left swipe begins.
 - Transport forms use progressive disclosure: mode-relevant fields appear first, while ticket-specific details remain collapsed until explicitly requested.
+
+## 2026-09-08 general place fallback
+
+- Keep empty source groups as non-importable review placeholders so users can search or create a manual place without accepting a wrong Google identity.
+- Explicit keyword rematch sends the user's literal query without hidden destination/address expansion. Preserve the existing endpoint, identity invariants, per-group exclusions, general multi-select, and lodging single-select/type gate.
+- Manual routing follows known source kind; unknown kind requires user choice, never an implicit lodging default. Generic editor copy must not show lodging-only prompts.

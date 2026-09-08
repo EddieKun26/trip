@@ -1094,15 +1094,15 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
   const maxResultCount = Math.max(1, Math.min(10, Number(options.maxResultCount) || defaultResultCount));
   const returnLimit = Math.max(1, Math.min(5, Number(options.returnLimit) || defaultResultCount));
   const requestBody = {
-    textQuery: queryParts.join(" "),
+    textQuery: options.keywordSearch ? mention.searchQuery : queryParts.join(" "),
     languageCode: "zh-TW",
     maxResultCount,
   };
   const regionCode = regionCodeFor(`${mention.country} ${mention.city} ${mention.address} ${trip.destination}`);
-  if (regionCode) requestBody.regionCode = regionCode;
+  if (regionCode && !options.keywordSearch) requestBody.regionCode = regionCode;
   const center = tripCenter(trip);
   const mentionHasLocation = Boolean(mention.city || mention.area || mention.country || mention.address);
-  if (center && !mentionHasLocation) requestBody.locationBias = { circle: { center, radius: 50000 } };
+  if (center && !mentionHasLocation && !options.keywordSearch) requestBody.locationBias = { circle: { center, radius: 50000 } };
   const search = (body) => fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
@@ -1389,7 +1389,8 @@ export default async function socialPlaceImportHandler(request, response) {
     const googleMapsKey = String(process.env.GOOGLE_MAPS_API_KEY || "").trim();
     if (action === "rematch") {
       if (!googleMapsKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
-      const query = cleanText(body.query, 300);
+      const keywordSearch = body.searchMode === "keyword";
+      const query = keywordSearch ? String(body.query || "").trim().slice(0, 300) : cleanText(body.query, 300);
       if (!query) return sendJson(response, 400, { error: "SEARCH_QUERY_REQUIRED" });
       const sourceUrl = safeSocialUrl(body.sourceUrl);
       const category = requestedKind === "auto" ? normalizedRequestedKind(body.category) : requestedKind;
@@ -1417,6 +1418,7 @@ export default async function socialPlaceImportHandler(request, response) {
         summary: cleanText(body.sourceSummary, 800),
       };
       const candidates = await searchGoogleCandidates(googleMapsKey, mention, trip, source, {
+        keywordSearch,
         maxResultCount: 10,
         returnLimit: 5,
         excludePlaceIds: Array.isArray(body.excludePlaceIds) ? body.excludePlaceIds.slice(0, 20) : [],
@@ -1576,8 +1578,9 @@ export default async function socialPlaceImportHandler(request, response) {
           notice: "沒有找到可靠的 Google Maps 住宿配對，可改用來源資料自行建立住宿。",
         });
       }
-      return sendJson(response, 422, {
-        error: recognitionKind === "lodging" ? "LODGING_DETAILS_REQUIRED" : "GOOGLE_PLACE_NOT_FOUND",
+      return sendJson(response, 200, {
+        groups,
+        notice: "沒有找到合適的 Google Maps 候選，可搜尋其他地點或手動新增。",
         platform,
         source,
       });

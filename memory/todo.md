@@ -22,3 +22,7 @@
 - Perform final real-device iPhone verification before packaging a test app.
 - Consider Google Routes/Transit integration only after the manual transport workflow is stable; it adds API cost and routing complexity.
 - Continue improving less-common airport coverage when users encounter an unsupported city.
+
+## General place fallback acceptance (2026-09-08)
+
+- [ ] User production acceptance: restaurant social URL → empty/unsuitable candidates → 搜尋其他地點 → literal keyword search → inspect/select/import. Empty keyword result → 手動新增 with correct kind. Unknown manual kind → four explicit choices; booking/lodging source retains lodging editor. No agent production App visit.
