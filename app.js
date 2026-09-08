@@ -2052,13 +2052,13 @@ function placesFilterModel(places, selection) {
   if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
   const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
     && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
-    && (selection.placeKind !== "restaurant" || !selection.restaurantTagFilter || restaurantTagValues(place).includes(selection.restaurantTagFilter)));
+    && (!selection.restaurantTagFilter || restaurantTagValues(place).includes(selection.restaurantTagFilter)));
   return { areas, tags, visible };
 }
 
-function placesFilterChips(model) {
+function placesFilterChips(model, { cuisine = true } = {}) {
   const row = (label, attribute, selected, options) => `<div class="places-filter-row"><span>${label}</span><div class="places-filter-chips" role="group" aria-label="${label}">${[["", "全部"], ...options].map(([key, name]) => `<button type="button" data-${attribute}="${escapeHtml(key)}" aria-pressed="${selected === key}" class="${selected === key ? "active" : ""}">${escapeHtml(name)}</button>`).join("")}</div></div>`;
-  return `<div class="places-filters">${row("地區", "place-area-filter", state.placeAreaFilter, model.areas)}${state.placeKind === "restaurant" ? row("餐飲", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
+  return `<div class="places-filters">${row("地區", "place-area-filter", state.placeAreaFilter, model.areas)}${cuisine && model.tags.length ? row("餐飲", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
 }
 
 function placesScreen() {
@@ -2275,6 +2275,7 @@ function placeMapStatus(place) {
 }
 
 function matchesMapFilters(place) {
+  if (state.placeAreaFilter && place.travelAreaKey !== state.placeAreaFilter) return false;
   if (state.placeKind !== "all" && place.kind !== state.placeKind) return false;
   if (state.mapCategory !== "all" && place.category !== state.mapCategory) return false;
   const voters = placeVoters(place.name);
@@ -2345,7 +2346,7 @@ function filteredMapPlaces() {
       .flatMap((item) => item.type === "flight"
         ? airportMapNodes(item).map((place) => ({ item, place }))
         : [{ item, place: placesByName.get(item.name) }])
-      .filter(({ place }) => place && (place.isAirport || matchesMapFilters(place)))
+      .filter(({ place }) => place && ((place.isAirport && !state.placeAreaFilter) || matchesMapFilters(place)))
       .map(({ item, place }, index) => ({
         ...place,
         itineraryItemId: itineraryItemKey(item),
@@ -2451,8 +2452,9 @@ function offsetOverlappingMapPins(places) {
 }
 
 function mapScreen() {
+  const areaFilters = placesFilterChips(placesFilterModel(state.places, state), { cuisine: false });
   const projectedPlaces = filteredMapPlaces();
-  const kindPlaces = state.places.filter((place) => state.placeKind === "all" || place.kind === state.placeKind);
+  const kindPlaces = state.places.filter(matchesMapFilters);
   const unlocatedCount = kindPlaces.length - projectPlaces(kindPlaces).length;
   const kindDefinitions = [["all", "全部"], ["attraction", "景點"], ["restaurant", "餐廳"], ["lodging", "住宿"], ["shopping", "購物"]];
   const kindOptions = kindDefinitions
@@ -2491,18 +2493,21 @@ function mapScreen() {
         <option value="none" ${state.mapPreference === "none" ? "selected" : ""}>尚未推薦</option>
       </select></label>
     </div>`;
+  const fullscreenIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>`;
+  const filterIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M7 12h10M10 18h4"/></svg>`;
+  const fullscreenButton = `<button class="map-fullscreen-button" type="button" data-toggle-map-fullscreen aria-pressed="${mapFullscreen}" aria-label="${mapFullscreen ? "離開全螢幕地圖" : "開啟全螢幕地圖"}">${fullscreenIcon}<span>${mapFullscreen ? "離開全圖" : "全螢幕"}</span></button>`;
   const mapLegend = `
     <div class="map-legend" aria-label="圖釘狀態">
       ${state.mapView === "day" ? `${dayLegend}${flightLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
+    </div>`;
+  const mapActions = `<div class="map-operation-actions">
       ${state.mapView === "planning" ? `
         <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
           <span class="map-live-location-icon" aria-hidden="true">⌖</span>
           <b data-live-location-label>${liveLocationLabel()}</b>
         </button>` : ""}
+      ${fullscreenButton}
     </div>`;
-  const fullscreenIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>`;
-  const filterIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M7 12h10M10 18h4"/></svg>`;
-  const fullscreenButton = `<button class="map-fullscreen-button" type="button" data-toggle-map-fullscreen aria-pressed="${mapFullscreen}" aria-label="${mapFullscreen ? "離開全螢幕地圖" : "開啟全螢幕地圖"}">${fullscreenIcon}<span>${mapFullscreen ? "離開全圖" : "全螢幕"}</span></button>`;
   const sidebarKindButtons = kindDefinitions.map(([value, label]) => {
     const count = value === "all" ? state.places.length : state.places.filter((place) => place.kind === value).length;
     return `<button type="button" class="${state.placeKind === value ? "active" : ""}" data-place-kind="${value}"><span>${label}</span><b>${count}</b></button>`;
@@ -2532,7 +2537,9 @@ function mapScreen() {
           ${mapPurposeTabs}
           <div class="map-sidebar-section"><h3>地點類別</h3><div class="map-sidebar-kind-list">${sidebarKindButtons}</div></div>
           ${mapFilters}
+          ${areaFilters}
           ${mapLegend}
+          ${mapActions}
           <div class="map-sidebar-section map-sidebar-results"><div class="map-sidebar-result-title"><h3>地點</h3><span>${projectedPlaces.length} 筆</span></div>${sidebarPlaces}</div>
         </aside>
         <div class="map-fullscreen-stage">
@@ -2549,12 +2556,14 @@ function mapScreen() {
     <section class="screen map-screen">
       <header class="title-row map-toolbar">
         <div><h1>${mapTitle}</h1><p class="meta">顯示 ${projectedPlaces.length} 個地點</p></div>
-        <div class="map-toolbar-actions">${undoButtonMarkup()}${fullscreenButton}</div>
+        <div class="map-toolbar-actions">${undoButtonMarkup()}</div>
       </header>
       <div style="margin-top:14px">${placesSegment("map")}</div>
       ${mapPurposeTabs}
       ${mapFilters}
+      ${areaFilters}
       ${mapLegend}
+      ${mapActions}
       ${mapCanvas}
     </section>`;
 }
@@ -2828,6 +2837,23 @@ function loadGoogleMapsScript(key) {
   return googleMapsLoader;
 }
 
+let lastMapViewport = null;
+
+function rememberMapViewport() {
+  const map = activeGoogleMap || activeLeafletMap;
+  const center = map?.getCenter?.();
+  const latitude = typeof center?.lat === "function" ? center.lat() : center?.lat;
+  const longitude = typeof center?.lng === "function" ? center.lng() : center?.lng;
+  const zoom = map?.getZoom?.();
+  if (Number.isFinite(latitude) && Number.isFinite(longitude) && Number.isFinite(zoom)) {
+    lastMapViewport = { tripId: state.tripId, latitude, longitude, zoom };
+  }
+}
+
+function emptyMapViewport() {
+  return lastMapViewport?.tripId === state.tripId ? lastMapViewport : { latitude: 35.6762, longitude: 139.6503, zoom: 11 };
+}
+
 function renderGoogleInteractiveMap(host, places) {
   clearLiveLocationLayers();
   activeLeafletMap?.remove();
@@ -2838,10 +2864,10 @@ function renderGoogleInteractiveMap(host, places) {
         lat: places.reduce((sum, place) => sum + place.latitude, 0) / places.length,
         lng: places.reduce((sum, place) => sum + place.longitude, 0) / places.length,
       }
-    : { lat: 35.6762, lng: 139.6503 };
+    : { lat: emptyMapViewport().latitude, lng: emptyMapViewport().longitude };
   const map = new google.maps.Map(host, {
     center,
-    zoom: places.length === 1 ? 14 : 11,
+    zoom: places.length ? (places.length === 1 ? 14 : 11) : emptyMapViewport().zoom,
     gestureHandling: "greedy",
     mapTypeId: "roadmap",
     mapTypeControl: true,
@@ -2920,7 +2946,7 @@ function renderGoogleInteractiveMap(host, places) {
   if (places.length > 1) map.fitBounds(bounds, 42);
   const selectedPlace = places.find(isSelectedMapDetailPlace);
   if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
-  syncLiveLocationLayers({ center: liveLocationEnabled });
+  syncLiveLocationLayers({ center: liveLocationEnabled && !state.placeAreaFilter && places.length > 0 });
 }
 
 function renderLeafletInteractiveMap(host, places) {
@@ -2976,11 +3002,11 @@ function renderLeafletInteractiveMap(host, places) {
       .on("click", () => openMapNode(place));
   });
   if (bounds.length > 1) activeLeafletMap.fitBounds(bounds, { padding: [42, 42] });
-  else activeLeafletMap.setView(bounds[0] || [35.6762, 139.6503], bounds.length ? 14 : 11);
+  else activeLeafletMap.setView(bounds[0] || [emptyMapViewport().latitude, emptyMapViewport().longitude], bounds.length ? 14 : emptyMapViewport().zoom);
   activeLeafletMap.on("click", () => updateMapPlacePreview(null));
   const selectedPlace = places.find(isSelectedMapDetailPlace);
   if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
-  syncLiveLocationLayers({ center: liveLocationEnabled });
+  syncLiveLocationLayers({ center: liveLocationEnabled && !state.placeAreaFilter && places.length > 0 });
 }
 
 async function ensureMapCoordinates() {
@@ -3235,7 +3261,7 @@ async function initializeInteractiveMap() {
     clearLiveLocationLayers();
     activeGoogleMap = null;
     activeLeafletMap = null;
-    const center = places[0] || { latitude: 35.6762, longitude: 139.6503 };
+    const center = places[0] || emptyMapViewport();
     host.innerHTML = `<iframe title="Google Maps 互動地圖" src="https://www.google.com/maps?q=${center.latitude},${center.longitude}&z=11&output=embed" loading="eager" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>`;
     if (liveLocationEnabled) {
       stopLiveLocation();
@@ -4480,6 +4506,7 @@ function render({ preserveScroll = false } = {}) {
     return;
   }
   saveUiPreference();
+  rememberMapViewport();
   const previousScrollTop = app.scrollTop;
   syncTabBarState();
   const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
@@ -4690,7 +4717,6 @@ async function ensurePlaceDetails(place) {
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
       areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
-      ...(place.kind === "restaurant" && !Array.isArray(place.restaurantTags) ? { restaurantTags: restaurantTagsFromCategory(resolved.category) } : {}),
       category: resolved.category || place.category,
       kind: normalizedPlaceKind({ ...place, category: resolved.category || place.category }),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
@@ -7554,8 +7580,13 @@ document.addEventListener("click", async (event) => {
 
   const listFilter = event.target.closest("[data-place-area-filter], [data-restaurant-tag-filter]");
   if (listFilter) {
-    if (listFilter.dataset.placeAreaFilter !== undefined) state.placeAreaFilter = listFilter.dataset.placeAreaFilter;
-    else state.restaurantTagFilter = listFilter.dataset.restaurantTagFilter;
+    if (listFilter.dataset.placeAreaFilter !== undefined) {
+      state.placeAreaFilter = listFilter.dataset.placeAreaFilter;
+      state.selectedMapPlace = "";
+    } else {
+      state.restaurantTagFilter = listFilter.dataset.restaurantTagFilter;
+      if (state.restaurantTagFilter) state.placeKind = "all";
+    }
     const scrollPositions = [...document.querySelectorAll(".places-filter-chips")].map((row) => row.scrollLeft);
     render();
     document.querySelectorAll(".places-filter-chips").forEach((row, index) => { row.scrollLeft = scrollPositions[index] || 0; });

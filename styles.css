@@ -7929,7 +7929,8 @@ body.transport-sheet-open .app {
 .places-filters { display: grid; gap: 4px; margin: 8px 0 14px; min-width: 0; }
 .places-filter-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .places-filter-row > span { flex: 0 0 auto; font-size: 13px; color: var(--muted); }
-.places-filter-chips { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px 0; scrollbar-width: none; }
+.places-filter-chips { display: flex; flex: 1 1 0%; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; min-width: 0; max-width: 100%; padding: 2px 4px 2px 0; scrollbar-width: none; touch-action: pan-x pan-y; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.places-filter-chips::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .places-filter-chips button { flex: 0 0 auto; min-height: 44px; padding: 6px 14px; border: 1px solid #d8ddd8; border-radius: 24px; background: transparent; color: inherit; white-space: nowrap; }
 .places-filter-chips button.active { background: #315c50; color: white; border-color: #315c50; }
 .restaurant-tag-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
@@ -7938,3 +7939,13 @@ body.transport-sheet-open .app {
 .restaurant-tag-options label { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 10px; border: 1px solid #d8ddd8; border-radius: 20px; }
 .restaurant-tag-options input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: #315c50; }
 .restaurant-tag-options label:has(input:checked) { background: #e4eee8; border-color: #315c50; }
+
+.places-filter-row { width: 100%; max-width: 100%; overflow: hidden; }
+.places-filters { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 100%; }
+.places-filter-chips button { touch-action: pan-x pan-y; }
+.map-operation-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 6px 0 10px; }
+.map-operation-actions .map-live-location-toggle { margin-left: 0; height: 44px; padding: 0 12px; }
+.map-operation-actions .map-live-location-toggle b { font-size: 12px; }
+.map-screen .map-operation-actions .map-fullscreen-button { width: auto; min-height: 44px; padding: 0 12px; }
+.map-screen .map-operation-actions .map-fullscreen-button span { display: inline; }
+.map-fullscreen-sidebar > .places-filters, .map-fullscreen-sidebar > .map-operation-actions { padding-inline: 14px; }

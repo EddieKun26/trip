@@ -23,7 +23,7 @@ test("area choices use trip records, stable keys, and include missing areas unde
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a", "c"]);
  assert.equal(places[3].travelAreaKey, undefined);
 });
-test("area AND multi-valued cuisine, cuisine hidden/inactive for other kinds, stale filters reset", () => {
+test("area AND multi-valued cuisine, cuisine applies across top-level kinds, stale filters reset", () => {
  const selection = { placeKind: "restaurant", placeAreaFilter: "ueno", restaurantTagFilter: "燒肉" };
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a"]);
  selection.placeAreaFilter = "shinjuku"; selection.restaurantTagFilter = "壽喜燒";
@@ -31,7 +31,9 @@ test("area AND multi-valued cuisine, cuisine hidden/inactive for other kinds, st
  selection.restaurantTagFilter = "燒肉";
  assert.deepEqual(names(c.placesFilterModel(places, selection)), []);
  selection.placeKind = "attraction"; selection.placeAreaFilter = "ueno";
- assert.deepEqual(names(c.placesFilterModel(places, selection)), ["c"]);
+ assert.deepEqual(names(c.placesFilterModel(places, selection)), []);
+ selection.placeKind = "all";
+ assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a"]);
  selection.placeKind = "restaurant";
  c.placesFilterModel([places[3]], selection);
  assert.equal(selection.placeAreaFilter, ""); assert.equal(selection.restaurantTagFilter, "");
@@ -48,7 +50,7 @@ test("automatic suggestions only accept exact explicit categories, never names",
  assert.equal(c.restaurantTagsFromCategory("壽喜燒名店 Aidaya").length, 0);
  assert.equal(c.restaurantTagsFromCategory("餐廳").length, 0);
  const update = section("async function ensurePlaceDetails", "function openProfileSheet");
- assert.match(update, /!Array.isArray\(place.restaurantTags\)/);
+ assert.doesNotMatch(update, /restaurantTagsFromCategory|restaurantTags:/);
 });
 test("shared sanitizer and JSON reload retain optional tags and explicit empty arrays", () => {
  const server = readFileSync(new URL("../api/trip.mjs", import.meta.url), "utf8");
@@ -65,8 +67,51 @@ test("filter controls expose pressed state, scroll horizontally, and do not invo
  const html = c.placesFilterChips(c.placesFilterModel(places, c.state));
  assert.match(html, /aria-label="餐飲"/); assert.match(html, /aria-pressed="true"/);
  c.state.placeKind = "all";
- assert.doesNotMatch(c.placesFilterChips(c.placesFilterModel(places, c.state)), /aria-label="餐飲"/);
+ assert.match(c.placesFilterChips(c.placesFilterModel(places, c.state)), /aria-label="餐飲"/);
+ assert.doesNotMatch(c.placesFilterChips(c.placesFilterModel([{ kind: "restaurant" }], c.state)), /aria-label="餐飲"/);
  assert.doesNotMatch(section("function placesFilterModel", "function placesScreen"), /fetch\(|resolve|ensureTravelArea/);
  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
  assert.match(css, /\.places-filter-chips \{[^}]*overflow-x: auto/);
+});
+
+
+test("List and Map share stable area key; area changes filter map without cuisine leakage", () => {
+ const context = vm.createContext({ state: { placeKind: "all", placeAreaFilter: "ueno", mapCategory: "all", mapPreference: "all" }, placeVoters: () => [] });
+ vm.runInContext(section("function matchesMapFilters", "function spreadOverlappingPins"), context);
+ assert.deepEqual(places.filter(context.matchesMapFilters).map(p => p.name), ["a", "c"]);
+ context.state.placeAreaFilter = "shinjuku";
+ assert.deepEqual(places.filter(context.matchesMapFilters).map(p => p.name), ["b"]);
+ context.state.placeAreaFilter = "";
+ assert.equal(places.filter(context.matchesMapFilters).length, places.length);
+});
+
+test("empty area preserves Google/Leaflet viewport, scoped to the current trip", () => {
+ const context = vm.createContext({ state: { tripId: "trip" }, activeGoogleMap: { getCenter: () => ({ lat: () => 35.64, lng: () => 139.7 }), getZoom: () => 15 }, activeLeafletMap: null });
+ vm.runInContext(section("let lastMapViewport", "function renderGoogleInteractiveMap"), context);
+ context.rememberMapViewport();
+ assert.equal(context.emptyMapViewport().zoom, 15);
+ assert.equal(context.emptyMapViewport().latitude, 35.64);
+ context.activeGoogleMap = null;
+ context.activeLeafletMap = { getCenter: () => ({ lat: 34.6, lng: 135.5 }), getZoom: () => 13 };
+ context.rememberMapViewport();
+ assert.equal(context.emptyMapViewport().longitude, 135.5);
+ context.state.tripId = "different";
+ assert.equal(context.emptyMapViewport().zoom, 11);
+ const google = section("function renderGoogleInteractiveMap", "function renderLeafletInteractiveMap");
+ const leaflet = section("function renderLeafletInteractiveMap", "async function ensureMapCoordinates");
+ assert.match(google, /if \(places.length > 1\) map.fitBounds/);
+ assert.match(leaflet, /if \(bounds.length > 1\) activeLeafletMap.fitBounds/);
+ assert.match(google, /emptyMapViewport\(\).zoom/);
+ assert.match(leaflet, /emptyMapViewport\(\).zoom/);
+});
+
+test("map chips and adjacent location/fullscreen controls exist in both layouts", () => {
+ const map = section("function mapScreen", "function mapPinColor");
+ assert.equal((map.match(/\$\{areaFilters\}/g) || []).length, 2);
+ assert.equal((map.match(/\$\{mapActions\}/g) || []).length, 2);
+ assert.match(map, /class="map-operation-actions"/);
+ assert.doesNotMatch(map, /map-toolbar-actions[^\n]*fullscreenButton/);
+ const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+ assert.match(css, /places-filter-chips[^}]*flex-wrap: nowrap/);
+ assert.match(css, /places-filter-chips::-webkit-scrollbar/);
 });

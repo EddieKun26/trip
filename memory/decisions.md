@@ -92,4 +92,6 @@
 - Manual routing follows known source kind; unknown kind requires user choice, never an implicit lodging default. Generic editor copy must not show lodging-only prompts.
 
 
-- Places filters reuse stored Travel Area keys only. Restaurant tags are optional multi-valued strings; explicit arrays (including empty) win over automatic source updates. No migration or new API; cuisine only filters restaurant lists and combines with area using AND.
+- Places filters reuse stored Travel Area keys only. Restaurant tags are optional multi-valued strings; explicit arrays (including empty) win over automatic source updates. No migration or new API; cuisine chips appear whenever trip restaurant tags exist; choosing a tag filters to tagged restaurants across top-level All and combines with area using AND.
+
+- List/Map share stored area selection; empty-area map results preserve viewport. No trusted area polygon currently exists; boundary requires an additional geometry source. Existing untagged restaurants are not backfilled by detail refresh.
