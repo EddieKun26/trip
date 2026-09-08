@@ -1,4 +1,16 @@
 import { createHash } from "node:crypto";
+import { validateProductUrl } from "../lib/product-page.mjs";
+
+function shoppingSource(item) {
+  const type = item?.sourceType;
+  if (!["threads", "product_url", "screenshot"].includes(type)) return {};
+  if (type === "screenshot" && !item.sourceReferenceUrl) return { sourceType: type };
+  try {
+    const url = validateProductUrl(item.sourceReferenceUrl);
+    if (type === "threads" && !["threads.com", "www.threads.com", "threads.net", "www.threads.net"].includes(url.hostname)) return {};
+    return { sourceType: type, sourceReferenceUrl: item.sourceReferenceUrl };
+  } catch { return {}; }
+}
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
@@ -225,6 +237,7 @@ function cleanShopping(input, previous) {
         : "";
       return {
         id: cleanText(item?.id, 80),
+        ...shoppingSource(item),
         brand: cleanText(item?.brand, 100),
         name: cleanText(item?.name, 100),
         benefits: cleanDisplayText(item?.benefits, 500),

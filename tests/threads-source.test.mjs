@@ -40,6 +40,53 @@ const parse = (html = A.html, finalUrl = A.final) => parseThreadsSource(html, { 
 const script = (value, type = "application/json") => `<script type="${type}">${JSON.stringify(value)}</script>`;
 const structured = (extra = {}) => ({ code: "DRNBp0REvzg", user: { username: "mio_1983" }, caption: { text: "Exact primary caption" }, image_versions2: { candidates: [{ url: img, width: 1200, height: 1200 }] }, ...extra });
 
+test("social recognition reuses one Vision request with caption and verified carousel bytes; blocked/uncertain sources need screenshots", async (t) => {
+  const token = "mvp-session", digest = createHash("sha256").update(token).digest("hex");
+  const store = new Map([[`tokyo-family-trip:session:${digest}`, JSON.stringify({ id: "owner" })], ["tokyo-family-trip:trip:own", JSON.stringify({ members: { owner: true } })]]);
+  const env = ["OPENAI_API_KEY", "KV_REST_API_URL", "KV_REST_API_TOKEN"].map((key) => [key, process.env[key]]);
+  process.env.OPENAI_API_KEY = "test"; process.env.KV_REST_API_URL = "https://redis.test"; process.env.KV_REST_API_TOKEN = "test";
+  const second = img.replace("primary-a", "primary-a-2"), ai = [], calls = [];
+  const routes = { [A.original]: { status: 302, headers: { location: A.final } }, [A.final]: { body: `<html><head>${script(structured({ carousel_media: [img, second].map((url) => ({ image_versions2: { candidates: [{ url, width: 1200, height: 1200 }] } })) }))}</head></html>` }, [img]: imageRoute, [second]: imageRoute };
+  let confidence = 0.9;
+  t.mock.method(https, "request", transport(routes, calls)); t.mock.method(dns, "lookup", publicLookup); syncBuiltinESMExports();
+  t.mock.method(globalThis, "fetch", async (url, options = {}) => {
+    if (String(url) === "https://redis.test") {
+      const [verb, key] = JSON.parse(options.body);
+      return new Response(JSON.stringify({ result: verb === "GET" ? store.get(key) || null : 1 }));
+    }
+    assert.equal(String(url), "https://api.openai.com/v1/responses");
+    const body = JSON.parse(options.body);
+    if (body.text?.format?.name !== "shopping_product_recognition") return new Response("{}", { status: 503 });
+    ai.push(body);
+    return new Response(JSON.stringify({ output_text: JSON.stringify({ productNameZh: "測試餅乾", brandZh: "品牌", confidence, priceAmount: 0, priceCurrency: "", category: "souvenir" }) }));
+  });
+  const run = async (cookie = `tokyo_trip_session=${token}`, tripId = "own") => {
+    const res = { status(c) { this.code = c; return this; }, setHeader() { return this; }, json(v) { this.payload = v; } };
+    await handler({ method: "POST", headers: { cookie }, body: { action: "social-source", recognize: true, sourceUrl: A.original, tripId } }, res); return res;
+  };
+  try {
+    assert.equal((await run("")).code, 401); assert.equal((await run(undefined, "other")).code, 403); assert.equal(calls.length, 0);
+    const result = await run();
+    assert.equal(result.code, 200); assert.equal(result.payload.details.name, "測試餅乾"); assert.equal(ai.length, 1);
+    const content = ai[0].input[1].content;
+    assert.match(content[0].text, /Exact primary caption/);
+    assert.equal(content.filter((part) => part.type === "input_image").length, 2);
+    for (const part of content.filter((part) => part.type === "input_image")) assert.equal(part.image_url, `data:image/jpeg;base64,${jpeg.toString("base64")}`);
+    assert.equal(result.payload.socialDraft.originalReferenceUrl, A.original);
+    assert.ok(result.payload.sourceImageDataUrl); assert.ok(result.payload.socialDraft.imageCandidates.every((image) => !image.dataUrl));
+    confidence = 0.2;
+    const uncertain = await run(); assert.equal(uncertain.code, 422); assert.equal(uncertain.payload.requiresScreenshot, true);
+    routes[A.final] = { status: 403 };
+    const before = ai.length, blocked = await run();
+    assert.equal(blocked.code, 200); assert.equal(blocked.payload.requiresScreenshot, true); assert.equal(blocked.payload.socialDraft.readStatus, "blocked"); assert.equal(ai.length, before);
+    routes[A.final] = { body: "<html><head></head></html>" };
+    const missing = await run(); assert.equal(missing.payload.requiresScreenshot, true); assert.equal(ai.length, before);
+  } finally {
+    t.mock.restoreAll(); syncBuiltinESMExports();
+    for (const [key, value] of env) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+});
+
 for (const fixture of [A, B]) test(`offline share contract: ${fixture.original}`, async () => {
   const final = `${fixture.final}?xmt=fixture`;
   const image = fixture === A ? img : "https://media.fbcdn.net/v/t51.82787-15/primary-b.jpg";

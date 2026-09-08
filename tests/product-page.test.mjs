@@ -48,6 +48,17 @@ function transport(routes, calls = []) {
 }
 const dependencies = (routes, calls = []) => ({ lookup, request: transport(routes, calls) });
 
+test("optional S1 editor preview only includes small verified image bytes; default contract stays unchanged", async () => {
+  const routes = { [source]: {}, [imageUrl]: { body: jpeg, headers: { "content-type": "image/jpeg" } } };
+  assert.equal((await readProductDraft(source, dependencies(routes))).imageDataUrl, undefined);
+  const preview = await readProductDraft(source, { ...dependencies(routes), includeImage: true });
+  assert.equal(preview.imageDataUrl, `data:image/jpeg;base64,${jpeg.toString("base64")}`);
+  routes[imageUrl].body = Buffer.concat([jpeg, Buffer.alloc(500000)]);
+  assert.equal((await readProductDraft(source, { ...dependencies(routes), includeImage: true })).imageDataUrl, undefined);
+  routes[imageUrl] = { status: 302, headers: { location: "https://127.0.0.1/image" } };
+  assert.equal((await readProductDraft(source, { ...dependencies(routes), includeImage: true })).imageDataUrl, undefined);
+});
+
 test("single JSON-LD Product owns every field, explicit IDs and merchant-scoped evidence", () => {
   const d = parse(product());
   assert.equal(d.readStatus, "success");

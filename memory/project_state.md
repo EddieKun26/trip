@@ -1,5 +1,15 @@
 # Project state
 
+## Threads Shopping MVP — 2026-09-08
+
+- Continues isolated `shopping-social-s2a` above local S2-A checkpoint `450ea56` (not deployed separately). User authorizes final commit, fast-forward main push and existing Vercel Git production deployment after validation. Other worktrees and canonical copies are intentionally untouched for this release.
+- Shopping now has 貼連結辨識 / 截圖辨識 / 手動新增. Threads links use `social-source` with `recognize: true`: the reader supplies verified primary-image bytes and bound caption to the existing single Shopping Vision/structured-output request. Multiple primary images are evidence for one product, never split into entries. Default `social-source` remains read-only without an OpenAI key. S1 product URLs use `url-draft` and the same confirmation editor, with an optional small verified image preview.
+- Blocked, unsupported or insufficient sources retain the original URL in the same pending entry and offer 上傳截圖辨識. Screenshot fallback reuses the original screenshot recognition request, image compression and confirmation/save flow. Uncertain recognition requires manual input; linked items can retain unknown currency. No outbound product-link following, Instagram enhancement, migration or second AI flow.
+- Optional `sourceReferenceUrl` and `sourceType` (`threads`, `product_url`, `screenshot`) survive private Shopping PUT/GET, reload and item edits. Legacy items remain valid. Async import and save work checks entry/trip/member/context before applying results; submit locks while image preparation completes.
+- Safe source HTML remains identity-only, with the existing independent 4 MiB byte cap; compressed responses remain rejected. Earlier real Threads checks of GhWXu9wLy and E7ZmNknYI each yielded partial metadata with caption plus one verified primary image. No decompression change or anti-bot bypass.
+- Local headless Edge at 393×852 exercised Threads → edit → save → reload, blocked → screenshot on the same entry → save, and S1 → editor → save with mocked APIs. Three saved items retained their sources, no page errors/overflow; URL input 16px, read action 50px. Production App is reserved for the user's manual acceptance.
+- Validation: targeted 178/178; one full regression run 322/323, with the sole failure caused by the old startup test's fake form omitting native `dataset`. Only that fixture was corrected (also supplying `isConnected`); startup targeted rerun 22/22 including the failing case. No product code changed after the full run and no second full run. Syntax/diff checks pass; API functions 12. Fetch confirmed origin/main `8632d0491cff9c4d235d3c3d1951de820db4f5a9` and fast-forward ancestry. Protected worktree heads and tracked diffs are unchanged.
+
 ## Shopping Social Import — S2-A (2026-09-08, local implementation only)
 
 - Fetched `origin/main` and verified deployed S1 baseline `8632d0491cff9c4d235d3c3d1951de820db4f5a9`; created clean `shopping-social-s2a` branch/worktree. This checkpoint stays isolated per explicit instructions; no canonical-source/mirror sync, stage, commit, push, deployment or production App access.

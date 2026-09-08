@@ -349,7 +349,7 @@ test("late shopping research cannot open old details or save into the newly sele
 test("shopping screenshot submit cannot append items after a trip boundary during image preparation", async () => {
   const b = browser(); await b.list(); await b.ready("a");
   b.run('pendingShoppingImports = [{ id: "entry", dataUrl: "data:image/jpeg;base64,input", details: { name: "舊會員商品", categoryId: "daily" } }]');
-  const target = { id: "shopping-import-form", querySelectorAll: () => [] };
+  const target = { id: "shopping-import-form", dataset: {}, isConnected: true, querySelectorAll: () => [] };
   const submitting = b.listeners.submit[0]({ target, preventDefault() {} });
   b.run('switchTrip("b")');
   await submitting;

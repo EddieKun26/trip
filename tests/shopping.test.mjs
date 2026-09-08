@@ -59,6 +59,37 @@ async function shoppingRequest(cookie, tripId, method = "GET", body = undefined)
   return response;
 }
 
+test("shopping source survives PUT/GET/reload, old items and private scopes remain compatible", async () => {
+  store.clear();
+  const owner = await login("來源測試", "1234", "203.0.113.70");
+  const other = await login("其他成員", "1234", "203.0.113.71");
+  const created = await tripRequest(owner.cookie, { action: "create", destination: "東京", title: "來源測試", startDate: "2026-09-20", endDate: "2026-09-26" });
+  const tripId = created.payload.trip.id;
+  await tripRequest(other.cookie, { action: "join", inviteCode: created.payload.trip.inviteCode });
+  const reference = "https://www.threads.com/share/GhWXu9wLy/?xmt=original";
+  const items = [
+    { id: "threads", name: "手動確認後商品", sourceType: "threads", sourceReferenceUrl: reference },
+    { id: "product", name: "商品頁", sourceType: "product_url", sourceReferenceUrl: "https://example.com/product?a=1&b=2" },
+    { id: "screenshot", name: "截圖", sourceType: "screenshot" },
+    { id: "old", name: "舊商品" },
+    { id: "unsafe", name: "不安全來源", sourceType: "threads", sourceReferenceUrl: "javascript:alert(1)" },
+    { id: "wrong-host", name: "偽裝來源", sourceType: "threads", sourceReferenceUrl: "https://threads.com.evil.test/post" },
+  ];
+  const saved = await shoppingRequest(owner.cookie, tripId, "PUT", { items });
+  assert.equal(saved.statusCode, 200);
+  const reloaded = await shoppingRequest(owner.cookie, tripId);
+  assert.equal(reloaded.payload.items[0].sourceReferenceUrl, reference);
+  assert.equal(reloaded.payload.items[0].sourceType, "threads");
+  assert.equal(reloaded.payload.items[1].sourceReferenceUrl, items[1].sourceReferenceUrl);
+  assert.equal(reloaded.payload.items[2].sourceType, "screenshot");
+  for (const index of [3, 4, 5]) assert.equal(reloaded.payload.items[index].sourceReferenceUrl, undefined);
+  const again = await shoppingRequest(owner.cookie, tripId, "PUT", reloaded.payload);
+  assert.equal(again.payload.items[0].sourceReferenceUrl, reference);
+  assert.deepEqual((await shoppingRequest(other.cookie, tripId)).payload.items, []);
+  assert.equal((await shoppingRequest("", tripId)).statusCode, 401);
+  assert.equal((await shoppingRequest(owner.cookie, "unrelated", "PUT", { items })).statusCode, 403);
+});
+
 test("shopping lists are private per member and per trip", async () => {
   store.clear();
   const owner = await login("小明", "1111", "203.0.113.41");

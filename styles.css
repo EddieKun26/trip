@@ -6357,7 +6357,7 @@ body.transport-sheet-open .app {
   z-index: 20;
   bottom: 0;
   display: grid;
-  grid-template-columns: .82fr 1.18fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   isolation: isolate;
   margin: 14px -3px 0;
@@ -6378,7 +6378,7 @@ body.transport-sheet-open .app {
   font-weight: 850;
 }
 
-.shopping-sticky-actions button:last-child {
+.shopping-sticky-actions button:first-child {
   border-color: var(--accent);
   background: var(--accent);
   color: white;
@@ -7635,6 +7635,9 @@ body.transport-sheet-open .app {
 }
 
 .shopping-import-fields {
+  border: 0;
+  padding: 0;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
@@ -7661,6 +7664,36 @@ body.transport-sheet-open .app {
 
 .shopping-import-fields textarea {
   min-height: 68px;
+}
+
+.shopping-link-input input,
+.shopping-link-input button,
+.shopping-fallback-upload {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.shopping-link-input button,
+.shopping-fallback-upload {
+  display: block;
+  padding: 12px;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.shopping-fallback-upload input {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+}
+
+.shopping-source-reference {
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .shopping-screenshot-preview {
