@@ -70,3 +70,9 @@ node --test tests/maps-text-import.test.mjs tests/ui-logic.test.mjs tests/place-
 Result: **134/134 passed**, including thirteen targeted P1 tests. A–F cover one multiline address, room/floor/postal continuation, two one-line addresses, two multiline addresses without blank separation, one Maps URL with address text, and ambiguous room/floor evidence between two cores. Additional assertions prove candidates do not absorb one another, address components cannot become collections, ambiguous components never reach geocoding or submission, and cancellation leaves both the displayed count and actual submit at one. Existing social multiselect, lodging single-select, P0 identity and Travel Area v5 regressions pass.
 
 `node --check app.js`, `node --check tests/maps-text-import.test.mjs`, syntax checks of all API `.mjs` files and `git diff --check` pass. Top-level API function count: **12**. Network calls in the new tests are mocked; no live Maps/browser/production acceptance is claimed.
+
+
+## Places filters (2026-09-08)
+
+- `tests/places-filters.test.mjs` checks key identity, missing areas, AND filters, invalid selection reset, old/malformed/custom tags, explicit category-only inference, shared sanitizer/JSON retention, and accessible scrolling chip markup. Restaurant editor runtime coverage verifies multi-select save and explicit clearing.
+- Release: targeted 143/143; full 337/337; syntax/diff clean; API 12. Local Edge 393x852 filter rows and editor have no document overflow. Production acceptance reserved for user.

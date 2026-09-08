@@ -7924,3 +7924,17 @@ body.transport-sheet-open .app {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Compact, independently scrolling Places filters on iPhone. */
+.places-filters { display: grid; gap: 4px; margin: 8px 0 14px; min-width: 0; }
+.places-filter-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.places-filter-row > span { flex: 0 0 auto; font-size: 13px; color: var(--muted); }
+.places-filter-chips { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px 0; scrollbar-width: none; }
+.places-filter-chips button { flex: 0 0 auto; min-height: 44px; padding: 6px 14px; border: 1px solid #d8ddd8; border-radius: 24px; background: transparent; color: inherit; white-space: nowrap; }
+.places-filter-chips button.active { background: #315c50; color: white; border-color: #315c50; }
+.restaurant-tag-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
+.restaurant-tag-editor[hidden] { display: none; }
+.restaurant-tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.restaurant-tag-options label { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 10px; border: 1px solid #d8ddd8; border-radius: 20px; }
+.restaurant-tag-options input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: #315c50; }
+.restaurant-tag-options label:has(input:checked) { background: #e4eee8; border-color: #315c50; }

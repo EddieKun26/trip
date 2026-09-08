@@ -189,3 +189,14 @@
 ## 2026-09-08
 
 - Fixed non-lodging manual import routing and retained empty recognized groups for keyword Google Places search/manual fallback. Assets 20260908.2; API functions remain 12. See project_state.md for tests and acceptance steps. Shopping unchanged.
+
+
+## Places area and restaurant filters — 2026-09-08
+
+- Built from origin/main fab6a1acbf10ab2d156775de4985c5706529e315 in isolated canonical-source worktree travel-app/prototype/places-filters. Existing dirty workspaces are preserved.
+- Places list has compact horizontally scrolling area chips, dynamically derived from this trip's stored travelAreaKey/travelAreaZh. Filtering compares keys only; no resolver/API request or Travel Area rule change. Missing/unclassified areas remain visible under All.
+- Restaurant-only cuisine chips use the trip's actual restaurantTags. Area and cuisine combine with kind using AND; invalid selections reset to All. Other kinds ignore cuisine. Filter state is device UI only and resets when trip view clears.
+- Optional restaurantTags: string[] supports multiple values and 13 default editor choices plus retained custom values. Existing missing fields need no migration. Explicit arrays, including manual clearing to [], are authoritative over Google detail refresh. Exact known Google response categories can conservatively supply tags; names and AI classification are never used. Existing sharedTripPayload/cleanTrip/JSON reload preserve fields without server changes.
+- Validation: targeted 143/143; full regression once 337/337; app.js and all 12 API modules pass syntax; git diff --check passes. Local Edge headless 393x852 has zero horizontal document overflow, two 48px scrolling filter rows, 341px editor, 18px checkboxes and working multi-selection. API functions remain 12; assets 20260908.3.
+- Scope excluded: Aidaya/existing-candidate exclusion, Shopping/Threads changes, lodging matching/source, P0 identity, Travel Area resolver, and candidate-editor refactoring. Production App was not opened; user owns acceptance.
+- Acceptance: choose restaurant, edit a place and select multiple cuisine tags, save/reload/reopen editor; choose area + cuisine and verify intersection, switch All to include untagged/unclassified places, clear the only occurrence of a selected tag to confirm filter resets. Swipe the filter rows on iPhone.

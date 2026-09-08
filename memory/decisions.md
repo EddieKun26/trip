@@ -90,3 +90,6 @@
 - Keep empty source groups as non-importable review placeholders so users can search or create a manual place without accepting a wrong Google identity.
 - Explicit keyword rematch sends the user's literal query without hidden destination/address expansion. Preserve the existing endpoint, identity invariants, per-group exclusions, general multi-select, and lodging single-select/type gate.
 - Manual routing follows known source kind; unknown kind requires user choice, never an implicit lodging default. Generic editor copy must not show lodging-only prompts.
+
+
+- Places filters reuse stored Travel Area keys only. Restaurant tags are optional multi-valued strings; explicit arrays (including empty) win over automatic source updates. No migration or new API; cuisine only filters restaurant lists and combines with area using AND.

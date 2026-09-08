@@ -49,9 +49,9 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
     canEdit: () => true, guestOnlyMessage() {}, showToast: (message) => toasts.push(message),
     crypto: { randomUUID: () => "id" }, persist() {}, render() {}, renamePlaceReferences() {},
     closeSheet() { form.isConnected = false; },
-    FormData: class { constructor(form) { this.values = Object.fromEntries(Object.entries(form.elements).map(([key, node]) => [key, node.value])); } get(key) { return this.values[key]; } },
+    FormData: class { constructor(form) { this.tags = form.checkedTags || []; this.values = Object.fromEntries(Object.entries(form.elements).map(([key, node]) => [key, node.value])); } get(key) { return this.values[key]; } getAll(key) { return this.tags; } },
   });
-  vm.runInContext(section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + helpers + editorValueHelpers + `\nasync function submitEditor(event) { ${submit} }`, context);
+  vm.runInContext(section("function restaurantTagValues", "function placesScreen") + section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + helpers + editorValueHelpers + `\nasync function submitEditor(event) { ${submit} }`, context);
   const session = context.bindPlaceEditor(form, existing, seed);
   const input = (key, value) => { const target = form.elements[key]; target.name = key; target.value = value; form.fire("input", { target }); };
   return { context, form, session, requests, toasts, input,
@@ -615,4 +615,21 @@ test("Ticket A2 cached source compression cannot revive confirmed removal", asyn
   assert.equal(h.context.pendingPlacePhoto, "");
   assert.equal(h.form.placeEditorSession, session);
   assert.ok(session.dirty.has("photo"));
+});
+
+
+test("restaurant editor saves multiple tags, preserves custom values and explicit clearing", async () => {
+  const existing = { name: "餐廳", kind: "restaurant", category: "餐廳", restaurantTags: ["燒肉", "日式"], formattedAddress: "地址" };
+  const h = harness({ existing, address: "地址" });
+  h.form.checkedTags = ["壽喜燒", "日式"];
+  const saving = h.save();
+  h.reply(0);
+  await saving;
+  assert.deepEqual(Array.from(h.context.state.places[0].restaurantTags), ["壽喜燒", "日式"]);
+  const cleared = harness({ existing: h.context.state.places[0], address: "地址" });
+  cleared.form.checkedTags = [];
+  const savingClear = cleared.save();
+  if (cleared.requests.length) cleared.reply(0);
+  await savingClear;
+  assert.deepEqual(Array.from(cleared.context.state.places[0].restaurantTags), []);
 });

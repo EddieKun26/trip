@@ -230,7 +230,7 @@ const state = {
   flights: [],
   activeTab: "overview",
   placesMode: "list",
-  placeKind: "all",
+  placeKind: "all", placeAreaFilter: "", restaurantTagFilter: "",
   selectedArea: "",
   selectedMapPlace: "",
   mapView: "planning",
@@ -1598,7 +1598,7 @@ function clearTripView() {
   Object.assign(state, { tripId: "", tripTitle: "", destination: "", startDate: "", endDate: "",
     inviteCode: "", ownerId: "", flights: [], places: [], deletedPlaces: [], votes: {}, itinerary: {}, transports: [],
     members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
-    placeKind: "all", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
+    placeKind: "all", placeAreaFilter: "", restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
     shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
     shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
   shoppingUndoSnapshot = null;
@@ -2020,10 +2020,52 @@ function overviewScreen() {
     </section>`;
 }
 
+function restaurantTagValues(place = {}) {
+  if (place.kind !== "restaurant" || !Array.isArray(place.restaurantTags)) return [];
+  return [...new Set(place.restaurantTags.filter((tag) => typeof tag === "string").map((tag) => tag.trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
+}
+
+function restaurantTagsFromCategory(category) {
+  // Exact source categories only; never inspect a place name or description.
+  const categories = {
+    拉麵店: "拉麵", ramen_restaurant: "拉麵", 壽司店: "壽司", sushi_restaurant: "壽司",
+    燒肉店: "燒肉", yakiniku_restaurant: "燒肉", 火鍋店: "火鍋", hot_pot_restaurant: "火鍋",
+    壽喜燒店: "壽喜燒", sukiyaki_restaurant: "壽喜燒", 牛排館: "牛排", steak_house: "牛排",
+    居酒屋: "居酒屋", 咖啡廳: "咖啡甜點", cafe: "咖啡甜點", 咖哩店: "咖哩",
+    curry_restaurant: "咖哩", 丼飯店: "丼飯", 炸豬排店: "炸豬排", tonkatsu_restaurant: "炸豬排",
+    燒鳥店: "燒鳥", yakitori_restaurant: "燒鳥",
+  };
+  const tag = categories[String(category || "").trim()];
+  return tag ? [tag] : [];
+}
+
+function restaurantTagEditor(place, kind) {
+  const selected = restaurantTagValues({ ...place, kind: "restaurant" });
+  const options = [...new Set(["拉麵", "壽司", "燒肉", "火鍋", "壽喜燒", "牛排", "居酒屋", "咖啡甜點", "咖哩", "丼飯", "炸豬排", "燒鳥", "其他", ...selected])];
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>餐飲類型</legend><div class="restaurant-tag-options">${options.map((tag) => `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected.includes(tag) ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`).join("")}</div></fieldset>`;
+}
+
+function placesFilterModel(places, selection) {
+  const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, place.travelAreaZh])).entries()];
+  const tags = [...new Set(places.flatMap(restaurantTagValues))];
+  if (!areas.some(([key]) => key === selection.placeAreaFilter)) selection.placeAreaFilter = "";
+  if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
+  const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
+    && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
+    && (selection.placeKind !== "restaurant" || !selection.restaurantTagFilter || restaurantTagValues(place).includes(selection.restaurantTagFilter)));
+  return { areas, tags, visible };
+}
+
+function placesFilterChips(model) {
+  const row = (label, attribute, selected, options) => `<div class="places-filter-row"><span>${label}</span><div class="places-filter-chips" role="group" aria-label="${label}">${[["", "全部"], ...options].map(([key, name]) => `<button type="button" data-${attribute}="${escapeHtml(key)}" aria-pressed="${selected === key}" class="${selected === key ? "active" : ""}">${escapeHtml(name)}</button>`).join("")}</div></div>`;
+  return `<div class="places-filters">${row("地區", "place-area-filter", state.placeAreaFilter, model.areas)}${state.placeKind === "restaurant" ? row("餐飲", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
+}
+
 function placesScreen() {
   if (state.placesMode === "map") return mapScreen();
 
-  const visiblePlaces = state.places.filter((place) => state.placeKind === "all" || place.kind === state.placeKind);
+  const filters = placesFilterModel(state.places, state);
+  const visiblePlaces = filters.visible;
   const travelAreaKeys = [...new Set(visiblePlaces.map(travelAreaGroupKey))];
   const groups = travelAreaKeys
     .map((regionKey) => {
@@ -2071,7 +2113,8 @@ function placesScreen() {
       </header>
       ${placesSegment("list")}
       ${placeKindTabs()}
-      ${groups || `<div class="empty-state"><div><b>還沒有收藏地點</b><span>新增第一個想一起討論的景點。</span></div></div>`}
+      ${placesFilterChips(filters)}
+      ${groups || `<div class="empty-state"><div><b>${state.places.length ? "沒有符合篩選的地點" : "還沒有收藏地點"}</b><span>${state.places.length ? "試試其他地區或餐飲類型。" : "新增第一個想一起討論的景點。"}</span></div></div>`}
       ${canEdit() ? `<div class="list-footer"><button class="primary-button" type="button" data-add-place>＋　新增地點</button></div>` : ""}
     </section>`;
 }
@@ -4647,6 +4690,7 @@ async function ensurePlaceDetails(place) {
       area: resolved.area || place.area,
       areaOriginal: resolved.areaOriginal || place.areaOriginal || place.area,
       areaResolvedByGoogle: resolved.areaResolvedByGoogle === true || place.areaResolvedByGoogle === true,
+      ...(place.kind === "restaurant" && !Array.isArray(place.restaurantTags) ? { restaurantTags: restaurantTagsFromCategory(resolved.category) } : {}),
       category: resolved.category || place.category,
       kind: normalizedPlaceKind({ ...place, category: resolved.category || place.category }),
       latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
@@ -5734,6 +5778,7 @@ async function enrichPlaceImportsFromApi(entries) {
         countryCode: resolved.countryCode || place.countryCode || "",
         addressComponents: Array.isArray(resolved.addressComponents) ? resolved.addressComponents : place.addressComponents || [],
         addressComponentsOriginal: Array.isArray(resolved.addressComponentsOriginal) ? resolved.addressComponentsOriginal : place.addressComponentsOriginal || [],
+        ...(normalizedPlaceKind({ ...place, category: resolved.category || place.category }) === "restaurant" && !Array.isArray(place.restaurantTags) ? { restaurantTags: restaurantTagsFromCategory(resolved.category) } : {}),
         category: resolved.category || place.category,
         kind: inferPlaceKind(resolved.category || place.category),
         formattedAddress: place.importAddress || resolved.formattedAddress || place.formattedAddress || "",
@@ -6585,6 +6630,8 @@ function bindPlaceEditor(form, existing, seed) {
   form.addEventListener("input", (event) => {
     session.dirty.add(event.target.name);
     if (event.target.name === "kind") {
+      const tagEditor = form.querySelector("[data-restaurant-tag-editor]");
+      if (tagEditor) tagEditor.hidden = event.target.value !== "restaurant";
       const category = form.elements.category;
       const previousKind = category.dataset.categoryKind || event.target.value;
       category.value = placeEditorCategory(category.value, previousKind, event.target.value);
@@ -6889,6 +6936,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="${escapeHtml(placeEditorNamePlaceholder(kind))}" required /></div>
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
+          ${restaurantTagEditor(existing || seed, kind)}
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
@@ -7504,6 +7552,15 @@ document.addEventListener("click", async (event) => {
     return render();
   }
 
+  const listFilter = event.target.closest("[data-place-area-filter], [data-restaurant-tag-filter]");
+  if (listFilter) {
+    if (listFilter.dataset.placeAreaFilter !== undefined) state.placeAreaFilter = listFilter.dataset.placeAreaFilter;
+    else state.restaurantTagFilter = listFilter.dataset.restaurantTagFilter;
+    const scrollPositions = [...document.querySelectorAll(".places-filter-chips")].map((row) => row.scrollLeft);
+    render();
+    document.querySelectorAll(".places-filter-chips").forEach((row, index) => { row.scrollLeft = scrollPositions[index] || 0; });
+    return;
+  }
   const placeKind = event.target.closest("[data-place-kind]");
   if (placeKind) {
     state.placeKind = placeKind.dataset.placeKind;
@@ -8392,6 +8449,7 @@ document.addEventListener("submit", async (event) => {
       fullName: name,
       category,
       kind,
+      ...(kind === "restaurant" ? { restaurantTags: restaurantTagValues({ kind, restaurantTags: form.getAll("restaurantTags") }) } : {}),
       area: resolved?.area || (addressUnchanged ? existing?.area : "") || placeAreaFromAddress(address, name),
       areaOriginal: resolved?.areaOriginal || (addressUnchanged ? existing?.areaOriginal : "") || "",
       areaResolvedByGoogle: Boolean(resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
