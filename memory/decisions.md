@@ -95,3 +95,5 @@
 - Places filters reuse stored Travel Area keys only. Restaurant tags are optional multi-valued strings; explicit arrays (including empty) win over automatic source updates. No migration or new API; cuisine chips appear whenever trip restaurant tags exist; choosing a tag filters to tagged restaurants across top-level All and combines with area using AND.
 
 - List/Map share stored area selection; empty-area map results preserve viewport. No trusted area polygon currently exists; boundary requires an additional geometry source. Existing untagged restaurants are not backfilled by detail refresh.
+
+- 2026-09-09 supersedes prior no-polygon/no-inference decisions: vetted static OSM町界 polygons now cover 12 Tokyo mappings with ODbL attribution and separate composite components; other areas remain boundary-free. Missing restaurantTags arrays receive runtime deterministic inference only, while all explicit arrays (including []) override it; editor saves a manual provenance field. No migration, AI or serverless addition.

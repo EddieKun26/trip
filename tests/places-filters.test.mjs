@@ -107,7 +107,8 @@ test("empty area preserves Google/Leaflet viewport, scoped to the current trip",
 
 test("map chips and adjacent location/fullscreen controls exist in both layouts", () => {
  const map = section("function mapScreen", "function mapPinColor");
- assert.equal((map.match(/\$\{areaFilters\}/g) || []).length, 2);
+ assert.equal((map.match(/\$\{areaFilters\}/g) || []).length, 1);
+ assert.equal((map.match(/\$\{areaDropdown\}/g) || []).length, 1);
  assert.equal((map.match(/\$\{mapActions\}/g) || []).length, 2);
  assert.match(map, /class="map-operation-actions"/);
  assert.doesNotMatch(map, /map-toolbar-actions[^\n]*fullscreenButton/);

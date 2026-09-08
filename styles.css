@@ -7949,3 +7949,13 @@ body.transport-sheet-open .app {
 .map-screen .map-operation-actions .map-fullscreen-button { width: auto; min-height: 44px; padding: 0 12px; }
 .map-screen .map-operation-actions .map-fullscreen-button span { display: inline; }
 .map-fullscreen-sidebar > .places-filters, .map-fullscreen-sidebar > .map-operation-actions { padding-inline: 14px; }
+
+/* Persistent, independent drawer handle; map gestures stay enabled outside panel. */
+.map-drawer-handle { position: absolute; left: max(0px, env(safe-area-inset-left)); top: 50%; transform: translateY(-50%); z-index: 30; width: 44px; height: 64px; border: 1px solid var(--line); border-left: 0; border-radius: 0 14px 14px 0; background: var(--paper-2); color: var(--ink); box-shadow: 2px 2px 10px #0002; font-size: 36px; touch-action: manipulation; }
+.map-screen.is-fullscreen .map-fullscreen-sidebar { padding-left: 52px; }
+.map-screen.is-fullscreen.sidebar-open .map-fullscreen-stage { pointer-events: auto; }
+.map-area-dropdown { flex: 0 0 auto; min-width: 0; margin: 0; }
+.map-area-dropdown select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+@media (prefers-reduced-motion: reduce) { .map-fullscreen-sidebar, .map-screen.is-fullscreen { transition: none; } }
+
+.area-boundary-credit { position: absolute; right: 6px; bottom: 24px; z-index: 6; font-size: 10px; padding: 2px 5px; background: #fffdf2e8; color: #456054; border-radius: 4px; }

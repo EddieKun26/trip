@@ -2021,8 +2021,33 @@ function overviewScreen() {
 }
 
 function restaurantTagValues(place = {}) {
-  if (place.kind !== "restaurant" || !Array.isArray(place.restaurantTags)) return [];
-  return [...new Set(place.restaurantTags.filter((tag) => typeof tag === "string").map((tag) => tag.trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
+  if (place.kind !== "restaurant") return [];
+  const tags = Array.isArray(place.restaurantTags) ? place.restaurantTags : inferredRestaurantTags(place);
+  return [...new Set(tags.filter((tag) => typeof tag === "string").map((tag) => tag.trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
+}
+
+function inferredRestaurantTags(place = {}) {
+  if (place.kind !== "restaurant") return [];
+  const evidence = [place.category, place.sourceCategory, place.googleCategory,
+    ...(Array.isArray(place.tags) ? place.tags : []), place.description, place.name, place.fullName]
+    .filter((value) => typeof value === "string").join("。 ").normalize("NFKC");
+  // Specific cuisine terms only. Unknown/general restaurants stay unclassified.
+  const affirmative = evidence.split(/[。！!？?;；\n]/).filter((text) => !/不是|並非|不提供|沒有|非.*(?:店|料理)|not a|no longer/i.test(text)).join(" ");
+  const rules = [
+    ["拉麵", /拉麵|拉面|ラーメン|らーめん|\bramen\b/i],
+    ["壽司", /壽司|寿司|鮨|すし|\bsushi\b/i],
+    ["燒肉", /燒肉|焼肉|烧肉|やきにく|\byakiniku\b/i],
+    ["火鍋", /火鍋|火锅|しゃぶしゃぶ|\bshabu[ -]?shabu\b|\bhot[ _-]?pot\b/i],
+    ["壽喜燒", /壽喜燒|寿喜烧|すき焼き|すきやき|\bsukiyaki\b/i],
+    ["牛排", /牛排|ステーキ|\bsteak(?:house|[ _]house)?\b/i],
+    ["居酒屋", /居酒屋|\bizakaya\b/i],
+    ["咖啡甜點", /咖啡|甜點|甜品|喫茶|カフェ|コーヒー|ケーキ|\bcaf[eé]\b|\bcoffee\b|\bdessert\b/i],
+    ["咖哩", /咖哩|咖喱|カレー|\bcurry\b/i],
+    ["丼飯", /丼飯|丼もの|牛丼|天丼|親子丼|海鮮丼|\bdonburi\b/i],
+    ["炸豬排", /炸豬排|炸猪排|とんかつ|トンカツ|豚カツ|\btonkatsu\b/i],
+    ["燒鳥", /燒鳥|焼き鳥|焼鳥|やきとり|\byakitori\b/i],
+  ];
+  return rules.filter(([, pattern]) => pattern.test(affirmative)).map(([tag]) => tag);
 }
 
 function restaurantTagsFromCategory(category) {
@@ -2042,7 +2067,7 @@ function restaurantTagsFromCategory(category) {
 function restaurantTagEditor(place, kind) {
   const selected = restaurantTagValues({ ...place, kind: "restaurant" });
   const options = [...new Set(["拉麵", "壽司", "燒肉", "火鍋", "壽喜燒", "牛排", "居酒屋", "咖啡甜點", "咖哩", "丼飯", "炸豬排", "燒鳥", "其他", ...selected])];
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>餐飲類型</legend><div class="restaurant-tag-options">${options.map((tag) => `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected.includes(tag) ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`).join("")}</div></fieldset>`;
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>餐飲類型</legend>${!Array.isArray(place?.restaurantTags) && selected.length ? `<small>依現有地點資料辨識，可修改；儲存後以你的選擇為準。</small>` : ""}<div class="restaurant-tag-options">${options.map((tag) => `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected.includes(tag) ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`).join("")}</div></fieldset>`;
 }
 
 function placesFilterModel(places, selection) {
@@ -2276,6 +2301,7 @@ function placeMapStatus(place) {
 
 function matchesMapFilters(place) {
   if (state.placeAreaFilter && place.travelAreaKey !== state.placeAreaFilter) return false;
+  if (state.restaurantTagFilter && !restaurantTagValues(place).includes(state.restaurantTagFilter)) return false;
   if (state.placeKind !== "all" && place.kind !== state.placeKind) return false;
   if (state.mapCategory !== "all" && place.category !== state.mapCategory) return false;
   const voters = placeVoters(place.name);
@@ -2452,7 +2478,9 @@ function offsetOverlappingMapPins(places) {
 }
 
 function mapScreen() {
-  const areaFilters = placesFilterChips(placesFilterModel(state.places, state), { cuisine: false });
+  const filterModel = placesFilterModel(state.places, state);
+  const areaFilters = placesFilterChips(filterModel, { cuisine: false });
+  const areaDropdown = `<div class="field map-area-dropdown"><label for="fullscreen-area">地區</label><select id="fullscreen-area" data-map-area><option value="">全部</option>${filterModel.areas.map(([key, name]) => `<option value="${escapeHtml(key)}" ${state.placeAreaFilter === key ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
   const projectedPlaces = filteredMapPlaces();
   const kindPlaces = state.places.filter(matchesMapFilters);
   const unlocatedCount = kindPlaces.length - projectPlaces(kindPlaces).length;
@@ -2494,7 +2522,6 @@ function mapScreen() {
       </select></label>
     </div>`;
   const fullscreenIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>`;
-  const filterIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M7 12h10M10 18h4"/></svg>`;
   const fullscreenButton = `<button class="map-fullscreen-button" type="button" data-toggle-map-fullscreen aria-pressed="${mapFullscreen}" aria-label="${mapFullscreen ? "離開全螢幕地圖" : "開啟全螢幕地圖"}">${fullscreenIcon}<span>${mapFullscreen ? "離開全圖" : "全螢幕"}</span></button>`;
   const mapLegend = `
     <div class="map-legend" aria-label="圖釘狀態">
@@ -2532,19 +2559,19 @@ function mapScreen() {
   if (mapFullscreen) {
     return `
       <section class="screen map-screen is-fullscreen ${mapSidebarOpen ? "sidebar-open" : "sidebar-closed"}">
-        <aside class="map-fullscreen-sidebar" aria-label="地圖功能與地點篩選">
-          <div class="map-sidebar-heading"><div><p class="section-kicker">全圖瀏覽</p><h2>${mapTitle}</h2><span>顯示 ${projectedPlaces.length} 個地點</span></div><button class="icon-button" type="button" data-toggle-map-sidebar aria-label="收合篩選列">×</button></div>
+        <aside id="map-drawer" class="map-fullscreen-sidebar" aria-label="地圖功能與地點篩選" ${mapSidebarOpen ? "" : "inert"}>
+          <div class="map-sidebar-heading"><div><p class="section-kicker">全圖瀏覽</p><h2>${mapTitle}</h2><span>顯示 ${projectedPlaces.length} 個地點</span></div></div>
           ${mapPurposeTabs}
           <div class="map-sidebar-section"><h3>地點類別</h3><div class="map-sidebar-kind-list">${sidebarKindButtons}</div></div>
           ${mapFilters}
-          ${areaFilters}
+          ${areaDropdown}
           ${mapLegend}
           ${mapActions}
           <div class="map-sidebar-section map-sidebar-results"><div class="map-sidebar-result-title"><h3>地點</h3><span>${projectedPlaces.length} 筆</span></div>${sidebarPlaces}</div>
         </aside>
+        <button class="map-drawer-handle" type="button" data-toggle-map-sidebar aria-controls="map-drawer" aria-expanded="${mapSidebarOpen}" aria-label="${mapSidebarOpen ? "收合側選單" : "展開側選單"}"><span aria-hidden="true">${mapSidebarOpen ? "‹" : "›"}</span></button>
         <div class="map-fullscreen-stage">
           <div class="map-fullscreen-floating-actions">
-            <button class="map-floating-button map-sidebar-toggle" type="button" data-toggle-map-sidebar aria-label="${mapSidebarOpen ? "收合地圖篩選" : "開啟地圖篩選"}">${filterIcon}<span>篩選</span></button>
             ${fullscreenButton}
           </div>
           ${mapCanvas}
@@ -2566,6 +2593,16 @@ function mapScreen() {
       ${mapActions}
       ${mapCanvas}
     </section>`;
+}
+
+function syncMapDrawerHandle() {
+  const handle = document.querySelector(".map-drawer-handle");
+  if (!handle) return;
+  handle.setAttribute("aria-expanded", String(mapSidebarOpen));
+  handle.setAttribute("aria-label", mapSidebarOpen ? "收合側選單" : "展開側選單");
+  handle.innerHTML = `<span aria-hidden="true">${mapSidebarOpen ? "‹" : "›"}</span>`;
+  const drawer = document.querySelector("#map-drawer");
+  if (drawer) drawer.inert = !mapSidebarOpen;
 }
 
 function mapPinColor(status) {
@@ -2837,6 +2874,71 @@ function loadGoogleMapsScript(key) {
   return googleMapsLoader;
 }
 
+let areaGeometryPromise = null;
+let areaBoundaryLayers = [];
+let areaBoundaryToken = 0;
+
+function clearAreaBoundary() {
+  areaBoundaryToken += 1;
+  areaBoundaryLayers.forEach((layer) => { if (layer.setMap) layer.setMap(null); else layer.remove(); });
+  areaBoundaryLayers = [];
+  document.querySelector("[data-area-boundary-credit]")?.remove();
+}
+
+function loadAreaGeometry() {
+  if (!areaGeometryPromise) areaGeometryPromise = fetch("./data/area-geometry/tokyo-v1.json?v=20260909.1", { signal: AbortSignal.timeout(12000) })
+    .then((response) => response.ok ? response.json() : null).catch(() => null);
+  return areaGeometryPromise;
+}
+
+function areaGeometryForPlace(catalog, place) {
+  if (!catalog?.areas || !place) return null;
+  const inTokyo = Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
+    && place.latitude > 35.55 && place.latitude < 35.85 && place.longitude > 139.55 && place.longitude < 139.90;
+  if (place.countryCode ? place.countryCode !== "JP" : !inTokyo) return null;
+  let area = Object.hasOwn(catalog.areas, place.travelAreaKey) ? catalog.areas[place.travelAreaKey] : null;
+  if (!area && String(place.travelAreaKey).startsWith("jp:")) area = Object.values(catalog.areas).find((entry) => entry.localNames.includes(place.travelAreaLocal));
+  if (!area?.localNames.includes(place.travelAreaLocal)) return null;
+  return area;
+}
+
+function areaBoundaryRings(area) {
+  return (area?.features || []).flatMap((feature) => feature.geometry?.type === "MultiPolygon"
+    ? feature.geometry.coordinates.flatMap((polygon) => polygon)
+    : feature.geometry?.type === "Polygon" ? feature.geometry.coordinates : []);
+}
+
+async function renderAreaBoundary(map, provider) {
+  clearAreaBoundary();
+  const token = areaBoundaryToken;
+  const key = state.placeAreaFilter;
+  const tripId = state.tripId;
+  if (!key) return;
+  const representatives = state.places.filter((place) => place.travelAreaKey === key);
+  const catalog = await loadAreaGeometry();
+  if (token !== areaBoundaryToken || key !== state.placeAreaFilter || tripId !== state.tripId
+    || map !== (provider === "google" ? activeGoogleMap : activeLeafletMap)) return;
+  const area = representatives.map((place) => areaGeometryForPlace(catalog, place)).find(Boolean);
+  if (!area) return;
+  const rings = areaBoundaryRings(area);
+  if (!rings.length) return;
+  if (provider === "google") {
+    areaBoundaryLayers = rings.map((ring) => new google.maps.Polyline({
+      map, path: ring.map(([lng, lat]) => ({ lat, lng })), clickable: false, zIndex: 0,
+      strokeOpacity: 0, icons: [{ icon: { path: "M 0,-1 0,1", strokeColor: "#55796e", strokeOpacity: 0.75, scale: 2 }, offset: "0", repeat: "10px" }],
+    }));
+  } else {
+    if (!map.getPane("areaBoundary")) map.createPane("areaBoundary");
+    map.getPane("areaBoundary").style.zIndex = "350";
+    map.getPane("areaBoundary").style.pointerEvents = "none";
+    areaBoundaryLayers = [L.geoJSON(area, { pane: "areaBoundary", interactive: false,
+      style: { color: "#55796e", weight: 2, opacity: 0.75, dashArray: "5 6", fill: false, interactive: false },
+    }).addTo(map)];
+  }
+  const host = document.querySelector("[data-map-host]");
+  if (host) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" title="${escapeHtml(area.features.map((feature) => feature.properties.name).join("、"))}">町界 © OpenStreetMap · ODbL</a>`);
+}
+
 let lastMapViewport = null;
 
 function rememberMapViewport() {
@@ -2875,6 +2977,7 @@ function renderGoogleInteractiveMap(host, places) {
     streetViewControl: false,
   });
   activeGoogleMap = map;
+  void renderAreaBoundary(map, "google");
   map.addListener("click", () => updateMapPlacePreview(null));
   map.addListener("dragstart", () => { mapInteractionUntil = Date.now() + 5000; });
   map.addListener("zoom_changed", () => { mapInteractionUntil = Date.now() + 3000; });
@@ -2962,6 +3065,7 @@ function renderLeafletInteractiveMap(host, places) {
     tap: true,
     zoomControl: true,
   });
+  void renderAreaBoundary(activeLeafletMap, "leaflet");
   activeLeafletMap.on("movestart zoomstart", () => { mapInteractionUntil = Date.now() + 5000; });
   activeLeafletMap.on("moveend zoomend", () => { mapInteractionUntil = Date.now() + 1800; });
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -4507,6 +4611,7 @@ function render({ preserveScroll = false } = {}) {
   }
   saveUiPreference();
   rememberMapViewport();
+  clearAreaBoundary();
   const previousScrollTop = app.scrollTop;
   syncTabBarState();
   const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
@@ -7607,6 +7712,7 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("[data-toggle-map-sidebar]")) {
     mapSidebarOpen = !mapSidebarOpen;
+    syncMapDrawerHandle();
     const screen = document.querySelector(".map-screen.is-fullscreen");
     screen?.classList.toggle("sidebar-open", mapSidebarOpen);
     screen?.classList.toggle("sidebar-closed", !mapSidebarOpen);
@@ -7625,6 +7731,7 @@ document.addEventListener("click", async (event) => {
     selectMapPlace(place);
     if (window.matchMedia("(max-width: 700px)").matches && mapSidebarOpen) {
       mapSidebarOpen = false;
+      syncMapDrawerHandle();
       const screen = document.querySelector(".map-screen.is-fullscreen");
       screen?.classList.remove("sidebar-open");
       screen?.classList.add("sidebar-closed");
@@ -8145,6 +8252,11 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", async (event) => {
+  if (event.target.matches("[data-map-area]")) {
+    state.placeAreaFilter = event.target.value;
+    state.selectedMapPlace = "";
+    return render({ preserveScroll: true });
+  }
   if (event.target.matches("[data-shopping-category-select]")) {
     const owner = event.target.closest("[data-shopping-import-row], #shopping-item-form");
     const customField = owner?.querySelector("[data-shopping-custom-category]");
@@ -8480,7 +8592,7 @@ document.addEventListener("submit", async (event) => {
       fullName: name,
       category,
       kind,
-      ...(kind === "restaurant" ? { restaurantTags: restaurantTagValues({ kind, restaurantTags: form.getAll("restaurantTags") }) } : {}),
+      ...(kind === "restaurant" ? { restaurantTags: restaurantTagValues({ kind, restaurantTags: form.getAll("restaurantTags") }), restaurantTagsSource: "manual" } : {}),
       area: resolved?.area || (addressUnchanged ? existing?.area : "") || placeAreaFromAddress(address, name),
       areaOriginal: resolved?.areaOriginal || (addressUnchanged ? existing?.areaOriginal : "") || "",
       areaResolvedByGoogle: Boolean(resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),

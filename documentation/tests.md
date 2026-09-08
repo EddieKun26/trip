@@ -81,3 +81,8 @@ Result: **134/134 passed**, including thirteen targeted P1 tests. A–F cover on
 ## Places filter UX follow-up
 
 Targeted 107/107 and full 340/340; syntax/diff checks pass, API 12. Runtime tests cover all-kind cuisine filtering, shared map area keys and trip-scoped empty viewport; local full-DOM native touch verifies both chip rows, final chip reachability, map fit, empty viewport, adjacent controls and fullscreen. Polygon unavailable; no fabricated boundary.
+
+
+## Fullscreen / cuisine inference / geometry (2026-09-09)
+
+Targeted 141/141; full regression 348/348 once. New area-geometry tests cover multilingual inference, manual/empty precedence, 12 sourced mappings, composite polygons, country/name mismatch, cached load failures, stale A-to-B responses, clear-All and noninteractive rendering. Local 393x852 full-DOM/Leaflet fixture verifies dropdown, arrow drawer, same map instance, selection synchronization and actual boundary layers. Syntax/diff pass; 12 API functions. Source evidence and license: data/area-geometry/README.md.
