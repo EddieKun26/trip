@@ -2029,11 +2029,12 @@ function restaurantTagValues(place = {}) {
 function inferredRestaurantTags(place = {}) {
   if (place.kind !== "restaurant") return [];
   const evidence = [place.category, place.sourceCategory, place.googleCategory,
-    ...(Array.isArray(place.tags) ? place.tags : []), place.description, place.name, place.fullName]
+    ...(Array.isArray(place.tags) ? place.tags : []), place.description]
     .filter((value) => typeof value === "string").join("。 ").normalize("NFKC");
   // Specific cuisine terms only. Unknown/general restaurants stay unclassified.
   const affirmative = evidence.split(/[。！!？?;；\n]/).filter((text) => !/不是|並非|不提供|沒有|非.*(?:店|料理)|not a|no longer/i.test(text)).join(" ");
   const rules = [
+    ["海鮮自助餐", /海鮮自助餐|海鮮ビュッフェ|\bseafood buffet\b/i],
     ["拉麵", /拉麵|拉面|ラーメン|らーめん|\bramen\b/i],
     ["壽司", /壽司|寿司|鮨|すし|\bsushi\b/i],
     ["燒肉", /燒肉|焼肉|烧肉|やきにく|\byakiniku\b/i],
@@ -2066,8 +2067,25 @@ function restaurantTagsFromCategory(category) {
 
 function restaurantTagEditor(place, kind) {
   const selected = restaurantTagValues({ ...place, kind: "restaurant" });
-  const options = [...new Set(["拉麵", "壽司", "燒肉", "火鍋", "壽喜燒", "牛排", "居酒屋", "咖啡甜點", "咖哩", "丼飯", "炸豬排", "燒鳥", "其他", ...selected])];
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend>${!Array.isArray(place?.restaurantTags) && selected.length ? `<small>依現有地點資料辨識，可修改；儲存後以你的選擇為準。</small>` : ""}<div class="restaurant-tag-options">${options.map((tag) => `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected.includes(tag) ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`).join("")}</div></fieldset>`;
+  const options = [...new Set([...(state.places || []).flatMap(restaurantTagValues), ...selected])];
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend>${!Array.isArray(place?.restaurantTags) && selected.length ? `<small>依現有地點資料辨識，可修改；儲存後以你的選擇為準。</small>` : ""}<div class="restaurant-tag-options">${options.map((tag) => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增自訂類別</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="自訂類別" placeholder="輸入類別"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div><small>點選可多選；再次點選可移除，全部取消即清空。最後按儲存。</small></fieldset>`;
+}
+
+function restaurantTagChip(tag, selected) {
+  return `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`;
+}
+
+function addCustomRestaurantTag(form) {
+  const input = form.querySelector("[data-custom-restaurant-tag]");
+  const tag = input.value.trim().slice(0, 40);
+  if (!tag) return;
+  const options = form.querySelector(".restaurant-tag-options");
+  const existing = [...options.querySelectorAll("input")].find((item) => item.value === tag);
+  if (existing) existing.checked = true;
+  else options.insertAdjacentHTML("beforeend", restaurantTagChip(tag, true));
+  form.placeEditorSession.dirty.add("restaurantTags");
+  input.value = "";
+  form.querySelector(".tag-custom-entry").hidden = true;
 }
 
 function placesFilterModel(places, selection) {
@@ -2927,14 +2945,14 @@ async function renderAreaBoundary(map, provider) {
   if (provider === "google") {
     areaBoundaryLayers = rings.map((ring) => new google.maps.Polyline({
       map, path: ring.map(([lng, lat]) => ({ lat, lng })), clickable: false, zIndex: 0,
-      strokeOpacity: 0, icons: [{ icon: { path: "M 0,-1 0,1", strokeColor: boundaryColor, strokeOpacity: 0.75, scale: 2 }, offset: "0", repeat: "10px" }],
+      strokeColor: boundaryColor, strokeOpacity: 0.75, strokeWeight: 2,
     }));
   } else {
     if (!map.getPane("areaBoundary")) map.createPane("areaBoundary");
     map.getPane("areaBoundary").style.zIndex = "350";
     map.getPane("areaBoundary").style.pointerEvents = "none";
     areaBoundaryLayers = [L.geoJSON(area, { pane: "areaBoundary", interactive: false,
-      style: { color: boundaryColor, weight: 2, opacity: 0.75, dashArray: "5 6", fill: false, interactive: false },
+      style: { color: boundaryColor, weight: 2, opacity: 0.75, fill: false, interactive: false },
     }).addTo(map)];
   }
   const host = document.querySelector("[data-map-host]");
@@ -4681,6 +4699,59 @@ function identitySafePhotos(place) {
   return id ? (place.photos || []).filter((photo) => String(photo?.name || "").startsWith(`places/${id}/photos/`)) : [];
 }
 
+function detailGalleryPhotos(place) {
+  const photos = [];
+  // Stored custom/source media are distinct from Maps display/navigation URLs.
+  const url = String(place.customPhotoDataUrl || "");
+  if (/^(?:data:image\/|https?:\/\/)/i.test(url) && !/(?:google\.[^/]+\/maps|maps\.app\.goo\.gl|maps\.google)/i.test(url)) {
+    photos.push({ type: "custom", url, caption: place.photoOrigin === "lodging_source" ? "原住宿頁照片" : "自行加入的照片" });
+  }
+  const seen = new Set();
+  for (const photo of identitySafePhotos(place)) {
+    if (seen.has(photo.name) || !/^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/.test(photo.name)) continue;
+    seen.add(photo.name);
+    photos.push({ ...photo, type: "google" });
+  }
+  while (photos.length < 3) photos.push({ type: "placeholder" });
+  return photos;
+}
+
+function detailGalleryCard(place, photo, index, mapPlaceUrl) {
+  const className = `gallery-card gallery-${index + 1}`;
+  if (!photo || photo.type === "placeholder") return `<div class="${className}" data-gallery-placeholder style="--swatch:${escapeHtml(place.swatch || "#587a73")}"><span>暫無可用照片</span></div>`;
+  const googlePhoto = photo.type === "google";
+  const url = googlePhoto ? `/api/place-photo?name=${encodeURIComponent(photo.name)}` : photo.url;
+  const img = `<img data-gallery-pending data-photo-source="${photo.type}" src="${escapeHtml(url)}" alt="${escapeHtml(place.name)}照片" loading="lazy">`;
+  return `<figure class="${className} real-photo" data-gallery-index="${index}">${googlePhoto ? `<a class="gallery-place-link" href="${escapeHtml(mapPlaceUrl)}" data-open-maps="${escapeHtml(mapPlaceUrl)}">${img}</a>` : img}<figcaption>${escapeHtml(googlePhoto ? photo.attribution || "Google Maps 使用者" : photo.caption)}</figcaption></figure>`;
+}
+
+function bindDetailGallery(gallery, place) {
+  if (!gallery) return;
+  const remaining = detailGalleryPhotos(place).slice(3).filter((photo) => photo.type === "google");
+  const pageUrl = placeMapsUrl(place);
+  const failed = new WeakSet();
+  const onError = (event) => {
+    const img = event.target;
+    if (img.tagName !== "IMG" || failed.has(img) || !gallery.contains(img)) return;
+    failed.add(img);
+    img.hidden = true;
+    const card = img.closest("[data-gallery-index]");
+    if (!card) return;
+    // Consume each exact-identity candidate once; no search, mutation or retry loop.
+    card.outerHTML = detailGalleryCard(place, remaining.shift(), Number(card.dataset.galleryIndex), pageUrl);
+  };
+  gallery.addEventListener("error", onError, true);
+  gallery.addEventListener("load", (event) => {
+    if (event.target.tagName === "IMG") event.target.removeAttribute("data-gallery-pending");
+  }, true);
+  // Cached successes/failures can finish before listeners are attached.
+  gallery.querySelectorAll("img").forEach((img) => {
+    if (!img.complete) return;
+    if (img.naturalWidth) img.removeAttribute("data-gallery-pending");
+    else onError({ target: img });
+  });
+}
+
 function openPlaceSheet(name) {
   const place = resolveDetailPlace(name);
   if (!place) return;
@@ -4710,20 +4781,7 @@ function openPlaceSheet(name) {
         )
         .join("")
     : `<span class="meta">還沒有人標記，成為第一個吧</span>`;
-  const galleryItems = [];
-  if (place.customPhotoDataUrl) galleryItems.push({ type: "custom", url: place.customPhotoDataUrl, caption: place.photoOrigin === "lodging_source" ? "原住宿頁照片" : "自行加入的照片" });
-  identitySafePhotos(place).slice(0, place.customPhotoDataUrl ? 2 : 3).forEach((photo) => galleryItems.push({ type: "google", ...photo }));
-  const fallbackLabels = place.galleryLabels || ["正在取得 Google Maps 照片", "環境照片", "附近街景"];
-  while (galleryItems.length < 3) galleryItems.push({ type: "placeholder", label: fallbackLabels[galleryItems.length] || "地點照片" });
-  const gallery = galleryItems.slice(0, 3).map((photo, index) => {
-    if (photo.type === "custom") {
-      return `<figure class="gallery-card gallery-${index + 1} real-photo custom-place-photo"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(place.name)}自行加入的照片" loading="lazy" /><figcaption>${escapeHtml(photo.caption)}</figcaption></figure>`;
-    }
-    if (photo.type === "google") {
-      return `<figure class="gallery-card gallery-${index + 1} real-photo"><a class="gallery-place-link" href="${escapeHtml(mapPlaceUrl)}" data-open-maps="${escapeHtml(mapPlaceUrl)}" aria-label="${escapeHtml(place.name)} Google Maps 地點頁"><img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" /></a><figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption></figure>`;
-    }
-    return `<div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch}"><span>${escapeHtml(photo.label)}</span></div>`;
-  }).join("");
+  const gallery = detailGalleryPhotos(place).slice(0, 3).map((photo, index) => detailGalleryCard(place, photo, index, mapPlaceUrl)).join("");
   const highlights = (place.highlights || [])
     .map((highlight) => `<span class="highlight-tag">${escapeHtml(highlight)}</span>`)
     .join("");
@@ -4736,7 +4794,7 @@ function openPlaceSheet(name) {
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
-        ${place.kind === "restaurant" && canEdit() ? `<button class="place-category-edit-button" type="button" data-edit-place-tags="${escapeHtml(place.name)}">編輯類別</button>` : ""}
+        ${place.kind === "restaurant" ? `<section class="detail-restaurant-tags"><span>類別</span><div>${restaurantTagValues(place).map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("") || `<small>尚未設定</small>`}</div></section>` : ""}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
           <span>${place.customPhotoDataUrl ? (place.photoOrigin === "lodging_source" ? "使用原住宿頁照片" : "包含你自行加入的照片") : place.photos?.length ? "Google Maps 景點照片" : "尚未加入地點照片"}</span>
@@ -4795,6 +4853,7 @@ function openPlaceSheet(name) {
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
       </section>
     </div>`;
+  bindDetailGallery(sheetRoot.querySelector?.(".detail-gallery"), place);
   ensurePlaceDetails(place);
 }
 
@@ -6777,8 +6836,6 @@ function bindPlaceEditor(form, existing, seed) {
     if (event.target.name === "kind") {
       const tagEditor = form.querySelector("[data-restaurant-tag-editor]");
       if (tagEditor) tagEditor.hidden = event.target.value !== "restaurant";
-      const saveTags = form.querySelector("[data-save-restaurant-tags]");
-      if (saveTags) saveTags.hidden = event.target.value !== "restaurant";
       const category = form.elements.category;
       const previousKind = category.dataset.categoryKind || event.target.value;
       category.value = placeEditorCategory(category.value, previousKind, event.target.value);
@@ -6789,6 +6846,12 @@ function bindPlaceEditor(form, existing, seed) {
     if (event.target.name === "referenceUrl") {
       session.syncSource();
       session.metadataTimer = setTimeout(() => fillPlaceEditorFromUrl(form), 700);
+    }
+  });
+  form.querySelector("[data-custom-restaurant-tag]")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      addCustomRestaurantTag(form);
     }
   });
   const addressInput = form.elements.address;
@@ -7084,7 +7147,6 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
           ${restaurantTagEditor(existing || seed, kind)}
-          ${existing?.kind === "restaurant" ? `<button class="outline-button field full" type="button" data-save-restaurant-tags ${kind === "restaurant" ? "" : "hidden"}>儲存類別</button>` : ""}
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
@@ -8022,17 +8084,16 @@ document.addEventListener("click", async (event) => {
     return openPlaceEditSheet("", lodgingDraftToEditorSeed(draft));
   }
 
-  const editTags = event.target.closest("[data-edit-place-tags]");
-  if (editTags) {
-    if (!canEdit()) return guestOnlyMessage();
-    openPlaceEditSheet(editTags.dataset.editPlaceTags);
-    sheetRoot.querySelector("[data-restaurant-tag-editor]")?.scrollIntoView({ block: "center" });
-    return;
-  }
-  const saveTags = event.target.closest("[data-save-restaurant-tags]");
-  if (saveTags) {
-    if (!canEdit()) return guestOnlyMessage();
-    saveRestaurantTagsOnly(saveTags.closest("form"));
+  const tagAction = event.target.closest("[data-add-restaurant-tag], [data-confirm-restaurant-tag], [data-cancel-restaurant-tag]");
+  if (tagAction) {
+    const form = tagAction.closest("form");
+    const entry = form.querySelector(".tag-custom-entry");
+    if (tagAction.hasAttribute("data-confirm-restaurant-tag")) addCustomRestaurantTag(form);
+    else {
+      entry.hidden = !tagAction.hasAttribute("data-add-restaurant-tag");
+      if (!entry.hidden) entry.querySelector("input").focus();
+      else entry.querySelector("input").value = "";
+    }
     return;
   }
   const editPlace = event.target.closest("[data-edit-place]");

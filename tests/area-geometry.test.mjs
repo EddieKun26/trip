@@ -51,7 +51,7 @@ test('boundary loads independently, caches once, clears on All and ignores stale
  h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');
  h.pending[0]({ok:true,json:async()=>catalog});await first;assert.equal(h.layers.length,0);
  h.c.state.placeAreaFilter='ginza';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.length>0);assert.equal(h.fetches,1);
- assert(h.layers.every(l=>l.options.clickable===false&&l.options.strokeOpacity===0&&l.options.icons.length));
+ assert(h.layers.every(l=>l.options.clickable===false&&l.options.strokeOpacity===0.75&&l.options.strokeColor==="#c8452d"&&!l.options.icons));
  h.c.state.placeAreaFilter='missing';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
  h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
 });

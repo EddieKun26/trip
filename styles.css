@@ -7931,14 +7931,26 @@ body.transport-sheet-open .app {
 .places-filter-row > span { flex: 0 0 auto; font-size: 13px; color: var(--muted); }
 .places-filter-chips { display: flex; flex: 1 1 0%; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; min-width: 0; max-width: 100%; padding: 2px 4px 2px 0; scrollbar-width: none; touch-action: pan-x pan-y; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
 .places-filter-chips::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.places-filter-chips button { flex: 0 0 auto; min-height: 44px; padding: 6px 14px; border: 1px solid #d8ddd8; border-radius: 24px; background: transparent; color: inherit; white-space: nowrap; }
-.places-filter-chips button.active { background: #315c50; color: white; border-color: #315c50; }
+.places-filter-chips button { position: relative; flex: 0 0 auto; min-height: 44px; padding: 10px 11px; border: 0; border-radius: 24px; background: transparent; color: inherit; white-space: nowrap; font-size: 12px; isolation: isolate; }
+.places-filter-chips button::before { content: ""; position: absolute; inset: 6px 0; border: 1px solid #d8ddd8; border-radius: 24px; z-index: -1; }
+.places-filter-chips button.active { background: transparent; color: white; }
+.places-filter-chips button.active::before { background: #315c50; border-color: #315c50; }
 .restaurant-tag-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
 .restaurant-tag-editor[hidden] { display: none; }
 .restaurant-tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
-.restaurant-tag-options label { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 10px; border: 1px solid #d8ddd8; border-radius: 20px; }
-.restaurant-tag-options input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: #315c50; }
-.restaurant-tag-options label:has(input:checked) { background: #e4eee8; border-color: #315c50; }
+.restaurant-tag-options label { position: relative; display: flex; align-items: center; min-height: 44px; padding: 4px 12px; border: 1px solid #d8ddd8; border-radius: 24px; font-size: 13px; cursor: pointer; }
+.restaurant-tag-options input { position: absolute; opacity: 0; width: 1px; min-height: 1px; height: 1px; margin: 0; }
+.restaurant-tag-options label:has(input:checked) { background: #315c50; color: white; border-color: #315c50; }
+.restaurant-tag-options label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tag-add-button { min-height: 44px; border: 1px solid #d8ddd8; border-radius: 24px; padding: 6px 12px; background: transparent; color: inherit; font-size: 13px; }
+.tag-custom-entry { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-custom-entry[hidden] { display: none; }
+.tag-custom-entry input { flex: 1 1 140px; min-width: 0; }
+.tag-custom-entry button { min-height: 44px; padding: 6px 12px; }
+.detail-restaurant-tags { display: grid; gap: 8px; margin: 12px 0; }
+.detail-restaurant-tags > span { font-size: 13px; color: var(--muted); }
+.detail-restaurant-tags > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-gallery img[data-gallery-pending] { visibility: hidden; }
 
 .places-filter-row { width: 100%; max-width: 100%; overflow: hidden; }
 .places-filters { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 100%; }

@@ -38,7 +38,7 @@ function frontend(places, resolved) {
     canEdit: () => false, placeCreatorName: () => "測試", currentMemberId: () => "test",
   };
   vm.createContext(context);
-  for (const name of ["placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
+  for (const name of ["placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { context, calls, saves };

@@ -128,3 +128,27 @@ test("category options derive from selected area only and reset unavailable sele
  selection.placeAreaFilter = "";
  assert.deepEqual(Array.from(c.placesFilterModel(places, selection).tags), ["燒肉", "日式", "壽喜燒"]);
 });
+
+
+test("editor choices are actual trip tags plus current values; unused and name-only guesses stay absent", () => {
+ c.state.places = [{ kind: "restaurant", restaurantTags: ["牛排", "海鮮自助餐"] }, { kind: "attraction", restaurantTags: ["不該出現"] }];
+ const html = c.restaurantTagEditor({ kind: "restaurant", restaurantTags: ["和牛"] }, "restaurant");
+ for (const tag of ["牛排", "海鮮自助餐", "和牛"]) assert.ok(html.includes('value="' + tag + '"'));
+ for (const tag of ["拉麵", "壽喜燒", "火鍋", "不該出現"]) assert.ok(!html.includes('value="' + tag + '"'));
+ assert.match(html, /data-add-restaurant-tag/);
+ assert.doesNotMatch(html, /data-save-restaurant-tags/);
+ assert.deepEqual(Array.from(c.restaurantTagValues({ kind: "restaurant", name: "ラーメン燒肉店" })), []);
+ assert.deepEqual(Array.from(c.restaurantTagValues({ kind: "restaurant", category: "海鮮自助餐" })), ["海鮮自助餐"]);
+ c.state.places = [];
+ assert.doesNotMatch(c.restaurantTagEditor({ kind: "restaurant", restaurantTags: [] }, "restaurant"), /name="restaurantTags"/);
+});
+
+test("custom input trims, deduplicates exact values and does not persist before Save", () => {
+ const input={value:"  和牛  "}, existing={value:"和牛",checked:false}, dirty=new Set(), entry={hidden:false};
+ let inserted="";
+ const form={querySelector(selector){ return selector.includes("data-custom") ? input : selector === ".tag-custom-entry" ? entry : {querySelectorAll:()=>[existing],insertAdjacentHTML:(_,html)=>inserted+=html}; },placeEditorSession:{dirty}};
+ c.addCustomRestaurantTag(form);
+ assert.equal(existing.checked,true);assert.equal(inserted,"");assert.equal(entry.hidden,true);assert(dirty.has("restaurantTags"));
+ input.value="  漢堡  ";c.addCustomRestaurantTag(form);assert.match(inserted,/value="漢堡" checked/);
+ const before=inserted;input.value="   ";c.addCustomRestaurantTag(form);assert.equal(inserted,before);
+});

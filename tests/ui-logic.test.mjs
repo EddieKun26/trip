@@ -281,7 +281,7 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
   const phoneStart = details.indexOf('class="place-contact-item phone-contact-item"');
   const phoneEnd = details.indexOf("</div>", phoneStart);
   const buttonStart = details.indexOf('class="tabelog-reservation-button"');
-  const contactSectionEnd = details.indexOf("</section>", details.indexOf('class="place-contact-grid"'));
+  const contactSectionEnd = details.indexOf("</section>", details.indexOf('class="place-contact-grid'));
   assert.ok(buttonStart > phoneEnd && buttonStart < contactSectionEnd, "the reservation action must be outside the phone card but in the same grid");
   const importSection = sourceSection('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")');
   assert.match(importSection, /withStoredTabelogLink\([\s\S]*state\.destination/);
