@@ -102,3 +102,4 @@
 
 - 2026-09-09 Places cleanup: restaurant category options derive only from actual trip/current restaurant values; custom values live on places and explicit empty arrays override inference. Use the general editor's single Save. Photo failure fallback is local to the gallery and exact identity, with placeholders after candidates are exhausted. Boundary stroke is solid; geometry contract unchanged.
 - Exact photo resources refresh transiently via existing photo endpoint; saved detail-loaded flags do not prevent photo recovery. Only original Place ID, no name search, no metadata mutation, one retry per gallery.
+- Travel Area grouping is distinct from OSM town geometry components. Render and label each source component independently; never imply composite Travel Area is one official administrative polygon.

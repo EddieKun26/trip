@@ -7983,3 +7983,8 @@ body.transport-sheet-open .app {
 [data-save-restaurant-tags][hidden] { display: none; }
 @media (max-width: 700px) { .map-screen.is-fullscreen { --drawer-width: min(82vw, 300px); } }
 @media (prefers-reduced-motion: reduce) { .map-drawer-handle { transition: none; } }
+
+/* Component names sit below place pins and never capture map gestures. */
+.area-component-label { pointer-events: none !important; background: transparent; border: 0; box-shadow: none; padding: 0; color: var(--accent); font-size: 11px; font-weight: 600; white-space: nowrap; text-shadow: 0 1px 2px #fff, 1px 0 2px #fff, -1px 0 2px #fff, 0 -1px 2px #fff; }
+.area-component-label::before { display: none; }
+.google-area-component-label { position: absolute; transform: translate(-50%, calc(-100% - 3px)); }

@@ -2897,12 +2897,15 @@ function loadGoogleMapsScript(key) {
 
 let areaGeometryPromise = null;
 let areaBoundaryLayers = [];
+let areaBoundaryLabels = [];
 let areaBoundaryToken = 0;
 
 function clearAreaBoundary() {
   areaBoundaryToken += 1;
   areaBoundaryLayers.forEach((layer) => { if (layer.setMap) layer.setMap(null); else layer.remove(); });
   areaBoundaryLayers = [];
+  areaBoundaryLabels.forEach((label) => { if (label.setMap) label.setMap(null); else label.remove(); });
+  areaBoundaryLabels = [];
   document.querySelector("[data-area-boundary-credit]")?.remove();
 }
 
@@ -2920,13 +2923,50 @@ function areaGeometryForPlace(catalog, place) {
   let area = Object.hasOwn(catalog.areas, place.travelAreaKey) ? catalog.areas[place.travelAreaKey] : null;
   if (!area && String(place.travelAreaKey).startsWith("jp:")) area = Object.values(catalog.areas).find((entry) => entry.localNames.includes(place.travelAreaLocal));
   if (!area?.localNames.includes(place.travelAreaLocal)) return null;
-  return area;
+  return { ...area, travelAreaKey: place.travelAreaKey, geometryComponents: area.features };
 }
 
 function areaBoundaryRings(area) {
   return (area?.features || []).flatMap((feature) => feature.geometry?.type === "MultiPolygon"
     ? feature.geometry.coordinates.flatMap((polygon) => polygon)
     : feature.geometry?.type === "Polygon" ? feature.geometry.coordinates : []);
+}
+
+function areaComponentLabelAnchor(component) {
+  // A vertex on the real outer boundary, used only to position text.
+  const polygons = component.geometry?.type === "MultiPolygon" ? component.geometry.coordinates : [component.geometry?.coordinates || []];
+  const outer = polygons.map((polygon) => polygon[0] || []).sort((a, b) => b.length - a.length)[0];
+  return outer?.reduce((north, point) => !north || point[1] > north[1] ? point : north, null);
+}
+
+function addAreaComponentLabel(map, provider, component) {
+  const anchor = areaComponentLabelAnchor(component);
+  if (!anchor) return;
+  const name = component.properties.name;
+  if (provider === "google") {
+    class ComponentLabel extends google.maps.OverlayView {
+      onAdd() {
+        this.node = document.createElement("div");
+        this.node.className = "area-component-label google-area-component-label";
+        this.node.textContent = name;
+        this.node.setAttribute("aria-label", `${name}町界`);
+        // Below place markers, with no pointer target or map gesture interception.
+        this.getPanes().overlayLayer.appendChild(this.node);
+      }
+      draw() {
+        const point = this.getProjection().fromLatLngToDivPixel(new google.maps.LatLng(anchor[1], anchor[0]));
+        if (point && this.node) { this.node.style.left = `${point.x}px`; this.node.style.top = `${point.y}px`; }
+      }
+      onRemove() { this.node?.remove(); }
+    }
+    const label = new ComponentLabel();
+    label.setMap(map);
+    areaBoundaryLabels.push(label);
+  } else {
+    areaBoundaryLabels.push(L.tooltip({ permanent: true, direction: "top", offset: [0, -3],
+      pane: "areaBoundary", interactive: false, className: "area-component-label", opacity: 1,
+    }).setLatLng([anchor[1], anchor[0]]).setContent(escapeHtml(name)).addTo(map));
+  }
 }
 
 async function renderAreaBoundary(map, provider) {
@@ -2941,24 +2981,26 @@ async function renderAreaBoundary(map, provider) {
     || map !== (provider === "google" ? activeGoogleMap : activeLeafletMap)) return;
   const area = representatives.map((place) => areaGeometryForPlace(catalog, place)).find(Boolean);
   if (!area) return;
-  const rings = areaBoundaryRings(area);
-  if (!rings.length) return;
+  const components = area.geometryComponents.filter((component) => areaBoundaryRings({ features: [component] }).length);
+  if (!components.length) return;
   const boundaryColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
   if (provider === "google") {
-    areaBoundaryLayers = rings.map((ring) => new google.maps.Polyline({
+    areaBoundaryLayers = components.flatMap((component) => areaBoundaryRings({ features: [component] }).map((ring) => new google.maps.Polyline({
       map, path: ring.map(([lng, lat]) => ({ lat, lng })), clickable: false, zIndex: 0,
+      componentId: component.properties.osmId,
       strokeColor: boundaryColor, strokeOpacity: 0.75, strokeWeight: 2,
-    }));
+    })));
   } else {
     if (!map.getPane("areaBoundary")) map.createPane("areaBoundary");
     map.getPane("areaBoundary").style.zIndex = "350";
     map.getPane("areaBoundary").style.pointerEvents = "none";
-    areaBoundaryLayers = [L.geoJSON(area, { pane: "areaBoundary", interactive: false,
+    areaBoundaryLayers = components.map((component) => L.geoJSON(component, { pane: "areaBoundary", interactive: false,
       style: { color: boundaryColor, weight: 2, opacity: 0.75, fill: false, interactive: false },
-    }).addTo(map)];
+    }).addTo(map));
   }
+  components.forEach((component) => addAreaComponentLabel(map, provider, component));
   const host = document.querySelector("[data-map-host]");
-  if (host) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" title="${escapeHtml(area.features.map((feature) => feature.properties.name).join("、"))}">町界 © OpenStreetMap · ODbL</a>`);
+  if (host) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" title="${escapeHtml(components.map((feature) => feature.properties.name).join("、"))}；各線為來源町界，不代表旅遊分區的官方行政界">${components.length > 1 ? `${components.length} 個獨立町界` : "町界"} · © OpenStreetMap · ODbL</a>`);
 }
 
 let lastMapViewport = null;

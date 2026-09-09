@@ -27,7 +27,7 @@ function harness(){
  const c=vm.createContext({state:{tripId:'t',placeAreaFilter:'ginza',places:[{travelAreaKey:'ginza',travelAreaLocal:'銀座',countryCode:'JP'}]},
   activeGoogleMap:map,activeLeafletMap:null,document:{querySelector:()=>node},escapeHtml:String,AbortSignal,getComputedStyle:()=>({getPropertyValue:()=>"#c8452d"}),
   fetch:()=>{fetches++;return new Promise(resolve=>pending.push(resolve));},
-  google:{maps:{Polyline:class{constructor(options){this.options=options;this.removed=false;layers.push(this)}setMap(v){this.removed=v===null}}}}
+  google:{maps:{OverlayView:class{setMap(map){this.removed=map===null}},Polyline:class{constructor(options){this.options=options;this.removed=false;layers.push(this)}setMap(v){this.removed=v===null}}}}
  });vm.runInContext(section('let areaGeometryPromise','let lastMapViewport'),c);
  return {c,map,layers,pending,get fetches(){return fetches}};
 }
@@ -82,4 +82,28 @@ test('rapid A to B selection renders only B when the shared geometry request res
  assert.equal(h.fetches,1);assert.equal(h.layers.length,3);
  const expected=catalog.areas['ebisu-daikanyama'].features.flatMap(f=>f.geometry.coordinates.flatMap(p=>p));
  assert.deepEqual(h.layers.map(l=>l.options.path.length),expected.map(r=>r.length));
+});
+
+
+test('all 12 area mappings retain original independent geometry components and real vertex labels',()=>{
+ const h=harness();
+ for(const [key,area] of Object.entries(catalog.areas)) {
+   const result=h.c.areaGeometryForPlace(catalog,{travelAreaKey:key,travelAreaLocal:area.localNames[0],countryCode:'JP'});
+   assert.equal(result.travelAreaKey,key);
+   assert.equal(result.geometryComponents,area.features);
+   for(const component of result.geometryComponents){
+     assert(h.c.areaBoundaryRings({features:[component]}).some(ring=>ring.some(p=>JSON.stringify(p)===JSON.stringify(h.c.areaComponentLabelAnchor(component)))));
+   }
+ }
+ const features=catalog.areas['ebisu-daikanyama'].features;
+ assert.deepEqual(features.map(f=>f.properties.name),['恵比寿','恵比寿西','代官山町']);
+});
+
+test('composite creates three separate layers and labels then removes all on All',async()=>{
+ const h=harness();h.c.state.placeAreaFilter='ebisu-daikanyama';h.c.state.places=[{travelAreaKey:'ebisu-daikanyama',travelAreaLocal:'恵比寿／代官山',countryCode:'JP'}];
+ const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:true,json:async()=>catalog});await task;
+ assert.deepEqual(h.layers.map(l=>l.options.componentId),[9521529,17008303,17022574]);
+ const labels=vm.runInContext('areaBoundaryLabels.slice()',h.c);assert.equal(labels.length,3);
+ h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');
+ assert(h.layers.every(l=>l.removed));assert(labels.every(l=>l.removed));
 });
