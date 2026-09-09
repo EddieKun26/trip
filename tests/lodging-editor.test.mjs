@@ -51,7 +51,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
     closeSheet() { form.isConnected = false; },
     FormData: class { constructor(form) { this.tags = form.checkedTags || []; this.values = Object.fromEntries(Object.entries(form.elements).map(([key, node]) => [key, node.value])); } get(key) { return this.values[key]; } getAll(key) { return this.tags; } },
   });
-  vm.runInContext(section("function restaurantTagValues", "function placesScreen") + section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + helpers + editorValueHelpers + `\nasync function submitEditor(event) { ${submit} }`, context);
+  vm.runInContext(section("function restaurantTagValues", "function placesScreen") + section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + section("function saveRestaurantTagsOnly", "function renamePlaceReferences") + helpers + editorValueHelpers + `\nasync function submitEditor(event) { ${submit} }`, context);
   const session = context.bindPlaceEditor(form, existing, seed);
   const input = (key, value) => { const target = form.elements[key]; target.name = key; target.value = value; form.fire("input", { target }); };
   return { context, form, session, requests, toasts, input,
@@ -632,4 +632,24 @@ test("restaurant editor saves multiple tags, preserves custom values and explici
   if (cleared.requests.length) cleared.reply(0);
   await savingClear;
   assert.deepEqual(Array.from(cleared.context.state.places[0].restaurantTags), []);
+});
+
+
+test("editing only restaurant tags preserves exact Google identity, address and photos without a request", async () => {
+ const existing = { name: "Google餐廳", kind: "restaurant", category: "燒肉", placeId: "ChIJExact", photos: [{ name: "places/ChIJExact/photos/p" }], formattedAddress: "原地址", sourceUrl: "https://www.google.com/maps/?cid=123", latitude: 35.6, longitude: 139.7 };
+ const before = JSON.parse(JSON.stringify(existing));
+ const h = harness({ existing, address: "" });
+ h.form.checkedTags = ["牛排", "日式"];
+ h.session.dirty.add("restaurantTags");
+ await h.save();
+ assert.equal(h.requests.length, 0);
+ const saved = h.context.state.places[0];
+ assert.deepEqual(Array.from(saved.restaurantTags), ["牛排", "日式"]);
+ assert.equal(saved.restaurantTagsSource, "manual");
+ for (const key of Object.keys(before)) assert.deepEqual(saved[key], before[key]);
+ const clear = harness({ existing: saved, address: "" });
+ clear.form.checkedTags = []; clear.session.dirty.add("restaurantTags");
+ await clear.save();
+ assert.equal(clear.requests.length, 0);
+ assert.deepEqual(Array.from(clear.context.restaurantTagValues(JSON.parse(JSON.stringify(saved)))), []);
 });

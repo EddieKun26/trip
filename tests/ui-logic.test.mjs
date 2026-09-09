@@ -520,7 +520,7 @@ test("place references hide misclassified Google Maps URLs and derive labels fro
   });
   assert.equal(googleMapsNavigationUrl(mapsUrl), new URL(mapsUrl).toString());
   assert.equal(googleMapsNavigationUrl("https://example.com/not-maps"), "");
-  assert.match(appSource, /if \(mapLink\) return openGoogleMaps\(mapLink\.dataset\.openMaps\)/);
+  assert.match(appSource, /if \(mapLink\) \{ event\.preventDefault\(\); return openGoogleMaps\(mapLink\.dataset\.openMaps\)/);
   assert.match(appSource, /window\.location\.assign\(url\)/);
   assert.doesNotMatch(appSource, /window\.open\(mapLink\.dataset\.openMaps/);
 });

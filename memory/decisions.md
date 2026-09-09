@@ -97,3 +97,5 @@
 - List/Map share stored area selection; empty-area map results preserve viewport. No trusted area polygon currently exists; boundary requires an additional geometry source. Existing untagged restaurants are not backfilled by detail refresh.
 
 - 2026-09-09 supersedes prior no-polygon/no-inference decisions: vetted static OSM町界 polygons now cover 12 Tokyo mappings with ODbL attribution and separate composite components; other areas remain boundary-free. Missing restaurantTags arrays receive runtime deterministic inference only, while all explicit arrays (including []) override it; editor saves a manual provenance field. No migration, AI or serverless addition.
+
+- Production UX correction: category options are area-scoped and reset when unavailable. Restaurant-only category saves preserve every non-tag field. Fullscreen handle attaches to open panel right edge, otherwise viewport left. Boundary uses existing --accent. Place-page display links retain exact Place ID/CID; photo fetch identity remains isolated from navigation URLs.

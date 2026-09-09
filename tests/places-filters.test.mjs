@@ -29,8 +29,9 @@ test("area AND multi-valued cuisine, cuisine applies across top-level kinds, sta
  selection.placeAreaFilter = "shinjuku"; selection.restaurantTagFilter = "壽喜燒";
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["b"]);
  selection.restaurantTagFilter = "燒肉";
- assert.deepEqual(names(c.placesFilterModel(places, selection)), []);
- selection.placeKind = "attraction"; selection.placeAreaFilter = "ueno";
+ assert.deepEqual(names(c.placesFilterModel(places, selection)), ["b"]);
+ assert.equal(selection.restaurantTagFilter, "");
+ selection.placeKind = "attraction"; selection.placeAreaFilter = "ueno"; selection.restaurantTagFilter = "燒肉";
  assert.deepEqual(names(c.placesFilterModel(places, selection)), []);
  selection.placeKind = "all";
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a"]);
@@ -65,10 +66,10 @@ test("shared sanitizer and JSON reload retain optional tags and explicit empty a
 test("filter controls expose pressed state, scroll horizontally, and do not invoke resolver", () => {
  c.state = { placeKind: "restaurant", placeAreaFilter: "", restaurantTagFilter: "" };
  const html = c.placesFilterChips(c.placesFilterModel(places, c.state));
- assert.match(html, /aria-label="餐飲"/); assert.match(html, /aria-pressed="true"/);
+ assert.match(html, /aria-label="類別"/); assert.match(html, /aria-pressed="true"/);
  c.state.placeKind = "all";
- assert.match(c.placesFilterChips(c.placesFilterModel(places, c.state)), /aria-label="餐飲"/);
- assert.doesNotMatch(c.placesFilterChips(c.placesFilterModel([{ kind: "restaurant" }], c.state)), /aria-label="餐飲"/);
+ assert.match(c.placesFilterChips(c.placesFilterModel(places, c.state)), /aria-label="類別"/);
+ assert.doesNotMatch(c.placesFilterChips(c.placesFilterModel([{ kind: "restaurant" }], c.state)), /aria-label="類別"/);
  assert.doesNotMatch(section("function placesFilterModel", "function placesScreen"), /fetch\(|resolve|ensureTravelArea/);
  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
  assert.match(css, /\.places-filter-chips \{[^}]*overflow-x: auto/);
@@ -115,4 +116,15 @@ test("map chips and adjacent location/fullscreen controls exist in both layouts"
  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
  assert.match(css, /places-filter-chips[^}]*flex-wrap: nowrap/);
  assert.match(css, /places-filter-chips::-webkit-scrollbar/);
+});
+
+
+test("category options derive from selected area only and reset unavailable selection", () => {
+ const selection = { placeKind: "all", placeAreaFilter: "ueno", restaurantTagFilter: "" };
+ assert.deepEqual(Array.from(c.placesFilterModel(places, selection).tags), ["燒肉", "日式"]);
+ selection.restaurantTagFilter = "燒肉"; selection.placeAreaFilter = "shinjuku";
+ assert.deepEqual(Array.from(c.placesFilterModel(places, selection).tags), ["壽喜燒"]);
+ assert.equal(selection.restaurantTagFilter, "");
+ selection.placeAreaFilter = "";
+ assert.deepEqual(Array.from(c.placesFilterModel(places, selection).tags), ["燒肉", "日式", "壽喜燒"]);
 });

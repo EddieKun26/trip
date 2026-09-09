@@ -175,3 +175,25 @@ test("API fails closed on mismatched identity, failed details, or missing identi
     assert.equal(calls.length, ["missing", "address"].includes(failure) ? 0 : 1);
   }
 });
+
+
+test("place-page keeps CID identity before coordinates and excludes legacy navigation URLs", () => {
+ const { context } = frontend([], null);
+ const cid = savedPlace({ placeId: "" });
+ assert.equal(new URL(context.placeMapsUrl(cid)).searchParams.get("cid"), "11431916046166169402");
+ for (const sourceUrl of ["https://www.google.com/maps/dir/?api=1&destination=x", "https://www.google.com/maps/navigation/?q=x", "https://www.google.com/maps/?saddr=x&daddr=y"]) {
+  const url = new URL(context.placeMapsUrl({ name: "店", sourceUrl }));
+  assert.doesNotMatch(url.pathname, /dir|navigation/);
+  assert.equal(url.searchParams.has("saddr"), false);
+ }
+});
+
+test("detail photos link to place page while photo fetch remains bound to matching placeId", () => {
+ const place = savedPlace({ sourceUrl: "https://www.google.com/maps/dir/?api=1&destination=wrong", photosLoaded: true });
+ const { context } = frontend([place], null);
+ context.openPlaceSheet(place.name);
+ const html = context.sheetRoot.innerHTML;
+ assert.match(html, /class="gallery-place-link" href="[^"]*query_place_id=/);
+ assert.match(html, /src="\/api\/place-photo\?name=places%2FChIJ/);
+ assert.doesNotMatch(html, /<img[^>]*src="[^"]*(?:maps\/dir|destination=)/);
+});

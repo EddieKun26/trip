@@ -25,7 +25,7 @@ function harness(){
  const layers=[], pending=[];let fetches=0;
  const map={};const node={remove(){},insertAdjacentHTML(){}};
  const c=vm.createContext({state:{tripId:'t',placeAreaFilter:'ginza',places:[{travelAreaKey:'ginza',travelAreaLocal:'銀座',countryCode:'JP'}]},
-  activeGoogleMap:map,activeLeafletMap:null,document:{querySelector:()=>node},escapeHtml:String,AbortSignal,
+  activeGoogleMap:map,activeLeafletMap:null,document:{querySelector:()=>node},escapeHtml:String,AbortSignal,getComputedStyle:()=>({getPropertyValue:()=>"#c8452d"}),
   fetch:()=>{fetches++;return new Promise(resolve=>pending.push(resolve));},
   google:{maps:{Polyline:class{constructor(options){this.options=options;this.removed=false;layers.push(this)}setMap(v){this.removed=v===null}}}}
  });vm.runInContext(section('let areaGeometryPromise','let lastMapViewport'),c);

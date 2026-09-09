@@ -2067,13 +2067,14 @@ function restaurantTagsFromCategory(category) {
 function restaurantTagEditor(place, kind) {
   const selected = restaurantTagValues({ ...place, kind: "restaurant" });
   const options = [...new Set(["拉麵", "壽司", "燒肉", "火鍋", "壽喜燒", "牛排", "居酒屋", "咖啡甜點", "咖哩", "丼飯", "炸豬排", "燒鳥", "其他", ...selected])];
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>餐飲類型</legend>${!Array.isArray(place?.restaurantTags) && selected.length ? `<small>依現有地點資料辨識，可修改；儲存後以你的選擇為準。</small>` : ""}<div class="restaurant-tag-options">${options.map((tag) => `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected.includes(tag) ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`).join("")}</div></fieldset>`;
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend>${!Array.isArray(place?.restaurantTags) && selected.length ? `<small>依現有地點資料辨識，可修改；儲存後以你的選擇為準。</small>` : ""}<div class="restaurant-tag-options">${options.map((tag) => `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected.includes(tag) ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`).join("")}</div></fieldset>`;
 }
 
 function placesFilterModel(places, selection) {
   const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, place.travelAreaZh])).entries()];
-  const tags = [...new Set(places.flatMap(restaurantTagValues))];
   if (!areas.some(([key]) => key === selection.placeAreaFilter)) selection.placeAreaFilter = "";
+  const areaPlaces = places.filter((place) => !selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter);
+  const tags = [...new Set(areaPlaces.flatMap(restaurantTagValues))];
   if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
   const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
     && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
@@ -2083,7 +2084,7 @@ function placesFilterModel(places, selection) {
 
 function placesFilterChips(model, { cuisine = true } = {}) {
   const row = (label, attribute, selected, options) => `<div class="places-filter-row"><span>${label}</span><div class="places-filter-chips" role="group" aria-label="${label}">${[["", "全部"], ...options].map(([key, name]) => `<button type="button" data-${attribute}="${escapeHtml(key)}" aria-pressed="${selected === key}" class="${selected === key ? "active" : ""}">${escapeHtml(name)}</button>`).join("")}</div></div>`;
-  return `<div class="places-filters">${row("地區", "place-area-filter", state.placeAreaFilter, model.areas)}${cuisine && model.tags.length ? row("餐飲", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
+  return `<div class="places-filters">${row("地區", "place-area-filter", state.placeAreaFilter, model.areas)}${cuisine && model.tags.length ? row("類別", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
 }
 
 function placesScreen() {
@@ -2922,17 +2923,18 @@ async function renderAreaBoundary(map, provider) {
   if (!area) return;
   const rings = areaBoundaryRings(area);
   if (!rings.length) return;
+  const boundaryColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
   if (provider === "google") {
     areaBoundaryLayers = rings.map((ring) => new google.maps.Polyline({
       map, path: ring.map(([lng, lat]) => ({ lat, lng })), clickable: false, zIndex: 0,
-      strokeOpacity: 0, icons: [{ icon: { path: "M 0,-1 0,1", strokeColor: "#55796e", strokeOpacity: 0.75, scale: 2 }, offset: "0", repeat: "10px" }],
+      strokeOpacity: 0, icons: [{ icon: { path: "M 0,-1 0,1", strokeColor: boundaryColor, strokeOpacity: 0.75, scale: 2 }, offset: "0", repeat: "10px" }],
     }));
   } else {
     if (!map.getPane("areaBoundary")) map.createPane("areaBoundary");
     map.getPane("areaBoundary").style.zIndex = "350";
     map.getPane("areaBoundary").style.pointerEvents = "none";
     areaBoundaryLayers = [L.geoJSON(area, { pane: "areaBoundary", interactive: false,
-      style: { color: "#55796e", weight: 2, opacity: 0.75, dashArray: "5 6", fill: false, interactive: false },
+      style: { color: boundaryColor, weight: 2, opacity: 0.75, dashArray: "5 6", fill: false, interactive: false },
     }).addTo(map)];
   }
   const host = document.querySelector("[data-map-host]");
@@ -4718,7 +4720,7 @@ function openPlaceSheet(name) {
       return `<figure class="gallery-card gallery-${index + 1} real-photo custom-place-photo"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(place.name)}自行加入的照片" loading="lazy" /><figcaption>${escapeHtml(photo.caption)}</figcaption></figure>`;
     }
     if (photo.type === "google") {
-      return `<figure class="gallery-card gallery-${index + 1} real-photo"><img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" /><figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption></figure>`;
+      return `<figure class="gallery-card gallery-${index + 1} real-photo"><a class="gallery-place-link" href="${escapeHtml(mapPlaceUrl)}" data-open-maps="${escapeHtml(mapPlaceUrl)}" aria-label="${escapeHtml(place.name)} Google Maps 地點頁"><img src="/api/place-photo?name=${encodeURIComponent(photo.name)}" alt="${escapeHtml(place.name)} Google Maps 照片" loading="lazy" /></a><figcaption>${escapeHtml(photo.attribution || "Google Maps 使用者")}</figcaption></figure>`;
     }
     return `<div class="gallery-card gallery-${index + 1}" style="--swatch:${place.swatch}"><span>${escapeHtml(photo.label)}</span></div>`;
   }).join("");
@@ -4734,6 +4736,7 @@ function openPlaceSheet(name) {
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
+        ${place.kind === "restaurant" && canEdit() ? `<button class="place-category-edit-button" type="button" data-edit-place-tags="${escapeHtml(place.name)}">編輯類別</button>` : ""}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
           <span>${place.customPhotoDataUrl ? (place.photoOrigin === "lodging_source" ? "使用原住宿頁照片" : "包含你自行加入的照片") : place.photos?.length ? "Google Maps 景點照片" : "尚未加入地點照片"}</span>
@@ -4788,7 +4791,7 @@ function openPlaceSheet(name) {
           <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapPlaceUrl)}">開啟 Google Maps</button>
         </div>
-        ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址、旅遊分區與照片</button>` : ""}
+        ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址、旅遊分區${place.kind === "restaurant" ? "、類別" : ""}與照片</button>` : ""}
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
       </section>
     </div>`;
@@ -5242,6 +5245,16 @@ function placeMapsUrl(place) {
   const name = String(place?.name || "").trim();
   const searchUrl = (query) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
   if (placeId) return `${searchUrl(address || name || placeId)}&query_place_id=${encodeURIComponent(placeId)}`;
+  const existingPage = googleMapsNavigationUrl(place?.sourceUrl);
+  if (existingPage) {
+    const url = new URL(existingPage);
+    const route = /\/(?:dir|navigation)(?:\/|$)/i.test(url.pathname)
+      || ["destination", "daddr", "saddr", "dir_action", "travelmode"].some((key) => url.searchParams.has(key));
+    const identityPage = /\/maps\/place\//.test(url.pathname) || url.searchParams.has("cid") || url.searchParams.has("ftid")
+      || ["maps.app.goo.gl", "goo.gl"].includes(url.hostname);
+    if (!route && identityPage && !place?.manualLocation && !place?.coordinateLocation
+      && !/^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(String(place?.placeId || ""))) return existingPage;
+  }
   const latitude = place?.latitude == null || place.latitude === "" ? NaN : Number(place.latitude);
   const longitude = place?.longitude == null || place.longitude === "" ? NaN : Number(place.longitude);
   if (validMapCoordinates(latitude, longitude)) return searchUrl(`${latitude},${longitude}`);
@@ -5252,14 +5265,14 @@ function placeMapsUrl(place) {
     // Legacy route URLs must not turn the place-view action back into navigation.
     const destination = url.searchParams.get("destination") || url.searchParams.get("daddr");
     if (destination) return searchUrl(destination);
-    if (!/\/dir(?:\/|$)/i.test(url.pathname) && !url.searchParams.has("saddr")) return existing;
+    if (!/\/(?:dir|navigation)(?:\/|$)/i.test(url.pathname) && !["saddr", "dir_action", "travelmode"].some((key) => url.searchParams.has(key))) return existing;
   }
   return name ? searchUrl(name) : "";
 }
 
 function placeNavigationUrl(place) {
-  const latitude = Number(place?.latitude);
-  const longitude = Number(place?.longitude);
+  const latitude = place?.latitude == null || place.latitude === "" ? NaN : Number(place.latitude);
+  const longitude = place?.longitude == null || place.longitude === "" ? NaN : Number(place.longitude);
   if (validMapCoordinates(latitude, longitude)) {
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}`;
   }
@@ -6661,6 +6674,7 @@ function bindPlaceEditor(form, existing, seed) {
   const session = { sequence: 0, metadataSequence: 0, dirty: new Set(seed.touchedFields || []), address: placeEditorAddress(form),
     result: null, request: null, timer: null, composing: false, restoreAuto: false, saving: false };
   form.placeEditorSession = session;
+  session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
   session.referenceUrl = form.elements.referenceUrl.value.trim();
   session.sourceMetadata = { ...lodgingSourceMetadata(seed.lodgingDraft || { ...existing, ...seed, referenceUrl: session.referenceUrl }),
     locationPrecision: seed.lodgingDraft?.locationPrecision || seed.locationPrecision || existing?.locationPrecision || "" };
@@ -6763,6 +6777,8 @@ function bindPlaceEditor(form, existing, seed) {
     if (event.target.name === "kind") {
       const tagEditor = form.querySelector("[data-restaurant-tag-editor]");
       if (tagEditor) tagEditor.hidden = event.target.value !== "restaurant";
+      const saveTags = form.querySelector("[data-save-restaurant-tags]");
+      if (saveTags) saveTags.hidden = event.target.value !== "restaurant";
       const category = form.elements.category;
       const previousKind = category.dataset.categoryKind || event.target.value;
       category.value = placeEditorCategory(category.value, previousKind, event.target.value);
@@ -7068,6 +7084,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
           ${restaurantTagEditor(existing || seed, kind)}
+          ${existing?.kind === "restaurant" ? `<button class="outline-button field full" type="button" data-save-restaurant-tags ${kind === "restaurant" ? "" : "hidden"}>儲存類別</button>` : ""}
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
@@ -7086,6 +7103,19 @@ function openPlaceEditSheet(name = "", seed = {}) {
       </form>
     </div>`;
   bindPlaceEditor(sheetRoot.querySelector("#place-editor-form"), existing, seed);
+}
+
+function saveRestaurantTagsOnly(form) {
+  const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
+  if (!existing || existing.kind !== "restaurant" || form.elements.kind.value !== "restaurant") return false;
+  const restaurantTags = new FormData(form).getAll("restaurantTags");
+  existing.restaurantTags = restaurantTagValues({ kind: "restaurant", restaurantTags });
+  existing.restaurantTagsSource = "manual";
+  persist();
+  closeSheet();
+  render();
+  showToast("類別已儲存");
+  return true;
 }
 
 function renamePlaceReferences(previousName, nextName) {
@@ -7992,6 +8022,19 @@ document.addEventListener("click", async (event) => {
     return openPlaceEditSheet("", lodgingDraftToEditorSeed(draft));
   }
 
+  const editTags = event.target.closest("[data-edit-place-tags]");
+  if (editTags) {
+    if (!canEdit()) return guestOnlyMessage();
+    openPlaceEditSheet(editTags.dataset.editPlaceTags);
+    sheetRoot.querySelector("[data-restaurant-tag-editor]")?.scrollIntoView({ block: "center" });
+    return;
+  }
+  const saveTags = event.target.closest("[data-save-restaurant-tags]");
+  if (saveTags) {
+    if (!canEdit()) return guestOnlyMessage();
+    saveRestaurantTagsOnly(saveTags.closest("form"));
+    return;
+  }
   const editPlace = event.target.closest("[data-edit-place]");
   if (editPlace) return canEdit() ? openPlaceEditSheet(editPlace.dataset.editPlace) : guestOnlyMessage();
 
@@ -8025,7 +8068,7 @@ document.addEventListener("click", async (event) => {
   }
 
   const mapLink = event.target.closest("[data-open-maps]");
-  if (mapLink) return openGoogleMaps(mapLink.dataset.openMaps);
+  if (mapLink) { event.preventDefault(); return openGoogleMaps(mapLink.dataset.openMaps); }
 
   const referenceLink = event.target.closest("[data-open-reference]");
   if (referenceLink) return window.open(referenceLink.dataset.openReference, "_blank", "noopener");
@@ -8514,6 +8557,10 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "place-editor-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
+    const tagSession = event.target.placeEditorSession;
+    if (tagSession.dirty.has("restaurantTags") && tagSession.tagEditBaseline
+      && Object.entries(tagSession.tagEditBaseline).every(([key, value]) => (event.target.elements[key]?.value || "") === value) && !tagSession.saving
+      && !pendingPlacePhoto && !removePendingPlacePhoto && saveRestaurantTagsOnly(event.target)) return;
     event.target.placeEditorSession.syncSource();
     const form = new FormData(event.target);
     const originalName = event.target.dataset.originalPlaceName || "";

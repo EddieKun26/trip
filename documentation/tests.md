@@ -86,3 +86,8 @@ Targeted 107/107 and full 340/340; syntax/diff checks pass, API 12. Runtime test
 ## Fullscreen / cuisine inference / geometry (2026-09-09)
 
 Targeted 141/141; full regression 348/348 once. New area-geometry tests cover multilingual inference, manual/empty precedence, 12 sourced mappings, composite polygons, country/name mismatch, cached load failures, stale A-to-B responses, clear-All and noninteractive rendering. Local 393x852 full-DOM/Leaflet fixture verifies dropdown, arrow drawer, same map instance, selection synchronization and actual boundary layers. Syntax/diff pass; 12 API functions. Source evidence and license: data/area-geometry/README.md.
+
+
+## Production UX corrections (2026-09-09)
+
+Targeted 132/132; full 352/352 once. Added area-scoped categories/reset, tag-only save/clear preserving Google identity/address/photos without requests, CID precedence and navigation URL exclusion from place-page/photo links. Local full-DOM 393x852 validates drawer edge placement, token-colored boundary and discoverable real multi-select/clear save flow. Syntax/diff pass; API 12.
