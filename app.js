@@ -4725,8 +4725,27 @@ function detailGalleryCard(place, photo, index, mapPlaceUrl) {
   return `<figure class="${className} real-photo" data-gallery-index="${index}">${googlePhoto ? `<a class="gallery-place-link" href="${escapeHtml(mapPlaceUrl)}" data-open-maps="${escapeHtml(mapPlaceUrl)}">${img}</a>` : img}<figcaption>${escapeHtml(googlePhoto ? photo.attribution || "Google Maps 使用者" : photo.caption)}</figcaption></figure>`;
 }
 
-function bindDetailGallery(gallery, place) {
+function bindDetailGallery(gallery, place, allowRefresh = true) {
   if (!gallery) return;
+  const placeId = detailGooglePlaceId(place);
+  let refreshing = false;
+  let failedCustom = false;
+  const refresh = async () => {
+    if (!allowRefresh || refreshing || !placeId) return;
+    refreshing = true;
+    try {
+      const response = await fetch(`/api/place-photo?placeId=${encodeURIComponent(placeId)}`, { cache: "no-store", signal: AbortSignal.timeout(12000) });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (!gallery.isConnected || payload.placeId !== placeId || detailGooglePlaceId(place) !== placeId || !Array.isArray(payload.photos)) return;
+      // Fresh resource names are transient gallery data, never persisted to the trip.
+      const refreshed = { ...place, photos: payload.photos, ...(failedCustom ? { customPhotoDataUrl: "" } : {}) };
+      const replacement = gallery.cloneNode(false);
+      replacement.innerHTML = detailGalleryPhotos(refreshed).slice(0, 3).map((photo, index) => detailGalleryCard(refreshed, photo, index, placeMapsUrl(place))).join("");
+      gallery.replaceWith(replacement);
+      bindDetailGallery(replacement, refreshed, false);
+    } catch { /* Existing safe images/placeholders remain usable; no retry loop. */ }
+  };
   const remaining = detailGalleryPhotos(place).slice(3).filter((photo) => photo.type === "google");
   const pageUrl = placeMapsUrl(place);
   const failed = new WeakSet();
@@ -4734,11 +4753,13 @@ function bindDetailGallery(gallery, place) {
     const img = event.target;
     if (img.tagName !== "IMG" || failed.has(img) || !gallery.contains(img)) return;
     failed.add(img);
+    if (img.dataset.photoSource === "custom") failedCustom = true;
     img.hidden = true;
     const card = img.closest("[data-gallery-index]");
     if (!card) return;
     // Consume each exact-identity candidate once; no search, mutation or retry loop.
     card.outerHTML = detailGalleryCard(place, remaining.shift(), Number(card.dataset.galleryIndex), pageUrl);
+    refresh();
   };
   gallery.addEventListener("error", onError, true);
   gallery.addEventListener("load", (event) => {
@@ -4750,6 +4771,7 @@ function bindDetailGallery(gallery, place) {
     if (img.naturalWidth) img.removeAttribute("data-gallery-pending");
     else onError({ target: img });
   });
+  if (identitySafePhotos(place).length < (place.customPhotoDataUrl ? 2 : 3)) refresh();
 }
 
 function openPlaceSheet(name) {
