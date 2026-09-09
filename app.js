@@ -564,17 +564,21 @@ function hasUsableTravelArea(place) {
 
 function isTravelAreaResolutionCurrent(place) {
   ensureTravelAreaFields(place);
+  // Unresolved split aliases use only the offline audit resolver, never a new Google lookup.
+  if (globalThis.TravelAreaAudit?.isLegacy(place)) return true;
   if (place?.travelAreaSource === "manual" || place?.travelAreaManuallySet === true) return hasUsableTravelArea(place);
   return Boolean(place?.travelAreaResolved === true && Number(place?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION && hasUsableTravelArea(place));
 }
 
 function travelAreaDisplayName(place) {
   ensureTravelAreaFields(place);
+  if (globalThis.TravelAreaAudit?.isLegacy(place)) return "地區待確認";
   return `${String(place.travelAreaZh).trim()}（${String(place.travelAreaLocal).trim()}）`;
 }
 
 function travelAreaChineseName(place, fallback = "未分類") {
   ensureTravelAreaFields(place);
+  if (globalThis.TravelAreaAudit?.isLegacy(place)) return "地區待確認";
   return String(place?.travelAreaZh || fallback).trim();
 }
 
@@ -2090,7 +2094,7 @@ function addCustomRestaurantTag(form) {
 }
 
 function placesFilterModel(places, selection) {
-  const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, place.travelAreaZh])).entries()];
+  const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, globalThis.TravelAreaAudit?.isLegacy(place) ? "地區待確認" : place.travelAreaZh])).entries()];
   if (!areas.some(([key]) => key === selection.placeAreaFilter)) selection.placeAreaFilter = "";
   const areaPlaces = places.filter((place) => !selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter);
   const tags = [...new Set(areaPlaces.flatMap(restaurantTagValues))];
@@ -2929,63 +2933,34 @@ function clearAreaBoundary() {
 }
 
 function loadAreaGeometry() {
-  if (!areaGeometryPromise) areaGeometryPromise = fetch("./data/area-geometry/tokyo-v1.json?v=20260909.2", { signal: AbortSignal.timeout(12000) })
+  if (!areaGeometryPromise) areaGeometryPromise = fetch("./data/area-geometry/travel-area-boundaries.json?v=20260910.1", { signal: AbortSignal.timeout(12000) })
     .then((response) => response.ok ? response.json() : null).catch(() => null);
   return areaGeometryPromise;
 }
 
 function areaGeometryForPlace(catalog, place) {
-  if (!catalog?.areas || !place) return null;
-  const inTokyo = Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
-    && place.latitude > 35.55 && place.latitude < 35.85 && place.longitude > 139.55 && place.longitude < 139.90;
-  if (place.countryCode ? place.countryCode !== "JP" : !inTokyo) return null;
-  let area = Object.hasOwn(catalog.areas, place.travelAreaKey) ? catalog.areas[place.travelAreaKey] : null;
-  if (!area && String(place.travelAreaKey).startsWith("jp:")) area = Object.values(catalog.areas).find((entry) => entry.localNames.includes(place.travelAreaLocal));
-  if (!area?.localNames.includes(place.travelAreaLocal)) return null;
-  return { ...area, travelAreaKey: place.travelAreaKey, geometryComponents: area.features };
+  if (!catalog?.areas || !place || !Object.hasOwn(catalog.areas, place.travelAreaKey)) return null;
+  const area = catalog.areas[place.travelAreaKey];
+  if (!area.drawable || !area.finalGeometry || area.travelAreaLocal !== place.travelAreaLocal) return null;
+  if (place.countryCode ? place.countryCode !== area.countryCode : !(
+    Number.isFinite(place.latitude) && Number.isFinite(place.longitude) && area.bounds
+    && place.longitude >= area.bounds[0] && place.longitude <= area.bounds[2]
+    && place.latitude >= area.bounds[1] && place.latitude <= area.bounds[3])) return null;
+  return area;
 }
 
 function areaBoundaryRings(area) {
-  return (area?.features || []).flatMap((feature) => feature.geometry?.type === "MultiPolygon"
-    ? feature.geometry.coordinates.flatMap((polygon) => polygon)
-    : feature.geometry?.type === "Polygon" ? feature.geometry.coordinates : []);
-}
-
-function areaComponentLabelAnchor(component) {
-  // A vertex on the real outer boundary, used only to position text.
-  const polygons = component.geometry?.type === "MultiPolygon" ? component.geometry.coordinates : [component.geometry?.coordinates || []];
-  const outer = polygons.map((polygon) => polygon[0] || []).sort((a, b) => b.length - a.length)[0];
-  return outer?.reduce((north, point) => !north || point[1] > north[1] ? point : north, null);
-}
-
-function addAreaComponentLabel(map, provider, component) {
-  const anchor = areaComponentLabelAnchor(component);
-  if (!anchor) return;
-  const name = component.travelAreaLabel || "";
-  if (provider === "google") {
-    class ComponentLabel extends google.maps.OverlayView {
-      onAdd() {
-        this.node = document.createElement("div");
-        this.node.className = "area-component-label google-area-component-label";
-        this.node.textContent = name;
-        this.node.setAttribute("aria-label", `${name}町界`);
-        // Below place markers, with no pointer target or map gesture interception.
-        this.getPanes().overlayLayer.appendChild(this.node);
-      }
-      draw() {
-        const point = this.getProjection().fromLatLngToDivPixel(new google.maps.LatLng(anchor[1], anchor[0]));
-        if (point && this.node) { this.node.style.left = `${point.x}px`; this.node.style.top = `${point.y}px`; }
-      }
-      onRemove() { this.node?.remove(); }
-    }
-    const label = new ComponentLabel();
-    label.setMap(map);
-    areaBoundaryLabels.push(label);
-  } else {
-    areaBoundaryLabels.push(L.tooltip({ permanent: true, direction: "top", offset: [0, -3],
-      pane: "areaBoundary", interactive: false, className: "area-component-label", opacity: 1,
-    }).setLatLng([anchor[1], anchor[0]]).setContent(escapeHtml(name)).addTo(map));
-  }
+  const geometry = area?.finalGeometry;
+  const polygons = geometry?.type === "MultiPolygon" ? geometry.coordinates
+    : geometry?.type === "Polygon" ? [geometry.coordinates] : [];
+  if (!Array.isArray(polygons)) return [];
+  const rings = polygons.map((polygon) => polygon?.[0]);
+  // Fail closed on malformed payloads. Holes remain in finalGeometry for containment only.
+  return rings.length && rings.every((ring) => Array.isArray(ring) && ring.length >= 4
+    && ring.every((point) => Array.isArray(point) && point.length === 2
+      && Number.isFinite(point[0]) && Math.abs(point[0]) <= 180
+      && Number.isFinite(point[1]) && Math.abs(point[1]) <= 90)
+    && ring[0][0] === ring.at(-1)[0] && ring[0][1] === ring.at(-1)[1]) ? rings : [];
 }
 
 async function renderAreaBoundary(map, provider) {
@@ -2994,32 +2969,46 @@ async function renderAreaBoundary(map, provider) {
   const key = state.placeAreaFilter;
   const tripId = state.tripId;
   if (!key) return;
-  const representatives = state.places.filter((place) => place.travelAreaKey === key);
-  const catalog = await loadAreaGeometry();
-  if (token !== areaBoundaryToken || key !== state.placeAreaFilter || tripId !== state.tripId
-    || map !== (provider === "google" ? activeGoogleMap : activeLeafletMap)) return;
-  const area = representatives.map((place) => areaGeometryForPlace(catalog, place)).find(Boolean);
-  if (!area) return;
-  const components = area.geometryComponents.filter((component) => areaBoundaryRings({ features: [component] }).length);
-  if (!components.length) return;
-  const boundaryColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-  if (provider === "google") {
-    areaBoundaryLayers = components.flatMap((component) => areaBoundaryRings({ features: [component] }).map((ring) => new google.maps.Polyline({
-      map, path: ring.map(([lng, lat]) => ({ lat, lng })), clickable: false, zIndex: 0,
-      componentId: component.properties.osmId,
-      strokeColor: boundaryColor, strokeOpacity: 0.75, strokeWeight: 2,
-    })));
-  } else {
-    if (!map.getPane("areaBoundary")) map.createPane("areaBoundary");
-    map.getPane("areaBoundary").style.zIndex = "350";
-    map.getPane("areaBoundary").style.pointerEvents = "none";
-    areaBoundaryLayers = components.map((component) => L.geoJSON(component, { pane: "areaBoundary", interactive: false,
-      style: { color: boundaryColor, weight: 2, opacity: 0.75, fill: false, interactive: false },
-    }).addTo(map));
+  try {
+    const representatives = state.places.filter((place) => place.travelAreaKey === key);
+    const catalog = await loadAreaGeometry();
+    if (token !== areaBoundaryToken || key !== state.placeAreaFilter || tripId !== state.tripId
+      || map !== (provider === "google" ? activeGoogleMap : activeLeafletMap)) return;
+    const area = representatives.map((place) => areaGeometryForPlace(catalog, place)).find(Boolean);
+    const rings = areaBoundaryRings(area);
+    if (!rings.length) return;
+    const boundaryColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+    if (provider === "google") {
+      for (const ring of rings) areaBoundaryLayers.push(new google.maps.Polyline({
+        map, path: ring.map(([lng, lat]) => ({ lat, lng })), clickable: false, zIndex: 0,
+        strokeColor: boundaryColor, strokeOpacity: 0.75, strokeWeight: 2,
+      }));
+    } else {
+      if (!map.getPane("areaBoundary")) map.createPane("areaBoundary");
+      map.getPane("areaBoundary").style.zIndex = "350";
+      map.getPane("areaBoundary").style.pointerEvents = "none";
+      for (const ring of rings) areaBoundaryLayers.push(L.polyline(ring.map(([lng, lat]) => [lat, lng]), {
+        pane: "areaBoundary", interactive: false, color: boundaryColor,
+        weight: 2, opacity: 0.75, fill: false,
+      }).addTo(map));
+    }
+    // Include both the verified boundary and saved markers: core coverage may be partial.
+    const points = rings.flat().concat(representatives.filter((place) =>
+      Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
+      .map((place) => [place.longitude, place.latitude]));
+    if (provider === "google" && google.maps.LatLngBounds && map.fitBounds) {
+      const bounds = new google.maps.LatLngBounds();
+      points.forEach(([lng, lat]) => bounds.extend({lat, lng}));
+      map.fitBounds(bounds, 42);
+    } else if (provider === "leaflet" && map.fitBounds) {
+      map.fitBounds(points.map(([lng, lat]) => [lat, lng]), {padding: [42, 42], maxZoom: 16, animate: false});
+    }
+    const host = document.querySelector("[data-map-host]");
+    if (host && area.attribution) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="${escapeHtml(area.attribution.url)}" target="_blank" rel="noopener noreferrer" title="${area.confidence === "high-administrative-scope" ? "已核對行政範圍" : "已核對核心範圍，可能未涵蓋完整旅遊圈"}">${escapeHtml(area.travelAreaZh)} · ${escapeHtml(area.attribution.text)}</a>`);
+  } catch {
+    // Optional boundary failure must never stop markers, filters or map gestures.
+    if (token === areaBoundaryToken) clearAreaBoundary();
   }
-  addAreaComponentLabel(map, provider, { ...components[0], travelAreaLabel: area.travelAreaZh || representatives[0].travelAreaZh });
-  const host = document.querySelector("[data-map-host]");
-  if (host) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" title="${escapeHtml(area.travelAreaZh || representatives[0].travelAreaZh)}：已核對核心範圍，非官方行政區邊界">${escapeHtml(area.travelAreaZh || representatives[0].travelAreaZh)}核心範圍 · © OpenStreetMap · ODbL</a>`);
 }
 
 let lastMapViewport = null;
@@ -6847,7 +6836,7 @@ function bindPlaceEditor(form, existing, seed) {
     const area = placeEditorTravelArea(candidate, existing, form.elements.travelAreaZh.value.trim(),
       form.elements.travelAreaLocal.value.trim(), session.restoreAuto);
     session.status(area.travelAreaResolved
-      ? `✓ 地址已定位 · ${area.travelAreaZh}（${area.travelAreaLocal}）${area.travelAreaManuallySet ? " · 手動分區" : ""}`
+      ? `✓ 地址已定位 · ${globalThis.TravelAreaAudit?.isLegacy(area) ? "地區待確認" : `${area.travelAreaZh}（${area.travelAreaLocal}）`}${area.travelAreaManuallySet ? " · 手動分區" : ""}`
       : "✓ 地址已定位 · 分區待辨識");
   };
   session.resolve = (retry = false) => {
@@ -7212,8 +7201,8 @@ function openPlaceEditSheet(name = "", seed = {}) {
   const editorPhoto = pendingPlacePhoto || existing?.customPhotoDataUrl || "";
   if (existing) ensureTravelAreaFields(existing);
   const manualTravelArea = existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true;
-  const travelAreaZh = manualTravelArea ? existing.travelAreaZh : "";
-  const travelAreaLocal = manualTravelArea ? existing.travelAreaLocal : "";
+  const travelAreaZh = manualTravelArea && !globalThis.TravelAreaAudit?.isLegacy(existing) ? existing.travelAreaZh : "";
+  const travelAreaLocal = manualTravelArea && !globalThis.TravelAreaAudit?.isLegacy(existing) ? existing.travelAreaLocal : "";
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet place-editor-sheet" id="place-editor-form" data-original-place-name="${escapeHtml(existing?.name || "")}" data-original-address="${escapeHtml(existing?.formattedAddress || "")}">

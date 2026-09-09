@@ -1,7 +1,7 @@
 import areaAudit from "../lib/travel-area-audit.js";
 import { readFileSync } from "node:fs";
 let areaCatalog = null;
-try { areaCatalog = JSON.parse(readFileSync(new URL("../data/area-geometry/tokyo-v1.json", import.meta.url), "utf8")); }
+try { areaCatalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8")); }
 catch { /* Geometry is optional; address/evidence conversion and trip access still work. */ }
 import { createHash, randomBytes } from "node:crypto";
 

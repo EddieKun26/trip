@@ -1,3 +1,5 @@
+> Historical baseline audit. Superseded by [the 63-area boundary audit](travel-area-boundary-audit.md), which uses true union/exterior rendering. Retained as source provenance.
+
 # Travel Area geometry audit — 2026-09-09
 
 範圍：resolver 的 61 個明確 catalog entries；13 個有核對核心 geometry，48 個沒有已核對 geometry。任意市町村 fallback 及 production 旅程實際地點無法由這份有限 catalog 推知。Production trip API 回 401，**無法線上統計實際重分類數量**。

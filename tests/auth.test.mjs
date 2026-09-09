@@ -292,13 +292,17 @@ test('legacy area split on authenticated read and save preserves Google identity
   const trip=created.payload.trip, key='tokyo-family-trip:trip:'+trip.id;
   const legacy={id:'legacy',travelAreaKey:'ebisu-daikanyama',travelAreaZh:'惠比壽／代官山',travelAreaLocal:'恵比寿／代官山',placeId:'ChIJ_exact',formattedAddress:'東京都渋谷区猿楽町16-15',photos:[{name:'places/ChIJ_exact/photos/one'}],restaurantTags:[],restaurantTagsSource:'manual'};
   const unknown={...legacy,id:'unknown',formattedAddress:'東京都渋谷区恵比寿西2丁目'};
-  const raw=JSON.stringify({...JSON.parse(store.get(key)),places:[legacy,unknown]});store.set(key,raw);
+  const harajuku={...legacy,id:'harajuku',travelAreaKey:'harajuku-omotesando',travelAreaZh:'原宿／表參道',travelAreaLocal:'原宿／表参道',formattedAddress:'',travelAreaEvidence:{local:'原宿'}};
+  const tower={...legacy,id:'tower',travelAreaKey:'tokyo-tower-shiba',travelAreaZh:'東京鐵塔／芝公園',travelAreaLocal:'東京タワー／芝公園',formattedAddress:'東京都港区芝公園4丁目2-8'};
+  const raw=JSON.stringify({...JSON.parse(store.get(key)),places:[legacy,unknown,harajuku,tower]});store.set(key,raw);
   const read=responseMock();
   await tripHandler({method:'GET',url:'/api/trip?id='+trip.id,headers:{cookie}},read);
   assert.equal(read.statusCode,200);assert.equal(store.get(key),raw,'GET does not persist a migration');
   assert.equal(read.payload.places[0].travelAreaKey,'daikanyama');
   for(const field of ['placeId','formattedAddress','photos','restaurantTags','restaurantTagsSource'])assert.deepEqual(read.payload.places[0][field],legacy[field]);
   assert.deepEqual(read.payload.places[1],unknown);
+  assert.equal(read.payload.places[2].travelAreaKey,'harajuku');assert.equal(read.payload.places[3].travelAreaKey,'tokyo-tower');
+  for(const field of ['placeId','formattedAddress','photos','restaurantTags','restaurantTagsSource']){assert.deepEqual(read.payload.places[2][field],harajuku[field]);assert.deepEqual(read.payload.places[3][field],tower[field]);}
   const saved=responseMock();await tripHandler({method:'PUT',url:'/api/trip?id='+trip.id,headers:{cookie},body:read.payload},saved);
   assert.equal(saved.statusCode,200);
   const again=responseMock();await tripHandler({method:'GET',url:'/api/trip?id='+trip.id,headers:{cookie}},again);

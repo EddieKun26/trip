@@ -1,3 +1,26 @@
+# Travel Area boundaries (current contract)
+
+Current audit: [63-area audit](../../documentation/travel-area-boundary-audit.md).
+Runtime: [travel-area-boundaries.json](travel-area-boundaries.json); structured evidence: [boundary-audit.json](boundary-audit.json).
+54 drawable (10 official U.S. Census, 44 OSM), 9 deliberately absent. Google DDS capability decisions are recorded per area; zero Google boundaries selected.
+
+Run from this canonical worktree (offline after dependency installation):
+
+```text
+python -m pip install -r scripts/boundary-requirements.txt
+python scripts/build-travel-area-boundaries.py
+python scripts/test-boundary-topology.py
+node --test tests/boundary-catalog.test.mjs tests/area-geometry.test.mjs tests/travel-area-audit.test.mjs
+```
+
+Shapely/GEOS performs unary_union on valid source polygons with no repair, snapping, simplification, buffer, hull or fabricated bridges. The final GeoJSON retains holes for safe containment; renderers extract polygon[0] only and create noninteractive polylines. All raw inputs, identifiers and SHA-256 digests are retained. Source timestamps are September 9; build/audit completion September 10.
+
+OSM-derived geometry, source snapshots and derived OSM database are available under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/), © OpenStreetMap contributors. Official Census components retain their U.S. government public-domain status. Sources are separated at the area level; source-specific attribution is displayed on each map selection.
+
+The files and instructions below document the preserved baseline inputs only. Component-by-component rendering is superseded and must not be restored.
+
+---
+
 # Tokyo Travel Area geometry snapshot
 
 © OpenStreetMap contributors. [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/), [attribution](https://www.openstreetmap.org/copyright).

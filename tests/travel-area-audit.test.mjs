@@ -23,6 +23,7 @@ test('no included component has interior vertices in another included component'
  const all=Object.values(catalog.areas).flatMap(a=>a.features);
  for(const a of all)for(const b of all){if(a===b)continue;for(const polygon of a.geometry.coordinates)for(const point of polygon[0]) assert.equal(audit.contains(b,point),false,`${a.properties.name} overlaps ${b.properties.name}`);}
 });
+const finalCatalog=JSON.parse(readFileSync(new URL('../data/area-geometry/travel-area-boundaries.json',import.meta.url)));
 const original={travelAreaKey:'ebisu-daikanyama',travelAreaZh:'惠比壽／代官山',travelAreaLocal:'恵比寿／代官山',placeId:'ChIJoriginal',name:'店名不准作證據',photos:[{name:'places/ChIJoriginal/photos/exact'}],restaurantTags:[],latitude:null,longitude:null};
 test('split uses evidence then address then verified containment; preserves P0 and explicit clear',()=>{
  const cases=[{travelAreaEvidence:{local:'代官山'},formattedAddress:'恵比寿4-1',key:'daikanyama'},
@@ -30,10 +31,10 @@ test('split uses evidence then address then verified containment; preserves P0 a
  {formattedAddress:'東京都渋谷区猿楽町16-15',key:'daikanyama'},
  {formattedAddress:'',latitude:35.649,longitude:139.699,key:'daikanyama'},
  {formattedAddress:'',latitude:35.643,longitude:139.709,key:'ebisu'}];
- for(const {key,...fields} of cases){const p={...structuredClone(original),...fields};const before=structuredClone(p);const after=audit.reclassify(p,catalog);assert.equal(after.travelAreaKey,key);assert.deepEqual(p,before);for(const field of ['placeId','name','photos','restaurantTags','formattedAddress','latitude','longitude'])assert.deepEqual(after[field],p[field]);assert.equal(audit.reclassify(after,catalog),after);assert.equal(after.travelAreaAuditPrevious.key,'ebisu-daikanyama');}
+ for(const {key,...fields} of cases){const p={...structuredClone(original),...fields};const before=structuredClone(p);const after=audit.reclassify(p,finalCatalog);assert.equal(after.travelAreaKey,key);assert.deepEqual(p,before);for(const field of ['placeId','name','photos','restaurantTags','formattedAddress','latitude','longitude'])assert.deepEqual(after[field],p[field]);assert.equal(audit.reclassify(after,finalCatalog),after);assert.equal(after.travelAreaAuditPrevious.key,'ebisu-daikanyama');}
 });
 test('ambiguous Ebisu-Nishi, conflicting evidence and name-only records remain unchanged',()=>{
- for(const fields of [{formattedAddress:'渋谷区恵比寿西2-21-1'},{name:'代官山店'}, {travelAreaEvidence:{local:'代官山',area:'惠比壽'}},{latitude:null,longitude:null}]){const p={...original,...fields};assert.equal(audit.reclassify(p,catalog),p);}
+ for(const fields of [{formattedAddress:'渋谷区恵比寿西2-21-1'},{name:'代官山店'}, {travelAreaEvidence:{local:'代官山',area:'惠比壽'}},{latitude:null,longitude:null}]){const p={...original,...fields};assert.equal(audit.reclassify(p,finalCatalog),p);}
 });
 test('new resolver keeps user-facing groups and rejects ambiguous combined split',()=>{
  const resolve=text=>resolveTravelArea({countryCode:'JP',originalAddressComponents:[{longText:text,types:['sublocality_level_2']},{longText:'日本',shortText:'JP',types:['country']}]});
