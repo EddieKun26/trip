@@ -3,6 +3,7 @@
   "framework": null,
   "fluid": true,
   "functions": {
+    "api/trip.mjs": { "includeFiles": "data/area-geometry/tokyo-v1.json" },
     "api/shopping-recognize.mjs": { "maxDuration": 90 },
     "api/shopping-research.mjs": { "maxDuration": 90 },
     "api/shopping-images.mjs": { "maxDuration": 60 }

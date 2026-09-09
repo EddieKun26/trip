@@ -33,12 +33,12 @@ function harness(){
 }
 test('reviewed OSM mapping uses IDs, local names, country, and keeps compound components separate',()=>{
  const h=harness();const c=h.c;
- const composite=c.areaGeometryForPlace(catalog,{travelAreaKey:'ebisu-daikanyama',travelAreaLocal:'恵比寿／代官山',countryCode:'JP'});
- assert.deepEqual(composite.features.map(f=>f.properties.osmId),[9521529,17008303,17022574]);
+ const composite=c.areaGeometryForPlace(catalog,{travelAreaKey:'shinjuku',travelAreaLocal:'新宿',countryCode:'JP'});
+ assert.deepEqual(composite.features.map(f=>f.properties.osmId),[17081654,17081666,17081657]);
  assert.equal(c.areaGeometryForPlace(catalog,{travelAreaKey:'ginza',travelAreaLocal:'新宿',countryCode:'JP'}),null);
  assert.equal(c.areaGeometryForPlace(catalog,{travelAreaKey:'ginza',travelAreaLocal:'銀座',countryCode:'US'}),null);
  assert.equal(c.areaGeometryForPlace(catalog,{travelAreaKey:'unknown',countryCode:'JP'}),null);
- assert.equal(Object.keys(catalog.areas).length,12);
+ assert.equal(Object.keys(catalog.areas).length,13);
  for(const area of Object.values(catalog.areas))for(const f of area.features){
   assert.match(f.properties.sourceUrl,/^https:\/\/www.openstreetmap.org\/relation\/\d+$/);
   assert.equal(f.properties.sourceTags.admin_level,'9');
@@ -74,18 +74,18 @@ test('fullscreen has one persistent arrow with dropdown and independent exit act
 
 test('rapid A to B selection renders only B when the shared geometry request resolves',async()=>{
  const h=harness();
- h.c.state.places.push({travelAreaKey:'ebisu-daikanyama',travelAreaLocal:'恵比寿／代官山',countryCode:'JP'});
+ h.c.state.places.push({travelAreaKey:'shinjuku',travelAreaLocal:'新宿',countryCode:'JP'});
  const first=h.c.renderAreaBoundary(h.map,'google');
- h.c.state.placeAreaFilter='ebisu-daikanyama';
+ h.c.state.placeAreaFilter='shinjuku';
  const second=h.c.renderAreaBoundary(h.map,'google');
  h.pending[0]({ok:true,json:async()=>catalog});await Promise.all([first,second]);
  assert.equal(h.fetches,1);assert.equal(h.layers.length,3);
- const expected=catalog.areas['ebisu-daikanyama'].features.flatMap(f=>f.geometry.coordinates.flatMap(p=>p));
+ const expected=catalog.areas['shinjuku'].features.flatMap(f=>f.geometry.coordinates.flatMap(p=>p));
  assert.deepEqual(h.layers.map(l=>l.options.path.length),expected.map(r=>r.length));
 });
 
 
-test('all 12 area mappings retain original independent geometry components and real vertex labels',()=>{
+test('all 13 area mappings retain original independent geometry components and real vertex labels',()=>{
  const h=harness();
  for(const [key,area] of Object.entries(catalog.areas)) {
    const result=h.c.areaGeometryForPlace(catalog,{travelAreaKey:key,travelAreaLocal:area.localNames[0],countryCode:'JP'});
@@ -95,15 +95,15 @@ test('all 12 area mappings retain original independent geometry components and r
      assert(h.c.areaBoundaryRings({features:[component]}).some(ring=>ring.some(p=>JSON.stringify(p)===JSON.stringify(h.c.areaComponentLabelAnchor(component)))));
    }
  }
- const features=catalog.areas['ebisu-daikanyama'].features;
- assert.deepEqual(features.map(f=>f.properties.name),['恵比寿','恵比寿西','代官山町']);
+ const features=catalog.areas['shinjuku'].features;
+ assert.deepEqual(features.map(f=>f.properties.name),['新宿','西新宿','歌舞伎町']);
 });
 
-test('composite creates three separate layers and labels then removes all on All',async()=>{
- const h=harness();h.c.state.placeAreaFilter='ebisu-daikanyama';h.c.state.places=[{travelAreaKey:'ebisu-daikanyama',travelAreaLocal:'恵比寿／代官山',countryCode:'JP'}];
+test('composite creates three separate layers and one user-facing label then removes all on All',async()=>{
+ const h=harness();h.c.state.placeAreaFilter='shinjuku';h.c.state.places=[{travelAreaKey:'shinjuku',travelAreaLocal:'新宿',countryCode:'JP'}];
  const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:true,json:async()=>catalog});await task;
- assert.deepEqual(h.layers.map(l=>l.options.componentId),[9521529,17008303,17022574]);
- const labels=vm.runInContext('areaBoundaryLabels.slice()',h.c);assert.equal(labels.length,3);
+ assert.deepEqual(h.layers.map(l=>l.options.componentId),[17081654,17081666,17081657]);
+ const labels=vm.runInContext('areaBoundaryLabels.slice()',h.c);assert.equal(labels.length,1);
  h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');
  assert(h.layers.every(l=>l.removed));assert(labels.every(l=>l.removed));
 });

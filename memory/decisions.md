@@ -103,3 +103,10 @@
 - 2026-09-09 Places cleanup: restaurant category options derive only from actual trip/current restaurant values; custom values live on places and explicit empty arrays override inference. Use the general editor's single Save. Photo failure fallback is local to the gallery and exact identity, with placeholders after candidates are exhausted. Boundary stroke is solid; geometry contract unchanged.
 - Exact photo resources refresh transiently via existing photo endpoint; saved detail-loaded flags do not prevent photo recovery. Only original Place ID, no name search, no metadata mutation, one retry per gallery.
 - Travel Area grouping is distinct from OSM town geometry components. Render and label each source component independently; never imply composite Travel Area is one official administrative polygon.
+
+## Travel Area geometry audit — 2026-09-09
+
+- Audited 61 finite catalog entries: 13 verified core mappings, 48 explicit unavailable. See documentation/travel-area-geometry-audit.md and data/area-geometry/mapping-audit.json for IDs, names, coverage and official source evidence. OSM/ODbL attribution and both raw snapshots preserved.
+- Split Ebisu / Daikanyama. Evidence/address/verified containment only; Ebisu-Nishi ambiguity remains existing value. GET conversion is non-persistent; normal save persists. No name lookup or P0 placeId/address/photo edits. Online trip API returned 401: actual reclassification/unresolved counts unavailable.
+- Shinjuku adds Kabukicho, drops whole Yoyogi; Ueno adds park; Shibuya adds Udagawacho/Dogenzaka/Maruyamacho, drops whole Jingumae/Tomigaya polygon coverage; Ikebukuro adds Minami-Ikebukuro. Internal components stay independent, one user-facing label per area. Orange solid noninteractive lines, partial core coverage.
+- Validation: targeted 41/41; one full regression 365/365; local touch/mobile Edge all 13 mappings and All clearing passed; syntax/diff pass; API functions 12. Production App not opened.

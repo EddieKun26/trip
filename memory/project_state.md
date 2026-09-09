@@ -200,3 +200,10 @@
 - Credit says N independent town boundaries for composites, and explains lines are source town boundaries rather than an official Travel Area administrative perimeter. OSM/ODbL credit remains. Single component renders normally; All clears boundaries and label overlays. Existing async stale-response protection retained.
 - Ebisu/Daikanyama components: 恵比寿 (relation 9521529), 恵比寿西 (17008303), 代官山町 (17022574). All 12 catalog mappings preserve the original feature/coordinate data.
 - Validation: targeted 10/10; full regression once 359/359; app/API syntax, diff check; API functions 12. Local full-DOM touch browser validates three separate Leaflet layers/local-name labels, pointer-events:none, fullscreen switch to one Ginza component, then All removes every line/label/credit. Production App not opened. Assets 20260909.6.
+
+## Travel Area geometry audit — 2026-09-09
+
+- Audited 61 finite catalog entries: 13 verified core mappings, 48 explicit unavailable. See documentation/travel-area-geometry-audit.md and data/area-geometry/mapping-audit.json for IDs, names, coverage and official source evidence. OSM/ODbL attribution and both raw snapshots preserved.
+- Split Ebisu / Daikanyama. Evidence/address/verified containment only; Ebisu-Nishi ambiguity remains existing value. GET conversion is non-persistent; normal save persists. No name lookup or P0 placeId/address/photo edits. Online trip API returned 401: actual reclassification/unresolved counts unavailable.
+- Shinjuku adds Kabukicho, drops whole Yoyogi; Ueno adds park; Shibuya adds Udagawacho/Dogenzaka/Maruyamacho, drops whole Jingumae/Tomigaya polygon coverage; Ikebukuro adds Minami-Ikebukuro. Internal components stay independent, one user-facing label per area. Orange solid noninteractive lines, partial core coverage.
+- Validation: targeted 41/41; one full regression 365/365; local touch/mobile Edge all 13 mappings and All clearing passed; syntax/diff pass; API functions 12. Production App not opened.

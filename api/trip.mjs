@@ -1,3 +1,8 @@
+import areaAudit from "../lib/travel-area-audit.js";
+import { readFileSync } from "node:fs";
+let areaCatalog = null;
+try { areaCatalog = JSON.parse(readFileSync(new URL("../data/area-geometry/tokyo-v1.json", import.meta.url), "utf8")); }
+catch { /* Geometry is optional; address/evidence conversion and trip access still work. */ }
 import { createHash, randomBytes } from "node:crypto";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
@@ -162,7 +167,7 @@ function cleanTrip(input, previous, member) {
     startDate: String(input?.startDate || previous.startDate),
     endDate: String(input?.endDate || previous.endDate),
     flights: Array.isArray(input?.flights) ? input.flights.slice(0, 30) : previous.flights || [],
-    places: Array.isArray(input?.places) ? input.places.slice(0, 250) : [],
+    places: Array.isArray(input?.places) ? input.places.slice(0, 250).map(place => areaAudit.reclassify(place, areaCatalog)) : [],
     votes: input?.votes && typeof input.votes === "object" ? input.votes : {},
     itinerary: input?.itinerary && typeof input.itinerary === "object" ? input.itinerary : {},
     transports: Array.isArray(input?.transports) ? input.transports.slice(0, 500) : previous.transports || [],
@@ -188,9 +193,10 @@ export default async function tripHandler(request, response) {
       if (!isMember && !trip.publicRead) return sendJson(response, member ? 403 : 401, { error: "TRIP_ACCESS_REQUIRED" });
       if (!isMember) {
         const { inviteCode, ownerId, ...publicTrip } = trip;
+        publicTrip.places = (publicTrip.places || []).map(place => areaAudit.reclassify(place, areaCatalog));
         return sendJson(response, 200, publicTrip);
       }
-      return sendJson(response, 200, trip);
+      return sendJson(response, 200, { ...trip, places: (trip.places || []).map(place => areaAudit.reclassify(place, areaCatalog)) });
     }
 
     if (request.method === "PUT") {

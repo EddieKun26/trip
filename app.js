@@ -537,6 +537,7 @@ function travelAreaKeyFromNames(countryCode, zh, local) {
 
 function ensureTravelAreaFields(place) {
   if (!place) return place;
+  if (globalThis.TravelAreaAudit) Object.assign(place, TravelAreaAudit.reclassify(place));
   if (place.travelAreaKey && place.travelAreaZh && place.travelAreaLocal) return place;
   const zh = String(place.planningRegion || place.area || "").trim();
   const local = String(place.planningRegionOriginal || place.areaOriginal || zh).trim();
@@ -2896,6 +2897,24 @@ function loadGoogleMapsScript(key) {
 }
 
 let areaGeometryPromise = null;
+const splitAuditAttempts = new WeakSet();
+function scheduleLegacyTravelAreaSplit() {
+  if (!globalThis.TravelAreaAudit) return;
+  const candidates = state.places.filter(place => TravelAreaAudit.isLegacy(place) && !splitAuditAttempts.has(place));
+  if (!candidates.length) return;
+  candidates.forEach(place => splitAuditAttempts.add(place));
+  const tripId = state.tripId;
+  loadAreaGeometry().then(catalog => {
+    if (!catalog || tripId !== state.tripId) return;
+    let changed = false;
+    candidates.forEach(place => {
+      if (!state.places.includes(place)) return;
+      const next = TravelAreaAudit.reclassify(place, catalog);
+      if (next !== place) { Object.assign(place, next); changed = true; }
+    });
+    if (changed) render({ preserveScroll: true });
+  });
+}
 let areaBoundaryLayers = [];
 let areaBoundaryLabels = [];
 let areaBoundaryToken = 0;
@@ -2910,7 +2929,7 @@ function clearAreaBoundary() {
 }
 
 function loadAreaGeometry() {
-  if (!areaGeometryPromise) areaGeometryPromise = fetch("./data/area-geometry/tokyo-v1.json?v=20260909.1", { signal: AbortSignal.timeout(12000) })
+  if (!areaGeometryPromise) areaGeometryPromise = fetch("./data/area-geometry/tokyo-v1.json?v=20260909.2", { signal: AbortSignal.timeout(12000) })
     .then((response) => response.ok ? response.json() : null).catch(() => null);
   return areaGeometryPromise;
 }
@@ -2942,7 +2961,7 @@ function areaComponentLabelAnchor(component) {
 function addAreaComponentLabel(map, provider, component) {
   const anchor = areaComponentLabelAnchor(component);
   if (!anchor) return;
-  const name = component.properties.name;
+  const name = component.travelAreaLabel || "";
   if (provider === "google") {
     class ComponentLabel extends google.maps.OverlayView {
       onAdd() {
@@ -2998,9 +3017,9 @@ async function renderAreaBoundary(map, provider) {
       style: { color: boundaryColor, weight: 2, opacity: 0.75, fill: false, interactive: false },
     }).addTo(map));
   }
-  components.forEach((component) => addAreaComponentLabel(map, provider, component));
+  addAreaComponentLabel(map, provider, { ...components[0], travelAreaLabel: area.travelAreaZh || representatives[0].travelAreaZh });
   const host = document.querySelector("[data-map-host]");
-  if (host) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" title="${escapeHtml(components.map((feature) => feature.properties.name).join("、"))}；各線為來源町界，不代表旅遊分區的官方行政界">${components.length > 1 ? `${components.length} 個獨立町界` : "町界"} · © OpenStreetMap · ODbL</a>`);
+  if (host) host.insertAdjacentHTML("beforeend", `<a class="area-boundary-credit" data-area-boundary-credit href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" title="${escapeHtml(area.travelAreaZh || representatives[0].travelAreaZh)}：已核對核心範圍，非官方行政區邊界">${escapeHtml(area.travelAreaZh || representatives[0].travelAreaZh)}核心範圍 · © OpenStreetMap · ODbL</a>`);
 }
 
 let lastMapViewport = null;
@@ -4673,6 +4692,7 @@ function render({ preserveScroll = false } = {}) {
     app.innerHTML = appLoadingMarkup(true);
     return;
   }
+  scheduleLegacyTravelAreaSplit();
   saveUiPreference();
   rememberMapViewport();
   clearAreaBoundary();

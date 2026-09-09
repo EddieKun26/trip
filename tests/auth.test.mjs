@@ -281,3 +281,28 @@ test("owners can remove members, stale clients cannot restore access, and owners
   assert.equal(expiredInvite.statusCode, 404);
   assert.equal(expiredInvite.payload.error, "INVITE_NOT_FOUND");
 });
+
+test('legacy area split on authenticated read and save preserves Google identity and unresolved records', async () => {
+  store.clear();
+  const login=responseMock();
+  await memberHandler({method:'POST',body:{nickname:'Audit',pin:'3842'},headers:{'x-forwarded-for':'203.0.113.51'}},login);
+  const cookie=login.headers['set-cookie'].split(';')[0];
+  const created=responseMock();
+  await tripsHandler({method:'POST',headers:{cookie},body:{action:'create',destination:'東京',title:'Audit',startDate:'2026-09-20',endDate:'2026-09-26'}},created);
+  const trip=created.payload.trip, key='tokyo-family-trip:trip:'+trip.id;
+  const legacy={id:'legacy',travelAreaKey:'ebisu-daikanyama',travelAreaZh:'惠比壽／代官山',travelAreaLocal:'恵比寿／代官山',placeId:'ChIJ_exact',formattedAddress:'東京都渋谷区猿楽町16-15',photos:[{name:'places/ChIJ_exact/photos/one'}],restaurantTags:[],restaurantTagsSource:'manual'};
+  const unknown={...legacy,id:'unknown',formattedAddress:'東京都渋谷区恵比寿西2丁目'};
+  const raw=JSON.stringify({...JSON.parse(store.get(key)),places:[legacy,unknown]});store.set(key,raw);
+  const read=responseMock();
+  await tripHandler({method:'GET',url:'/api/trip?id='+trip.id,headers:{cookie}},read);
+  assert.equal(read.statusCode,200);assert.equal(store.get(key),raw,'GET does not persist a migration');
+  assert.equal(read.payload.places[0].travelAreaKey,'daikanyama');
+  for(const field of ['placeId','formattedAddress','photos','restaurantTags','restaurantTagsSource'])assert.deepEqual(read.payload.places[0][field],legacy[field]);
+  assert.deepEqual(read.payload.places[1],unknown);
+  const saved=responseMock();await tripHandler({method:'PUT',url:'/api/trip?id='+trip.id,headers:{cookie},body:read.payload},saved);
+  assert.equal(saved.statusCode,200);
+  const again=responseMock();await tripHandler({method:'GET',url:'/api/trip?id='+trip.id,headers:{cookie}},again);
+  assert.deepEqual(again.payload.places,saved.payload.places);
+  assert.equal(again.payload.places[0].travelAreaKey,'daikanyama');
+  assert.deepEqual(again.payload.places[1],unknown);
+});

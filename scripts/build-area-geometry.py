@@ -4,21 +4,11 @@ Usage: python scripts/build-area-geometry.py geometry-source-raw.json
 """
 import json, sys, hashlib
 from pathlib import Path
-mapping = {
- 'ginza': ('銀座', [(4859036,'銀座')]),
- 'ebisu-daikanyama': ('恵比寿／代官山', [(9521529,'恵比寿'),(17008303,'恵比寿西'),(17022574,'代官山町')]),
- 'shibuya': ('渋谷', [(17022659,'渋谷'),(17022738,'神南'),(17054296,'神宮前'),(17054730,'富ヶ谷')]),
- 'asakusa': ('浅草', [(9046136,'浅草'),(16400401,'花川戸'),(18158548,'雷門')]),
- 'shinjuku': ('新宿', [(17081654,'新宿'),(17081666,'西新宿'),(17054674,'代々木')]),
- 'otsuka': ('大塚', [(18687916,'南大塚'),(18687920,'北大塚')]),
- 'ikebukuro': ('池袋', [(4869702,'池袋'),(18672896,'西池袋'),(18672902,'東池袋')]),
- 'toyosu': ('豊洲', [(3789147,'豊洲')]),
- 'marunouchi-otemachi': ('丸の内／大手町', [(3544394,'丸の内'),(3545196,'大手町')]),
- 'tsukiji': ('築地', [(16170475,'築地')]),
- 'azabujuban': ('麻布十番', [(3562067,'麻布十番')]),
- 'ueno': ('上野', [(18158684,'上野')]),
-}
-raw=Path(sys.argv[1]).read_bytes(); data=json.loads(raw); elements={e['id']:e for e in data['elements'] if e['type']=='relation'}
+manifest=json.loads(Path('data/area-geometry/mapping-audit.json').read_text(encoding='utf-8'))
+mapping={a['travelAreaKey']:(a['travelAreaLocal'],[(c['osmId'],c['name']) for c in a['geometryComponents']]) for a in manifest['areas'] if a['geometryComponents']}
+raw=Path(sys.argv[1]).read_bytes(); data=json.loads(raw)
+extra_path=Path('data/area-geometry/source-audit-additions.json'); extra_raw=extra_path.read_bytes(); extra=json.loads(extra_raw)
+elements={e['id']:e for e in data['elements']+extra['elements'] if e['type']=='relation'}
 
 def rings_for(e):
     assert e['tags']['boundary']=='administrative' and e['tags']['admin_level']=='9'
@@ -43,13 +33,15 @@ def rings_for(e):
     assert rings
     return rings
 
-out={'version':'20260909.1','source':'OpenStreetMap contributors','license':'ODbL-1.0','licenseUrl':'https://opendatacommons.org/licenses/odbl/1-0/','attributionUrl':'https://www.openstreetmap.org/copyright','retrievedAt':'2026-09-09','osmTimestamp':data['osm3s']['timestamp_osm_base'],'snapshotSha256':hashlib.sha256(raw).hexdigest(),'areas':{}}
+out={'version':'20260909.2','source':'OpenStreetMap contributors','license':'ODbL-1.0','licenseUrl':'https://opendatacommons.org/licenses/odbl/1-0/','attributionUrl':'https://www.openstreetmap.org/copyright','retrievedAt':'2026-09-09','osmTimestamp':data['osm3s']['timestamp_osm_base'],'snapshotSha256':hashlib.sha256(raw).hexdigest(),'additionalSnapshotSha256':hashlib.sha256(extra_raw).hexdigest(),'additionalOsmTimestamp':extra['osm3s']['timestamp_osm_base'],'areas':{}}
 for key,(local,items) in mapping.items():
     features=[]
+    definition_components=next(a for a in manifest['areas'] if a['travelAreaKey']==key)['geometryComponents']
     for osm_id,name in items:
         e=elements[osm_id];assert e['tags']['name']==name
         rings=rings_for(e)
-        features.append({'type':'Feature','properties':{'name':name,'osmType':'relation','osmId':osm_id,'sourceUrl':f'https://www.openstreetmap.org/relation/{osm_id}','sourceTags':e['tags']},'geometry':{'type':'MultiPolygon','coordinates':[[r] for r in rings]}})
-    out['areas'][key]={'countryCode':'JP','localNames':[local], 'type':'FeatureCollection','features':features}
+        features.append({'type':'Feature','properties':{'name':name,'osmType':'relation','osmId':osm_id,'sourceUrl':f'https://www.openstreetmap.org/relation/{osm_id}','sourceTags':e['tags'],'semanticEvidence':next(c['semanticEvidence'] for c in definition_components if c['osmId']==osm_id)},'geometry':{'type':'MultiPolygon','coordinates':[[r] for r in rings]}})
+    definition=next(a for a in manifest['areas'] if a['travelAreaKey']==key)
+    out['areas'][key]={'travelAreaKey':key,'travelAreaZh':definition['travelAreaZh'],'travelAreaLocal':local,'coverage':definition['coverage'],'countryCode':'JP','localNames':[local], 'type':'FeatureCollection','features':features}
 Path('data/area-geometry/tokyo-v1.json').write_text(json.dumps(out,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
 print(json.dumps({k:len(v['features']) for k,v in out['areas'].items()}))

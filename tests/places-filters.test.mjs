@@ -1,3 +1,4 @@
+import areaAudit from "../lib/travel-area-audit.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -56,7 +57,7 @@ test("automatic suggestions only accept exact explicit categories, never names",
 test("shared sanitizer and JSON reload retain optional tags and explicit empty arrays", () => {
  const server = readFileSync(new URL("../api/trip.mjs", import.meta.url), "utf8");
  const fn = server.slice(server.indexOf("function cleanTrip"), server.indexOf("export default async function"));
- const clean = new Function(`${fn}; return cleanTrip;`)();
+ const clean = new Function("areaAudit", "areaCatalog", `${fn}; return cleanTrip;`)(areaAudit, {});
  const before = [...places, { kind: "restaurant", restaurantTags: [] }];
  const payload = clean({ places: before }, { title: "旅程" }, { id: "a", nickname: "a" });
  const reload = JSON.parse(JSON.stringify(payload));

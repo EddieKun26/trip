@@ -1,0 +1,769 @@
+{
+  "version": 2,
+  "productionInventory": "unavailable: GET /api/trip returned 401; counts unknown",
+  "policy": "Verified core components only; no complete official tourism perimeter claim. Internal component names never become user-facing filters or map labels.",
+  "areas": [
+    {
+      "travelAreaKey": "ginza",
+      "travelAreaZh": "銀座",
+      "travelAreaLocal": "銀座",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 4859036,
+          "name": "銀座",
+          "sourceUrl": "https://www.openstreetmap.org/relation/4859036",
+          "semanticEvidence": [
+            "https://www.ginza.jp/tourist-map"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "ebisu",
+      "travelAreaZh": "惠比壽",
+      "travelAreaLocal": "恵比寿",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 9521529,
+          "name": "恵比寿",
+          "sourceUrl": "https://www.openstreetmap.org/relation/9521529",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/southern-tokyo/ebisu/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 9616318,
+          "name": "恵比寿南",
+          "sourceUrl": "https://www.openstreetmap.org/relation/9616318",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/southern-tokyo/ebisu/index.html"
+          ]
+        }
+      ],
+      "auditNote": "Verified core only; omit whole Ebisu-Nishi because parts are also associated with Daikanyama. Ambiguous old places stay unchanged."
+    },
+    {
+      "travelAreaKey": "daikanyama",
+      "travelAreaZh": "代官山",
+      "travelAreaLocal": "代官山",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 17022574,
+          "name": "代官山町",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022574",
+          "semanticEvidence": [
+            "https://store.tsite.jp/daikanyama/access/"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17022575,
+          "name": "猿楽町",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022575",
+          "semanticEvidence": [
+            "https://store.tsite.jp/daikanyama/access/"
+          ]
+        }
+      ],
+      "auditNote": "Daikanyamacho plus Sarugakucho includes T-SITE. Do not claim exact tourism perimeter; Ebisu-Nishi overlap remains unmapped."
+    },
+    {
+      "travelAreaKey": "shibuya",
+      "travelAreaZh": "澀谷",
+      "travelAreaLocal": "渋谷",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 17022659,
+          "name": "渋谷",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022659",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17022738,
+          "name": "神南",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022738",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17022739,
+          "name": "宇田川町",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022739",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17022582,
+          "name": "道玄坂",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022582",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17022583,
+          "name": "円山町",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17022583",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/western-tokyo/shibuya/index.html"
+          ]
+        }
+      ],
+      "auditNote": "Core districts from official guide; remove whole Jingumae/Tomigaya footprints. Existing broader resolver aliases are not proof of full-polygon membership."
+    },
+    {
+      "travelAreaKey": "asakusa",
+      "travelAreaZh": "淺草",
+      "travelAreaLocal": "浅草",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 9046136,
+          "name": "浅草",
+          "sourceUrl": "https://www.openstreetmap.org/relation/9046136",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/book/wp-content/uploads/2023/09/2309_asakusa_low_EN.pdf"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 16400401,
+          "name": "花川戸",
+          "sourceUrl": "https://www.openstreetmap.org/relation/16400401",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/book/wp-content/uploads/2023/09/2309_asakusa_low_EN.pdf"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 18158548,
+          "name": "雷門",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18158548",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/book/wp-content/uploads/2023/09/2309_asakusa_low_EN.pdf"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "shinjuku",
+      "travelAreaZh": "新宿",
+      "travelAreaLocal": "新宿",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 17081654,
+          "name": "新宿",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17081654",
+          "semanticEvidence": [
+            "https://www.kanko-shinjuku.jp/en/"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17081666,
+          "name": "西新宿",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17081666",
+          "semanticEvidence": [
+            "https://www.kanko-shinjuku.jp/en/"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 17081657,
+          "name": "歌舞伎町",
+          "sourceUrl": "https://www.openstreetmap.org/relation/17081657",
+          "semanticEvidence": [
+            "https://www.kanko-shinjuku.jp/en/"
+          ]
+        }
+      ],
+      "auditNote": "Add Kabukicho; remove whole Yoyogi district, whose entire footprint is not Shinjuku station tourism core."
+    },
+    {
+      "travelAreaKey": "otsuka",
+      "travelAreaZh": "大塚",
+      "travelAreaLocal": "大塚",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 18687916,
+          "name": "南大塚",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18687916",
+          "semanticEvidence": [
+            "https://www.kotsu.metro.tokyo.jp/toden/stations/otsuka-ekimae/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 18687920,
+          "name": "北大塚",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18687920",
+          "semanticEvidence": [
+            "https://www.kotsu.metro.tokyo.jp/toden/stations/otsuka-ekimae/index.html"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "ikebukuro",
+      "travelAreaZh": "池袋",
+      "travelAreaLocal": "池袋",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 4869702,
+          "name": "池袋",
+          "sourceUrl": "https://www.openstreetmap.org/relation/4869702",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/story/walks-and-tours/ikebukuro/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 18672896,
+          "name": "西池袋",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18672896",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/story/walks-and-tours/ikebukuro/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 18672902,
+          "name": "東池袋",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18672902",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/story/walks-and-tours/ikebukuro/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 3047806,
+          "name": "南池袋",
+          "sourceUrl": "https://www.openstreetmap.org/relation/3047806",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/story/walks-and-tours/ikebukuro/index.html"
+          ]
+        }
+      ],
+      "auditNote": "Add Minami-Ikebukuro as confirmed by official walk guide."
+    },
+    {
+      "travelAreaKey": "toyosu",
+      "travelAreaZh": "豐洲",
+      "travelAreaLocal": "豊洲",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 3789147,
+          "name": "豊洲",
+          "sourceUrl": "https://www.openstreetmap.org/relation/3789147",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/eastern-tokyo/index.html"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "marunouchi-otemachi",
+      "travelAreaZh": "丸之內／大手町",
+      "travelAreaLocal": "丸の内／大手町",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 3544394,
+          "name": "丸の内",
+          "sourceUrl": "https://www.openstreetmap.org/relation/3544394",
+          "semanticEvidence": [
+            "https://www.marunouchi.com/en/building/area/"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 3545196,
+          "name": "大手町",
+          "sourceUrl": "https://www.openstreetmap.org/relation/3545196",
+          "semanticEvidence": [
+            "https://www.marunouchi.com/en/building/area/"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "tsukiji",
+      "travelAreaZh": "築地",
+      "travelAreaLocal": "築地",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 16170475,
+          "name": "築地",
+          "sourceUrl": "https://www.openstreetmap.org/relation/16170475",
+          "semanticEvidence": [
+            "https://www.tsukiji.or.jp/english/access/"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "azabujuban",
+      "travelAreaZh": "麻布十番",
+      "travelAreaLocal": "麻布十番",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 3562067,
+          "name": "麻布十番",
+          "sourceUrl": "https://www.openstreetmap.org/relation/3562067",
+          "semanticEvidence": [
+            "https://visit-minato-city.tokyo/en/places/2047"
+          ]
+        }
+      ],
+      "auditNote": "Retain exact named source town components as core coverage, not an official tourism perimeter."
+    },
+    {
+      "travelAreaKey": "ueno",
+      "travelAreaZh": "上野",
+      "travelAreaLocal": "上野",
+      "coverage": "verified-core-partial",
+      "geometryComponents": [
+        {
+          "osmType": "relation",
+          "osmId": 18158684,
+          "name": "上野",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18158684",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/northern-tokyo/ueno/index.html"
+          ]
+        },
+        {
+          "osmType": "relation",
+          "osmId": 18158889,
+          "name": "上野公園",
+          "sourceUrl": "https://www.openstreetmap.org/relation/18158889",
+          "semanticEvidence": [
+            "https://www.gotokyo.org/en/destinations/northern-tokyo/ueno/index.html"
+          ]
+        }
+      ],
+      "auditNote": "Add Ueno Park; Ueno town alone omitted major museums/park."
+    },
+    {
+      "travelAreaKey": "tokyo-tower-shiba",
+      "travelAreaZh": "東京鐵塔／芝公園",
+      "travelAreaLocal": "東京タワー／芝公園",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "harajuku-omotesando",
+      "travelAreaZh": "原宿／表參道",
+      "travelAreaLocal": "原宿／表参道",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "nerima",
+      "travelAreaZh": "練馬",
+      "travelAreaLocal": "練馬",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "kamakura",
+      "travelAreaZh": "鎌倉",
+      "travelAreaLocal": "鎌倉",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "fujisawa",
+      "travelAreaZh": "藤澤",
+      "travelAreaLocal": "藤沢",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "myeongdong",
+      "travelAreaZh": "明洞",
+      "travelAreaLocal": "명동",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "hongdae",
+      "travelAreaZh": "弘大",
+      "travelAreaLocal": "홍대",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "itaewon",
+      "travelAreaZh": "梨泰院",
+      "travelAreaLocal": "이태원",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "gangnam",
+      "travelAreaZh": "江南",
+      "travelAreaLocal": "강남",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "montmartre",
+      "travelAreaZh": "蒙馬特",
+      "travelAreaLocal": "Montmartre",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "chiyoda",
+      "travelAreaZh": "千代田",
+      "travelAreaLocal": "千代田",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "chuo",
+      "travelAreaZh": "中央",
+      "travelAreaLocal": "中央",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "minato",
+      "travelAreaZh": "港",
+      "travelAreaLocal": "港",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "bunkyo",
+      "travelAreaZh": "文京",
+      "travelAreaLocal": "文京",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "taito",
+      "travelAreaZh": "台東",
+      "travelAreaLocal": "台東",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "sumida",
+      "travelAreaZh": "墨田",
+      "travelAreaLocal": "墨田",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "koto",
+      "travelAreaZh": "江東",
+      "travelAreaLocal": "江東",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "shinagawa",
+      "travelAreaZh": "品川",
+      "travelAreaLocal": "品川",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "meguro",
+      "travelAreaZh": "目黑",
+      "travelAreaLocal": "目黒",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "ota",
+      "travelAreaZh": "大田",
+      "travelAreaLocal": "大田",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "setagaya",
+      "travelAreaZh": "世田谷",
+      "travelAreaLocal": "世田谷",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "nakano",
+      "travelAreaZh": "中野",
+      "travelAreaLocal": "中野",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "suginami",
+      "travelAreaZh": "杉並",
+      "travelAreaLocal": "杉並",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "toshima",
+      "travelAreaZh": "豐島",
+      "travelAreaLocal": "豊島",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "kita",
+      "travelAreaZh": "北",
+      "travelAreaLocal": "北",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "arakawa",
+      "travelAreaZh": "荒川",
+      "travelAreaLocal": "荒川",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "itabashi",
+      "travelAreaZh": "板橋",
+      "travelAreaLocal": "板橋",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "adachi",
+      "travelAreaZh": "足立",
+      "travelAreaLocal": "足立",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "katsushika",
+      "travelAreaZh": "葛飾",
+      "travelAreaLocal": "葛飾",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "edogawa",
+      "travelAreaZh": "江戶川",
+      "travelAreaLocal": "江戸川",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "jongno",
+      "travelAreaZh": "鐘路",
+      "travelAreaLocal": "종로",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "jung",
+      "travelAreaZh": "中",
+      "travelAreaLocal": "중",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "yongsan",
+      "travelAreaZh": "龍山",
+      "travelAreaLocal": "용산",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "mapo",
+      "travelAreaZh": "麻浦",
+      "travelAreaLocal": "마포",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "dongdaemun",
+      "travelAreaZh": "東大門",
+      "travelAreaLocal": "동대문",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "seocho",
+      "travelAreaZh": "瑞草",
+      "travelAreaLocal": "서초",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "songpa",
+      "travelAreaZh": "松坡",
+      "travelAreaLocal": "송파",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "brooklyn",
+      "travelAreaZh": "布魯克林",
+      "travelAreaLocal": "Brooklyn",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "manhattan",
+      "travelAreaZh": "曼哈頓",
+      "travelAreaLocal": "Manhattan",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "queens",
+      "travelAreaZh": "皇后區",
+      "travelAreaLocal": "Queens",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "bronx",
+      "travelAreaZh": "布朗克斯",
+      "travelAreaLocal": "Bronx",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "staten-island",
+      "travelAreaZh": "史泰登島",
+      "travelAreaLocal": "Staten Island",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "paris",
+      "travelAreaZh": "巴黎",
+      "travelAreaLocal": "Paris",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "new-york",
+      "travelAreaZh": "紐約",
+      "travelAreaLocal": "New York",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "los-angeles",
+      "travelAreaZh": "洛杉磯",
+      "travelAreaLocal": "Los Angeles",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "san-francisco",
+      "travelAreaZh": "舊金山",
+      "travelAreaLocal": "San Francisco",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "chicago",
+      "travelAreaZh": "芝加哥",
+      "travelAreaLocal": "Chicago",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    },
+    {
+      "travelAreaKey": "boston",
+      "travelAreaZh": "波士頓",
+      "travelAreaLocal": "Boston",
+      "geometryComponents": [],
+      "coverage": "unavailable",
+      "auditNote": "No verified OSM geometry shipped. Keep filtering; do not draw or infer a boundary."
+    }
+  ]
+}
