@@ -152,3 +152,13 @@ test("custom input trims, deduplicates exact values and does not persist before 
  input.value="  漢堡  ";c.addCustomRestaurantTag(form);assert.match(inserted,/value="漢堡" checked/);
  const before=inserted;input.value="   ";c.addCustomRestaurantTag(form);assert.equal(inserted,before);
 });
+
+
+test("fullscreen categories reuse common chips without duplicate area and retain mode selections", () => {
+ c.state = {placeKind:"restaurant",placeAreaFilter:"ueno",restaurantTagFilter:"燒肉"};
+ const html=c.placesFilterChips(c.placesFilterModel(places,c.state),{area:false});
+ assert.match(html,/aria-label="類別"/);assert.doesNotMatch(html,/data-place-area-filter/);assert.doesNotMatch(html,/壽喜燒/);
+ const mode=section('  const mode = event.target.closest("[data-places-mode]")','  const listFilter =');
+ assert.doesNotMatch(mode,/state\.(?:placeKind|mapCategory|mapPreference)\s*=/);
+ assert.match(source,/const visiblePlaces = filters.visible.filter\(matchesMapFilters\)/);
+});

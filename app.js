@@ -2100,16 +2100,16 @@ function placesFilterModel(places, selection) {
   return { areas, tags, visible };
 }
 
-function placesFilterChips(model, { cuisine = true } = {}) {
+function placesFilterChips(model, { cuisine = true, area = true } = {}) {
   const row = (label, attribute, selected, options) => `<div class="places-filter-row"><span>${label}</span><div class="places-filter-chips" role="group" aria-label="${label}">${[["", "全部"], ...options].map(([key, name]) => `<button type="button" data-${attribute}="${escapeHtml(key)}" aria-pressed="${selected === key}" class="${selected === key ? "active" : ""}">${escapeHtml(name)}</button>`).join("")}</div></div>`;
-  return `<div class="places-filters">${row("地區", "place-area-filter", state.placeAreaFilter, model.areas)}${cuisine && model.tags.length ? row("類別", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
+  return `<div class="places-filters">${area ? row("地區", "place-area-filter", state.placeAreaFilter, model.areas) : ""}${cuisine && model.tags.length ? row("類別", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
 }
 
 function placesScreen() {
   if (state.placesMode === "map") return mapScreen();
 
   const filters = placesFilterModel(state.places, state);
-  const visiblePlaces = filters.visible;
+  const visiblePlaces = filters.visible.filter(matchesMapFilters);
   const travelAreaKeys = [...new Set(visiblePlaces.map(travelAreaGroupKey))];
   const groups = travelAreaKeys
     .map((regionKey) => {
@@ -2499,6 +2499,7 @@ function offsetOverlappingMapPins(places) {
 function mapScreen() {
   const filterModel = placesFilterModel(state.places, state);
   const areaFilters = placesFilterChips(filterModel, { cuisine: false });
+  const drawerTags = state.placeKind === "restaurant" && filterModel.tags.length ? placesFilterChips(filterModel, { area: false }) : "";
   const areaDropdown = `<div class="field map-area-dropdown"><label for="fullscreen-area">地區</label><select id="fullscreen-area" data-map-area><option value="">全部</option>${filterModel.areas.map(([key, name]) => `<option value="${escapeHtml(key)}" ${state.placeAreaFilter === key ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
   const projectedPlaces = filteredMapPlaces();
   const kindPlaces = state.places.filter(matchesMapFilters);
@@ -2532,7 +2533,7 @@ function mapScreen() {
   const mapFilters = `
     <div class="map-filters" aria-label="地圖篩選">
       <label class="${state.mapView === "planning" ? "map-date-disabled" : ""}"><span>日期</span><select data-map-date ${state.mapView === "planning" ? "disabled" : ""}>${dateOptions}</select></label>
-      <label><span>類型</span><select data-map-kind>${kindOptions}</select></label>
+      ${mapFullscreen ? "" : `<label><span>類型</span><select data-map-kind>${kindOptions}</select></label>`}
       <label><span>想去程度</span><select data-map-preference>
         <option value="all" ${state.mapPreference === "all" ? "selected" : ""}>全部</option>
         <option value="group" ${state.mapPreference === "group" ? "selected" : ""}>2 人以上</option>
@@ -2584,6 +2585,7 @@ function mapScreen() {
           <div class="map-sidebar-section"><h3>地點類別</h3><div class="map-sidebar-kind-list">${sidebarKindButtons}</div></div>
           ${mapFilters}
           ${areaDropdown}
+          ${drawerTags}
           ${mapLegend}
           ${mapActions}
           <div class="map-sidebar-section map-sidebar-results"><div class="map-sidebar-result-title"><h3>地點</h3><span>${projectedPlaces.length} 筆</span></div>${sidebarPlaces}</div>
@@ -7788,11 +7790,7 @@ document.addEventListener("click", async (event) => {
     state.placesMode = mode.dataset.placesMode;
     if (state.placesMode === "map") {
       state.selectedMapPlace = "";
-      if (state.mapView === "planning") {
-        state.placeKind = "all";
-        state.mapCategory = "all";
-        state.mapPreference = "all";
-      }
+
     }
     return render();
   }
@@ -7804,7 +7802,7 @@ document.addEventListener("click", async (event) => {
       state.selectedMapPlace = "";
     } else {
       state.restaurantTagFilter = listFilter.dataset.restaurantTagFilter;
-      if (state.restaurantTagFilter) state.placeKind = "all";
+      if (state.restaurantTagFilter && state.placeKind !== "restaurant") state.placeKind = "all";
     }
     const scrollPositions = [...document.querySelectorAll(".places-filter-chips")].map((row) => row.scrollLeft);
     render();
