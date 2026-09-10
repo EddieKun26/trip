@@ -27,7 +27,7 @@ test('structured suggestions use saved geographic components; no semantic alias 
     {long_name:'銀座４丁目',types:['neighborhood']}, {longText:'中央区',types:['locality']},
     {longText:'東京都',types:['administrative_area_level_1']}, {longText:'道路',types:['route']},
     {longText:'2丁目',types:['sublocality_level_3']}, null, {types:'locality'},
-  ],formattedAddress:'台東区蔵前2丁目'}), ['銀座','中央区']);
+  ],formattedAddress:'台東区蔵前2丁目'}), ['銀座']);
   assert.deepEqual(AreaTags.addressSuggestions({name:'原宿', travelAreaZh:'原宿', latitude:35.7, longitude:139.7}), []);
 });
 
@@ -137,4 +137,53 @@ test('tag-only map redraw skips coordinate and legacy resolver lookups while nor
  assert.equal(coordinates,0);assert.equal(airports,0);assert.equal(draws,1);
  await c.initializeInteractiveMap();
  assert.equal(coordinates,1);assert.equal(airports,1);assert.equal(draws,2);
+});
+
+
+const geographicComponent = (name, type, extra = []) => ({longText:name, types:[type,...extra]});
+for (const [label, city, area, block, local, legacy] of [
+ ['A Ginza','Chuo City','Ginza','8-chōme','銀座','銀座'],
+ ['B Rukuma Tokyo','Shibuya','Ebisunishi','2-chōme','恵比寿西','惠比壽'],
+ ['C Shiba','Minato City','Shiba','3-chōme','芝','港'],
+]) {
+ test(`production suggestion ${label}: reject block and administrative city, keep exact district`, () => {
+  for (const cityType of ['locality','sublocality_level_1','administrative_area_level_2']) {
+   const place={countryCode:'JP',name:label,travelAreaZh:legacy,travelAreaLocal:legacy,area:legacy,areaTags:['使用者自訂'],
+    formattedAddress:`Tokyo, ${city}, ${area}, ${block}`,
+    addressComponents:[geographicComponent(block,'sublocality_level_3'),geographicComponent(area,'sublocality_level_2'),geographicComponent(city,cityType),geographicComponent('Tokyo','administrative_area_level_1')]};
+   const before=json(place);
+   assert.deepEqual(AreaTags.addressSuggestions(place),[area]);
+   assert.deepEqual(place,before,'suggestion cannot persist or alter manual labels');
+   place.addressComponentsOriginal=[geographicComponent(city==='Shibuya'?'渋谷区':city==='Chuo City'?'中央区':'港区',cityType),geographicComponent(local,'sublocality_level_2'),geographicComponent('三丁目','sublocality_level_3')];
+   const localizedBefore=json(place);
+   assert.deepEqual(AreaTags.addressSuggestions(place),[local]);
+   assert.deepEqual(place,localizedBefore);
+   assert.deepEqual(AreaTags.suggestions(place,[place]).address,[local]);
+   assert.deepEqual(AreaTags.suggestions(place,[place],[...place.areaTags,local]).address,[]);
+  }
+ });
+}
+
+test('explicit type and Unicode numeric-address exclusions override candidate types',()=>{
+ const names=['8-chōme','２－chōme','3–CHO\u0304ME','8 chôme','Chome 8','丁目','三丁目','8番','8番3号','８番３號','2-3-4','104-0061'];
+ for (const name of names) assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[geographicComponent(name,'sublocality_level_3')]}),[],name);
+ for (const type of ['locality','postal_town','street_number','street_address','postal_code','postal_code_suffix','administrative_area_level_1','administrative_area_level_2','country','route','premise','subpremise']) {
+  assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[geographicComponent('not a candidate',type,['neighborhood'])]}),[],type);
+ }
+ for (const name of ['Minato City','Shibuya Ward','Tokyo Prefecture','港区']) assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[geographicComponent(name,'sublocality')]}),[]);
+ assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[geographicComponent('番町','neighborhood')]}),['番町']);
+});
+
+test('localization uses unique saved component counterparts, not ordering, legacy metadata or semantic aliases',()=>{
+ const district=name=>geographicComponent(name,'sublocality_level_2',['sublocality','political']);
+ const primary=[district('Ebisunishi')];
+ for (const originals of [[],[geographicComponent('恵比寿西','neighborhood')],[district('恵比寿西'),district('別の町')],[geographicComponent('港','locality')]]) {
+  assert.deepEqual(AreaTags.addressSuggestions({addressComponents:primary,addressComponentsOriginal:originals,travelAreaZh:'惠比壽',travelAreaLocal:'恵比寿',area:'惠比壽',areaOriginal:'恵比寿'}),['Ebisunishi']);
+ }
+ assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[district('Ginza'),district('Shiba')],addressComponentsOriginal:[district('銀座')]}),['Ginza','Shiba']);
+ assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[district('惠比壽西')],addressComponentsOriginal:[district('恵比寿西')]}),['惠比壽西']);
+ assert.deepEqual(AreaTags.addressSuggestions({addressComponentsOriginal:[district('芝')]}),['芝']);
+ for (const [name,local,legacy] of [['Jingumae','神宮前','原宿'],['Sotokanda','外神田','秋葉原'],['Aomi','青海','台場']]) {
+  assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[district(name)],addressComponentsOriginal:[district(local)],travelAreaZh:legacy}),[local]);
+ }
 });

@@ -15,7 +15,7 @@ Implementation baseline: `origin/main` at `4d778b5c3556a99a510c5b38664c0683d0132
 
 - The main Place editor shows removable selected chips, immediately visible current-trip used-tag chips, separate address suggestions, and a custom input with `＋新增地區`. It is optional for every Place kind. An otherwise unchanged existing record can save labels even if its old address is missing or unresolved.
 - Trip suggestions read only actual persisted `areaTags` in the active trip. Already selected labels are excluded using the same Unicode/case comparison; no cross-trip/global learning exists.
-- Address candidates read saved `addressComponents` with `neighborhood`, `sublocality`/levels, or `locality` types, supporting Google longText and long_name shapes. Pure numeric chome levels are omitted; named numeric chome suffixes are stripped.
+- Address candidates read saved `addressComponents` with `neighborhood` or meaningful `sublocality`/levels types, supporting Google longText and long_name shapes. Pure numeric chome levels are omitted; named numeric chome suffixes are stripped.
 - When usable structured candidates are absent, formatted-address fallback accepts only a Japanese named block with an explicit numeric 丁目 after a municipality delimiter, or a standalone named 丁目 fragment. Ambiguous address strings yield no suggestion. It does not parse every Japanese address format.
 - Suggestions never call Google, geocode, use a semantic dictionary, infer nearby regions, inspect geometry, or use the Place name/legacy area. 神宮前、恵比寿西、外神田、青海、芝公園 remain literal candidates. Nothing is automatically persisted.
 - Detail displays a separate `地區：` label row when tags exist; the entire new row is omitted otherwise. Legacy detail and the exact formatted-address display remain.
@@ -34,3 +34,10 @@ Node regression coverage includes normalization, custom/clear persistence, actua
 For manual comparison, save two custom tags on a Place, reload, select each tag in List and Map, then remove every tag and save/reload. Confirm the Place still appears in All and its address/photos are unchanged. Compare the literal address suggestions with your preferred travel labels; record UI friction or semantic ambiguity outside the App. Semantic alias work remains deferred until user feedback.
 
 Validation result: targeted **122/122**, full regression **393/393** in one full run; API functions **12**. All **1,805** protected worktree/prototype files matched the pre-implementation snapshot with no added or missing files.
+
+
+### Address suggestion correction (2026-09-10)
+
+Explicit administrative/locality, postal, street-number and country exclusions precede the positive geographic types. Japanese sublocality level 1 is excluded as ward/municipality; explicit City/Ward labels are excluded too. Numeric block names are checked with Unicode mark/hyphen normalization so chōme and chome are equally excluded, alongside 丁目/番/號.
+
+For display localization, use the current saved component name or its unique exact-type counterpart in the same Place's saved original address array. Prefer existing localized text; ambiguous/missing counterparts keep the source spelling. No legacy area metadata, positional pairing, translation dictionary or semantic alias is used. The three production fixtures pass with literal Ginza / Ebisunishi / Shiba and reliable saved local equivalents. Targeted 93/93; one full run 398/398. This correction does not edit app.js, API, persistence, filters or legacy geography.
