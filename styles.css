@@ -8011,3 +8011,8 @@ body.transport-sheet-open .app {
 .detail-legacy-area { margin: 4px 0 12px; color: var(--muted); font-size: 12px; font-weight: 400; }
 .detail-area-tags > div { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .detail-area-tags .highlight-tag { overflow-wrap: anywhere; max-width: 100%; }
+
+/* Reserved address row stays in place when a relevant suggestion is selected. */
+.area-tag-address-suggestions { height: 44px; min-height: 44px; flex-wrap: nowrap; align-items: center; overflow-x: auto; overflow-y: hidden; }
+.area-tag-address-suggestions > span { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.area-tag-address-suggestions button { flex-shrink: 0; white-space: nowrap; }

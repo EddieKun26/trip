@@ -39,7 +39,7 @@ function frontend(places, resolved) {
     canEdit: () => false, placeCreatorName: () => "測試", currentMemberId: () => "test",
   };
   vm.createContext(context);
-  for (const name of ["areaTagDetail", "placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
+  for (const name of ["restaurantTagValues", "placeTagsDetail", "placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { context, calls, saves };
@@ -207,7 +207,7 @@ test("detail promotes manual areaTags, demotes only legacy area, and retains ind
  context.openPlaceSheet(place.name);const html=context.sheetRoot.innerHTML;
  const header=html.slice(html.indexOf('class="section-row"'),html.indexOf('class="detail-area-tags"'));
  assert.match(header,/id="place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
- assert.match(html,/<section class="detail-area-tags"><span>地區：<\/span><div><span class="highlight-tag">芝<\/span>/);
+ assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag">芝<\/span><\/div><\/section>/);
  assert.match(html,/<p class="detail-legacy-area">舊分區：港（港）<\/p>/);
  assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-legacy-area"'));
  assert.match(html,/class="place-byline"[^>]*>[^<]*地區歷史景點/);
@@ -217,4 +217,24 @@ test("detail promotes manual areaTags, demotes only legacy area, and retains ind
  place.areaTags=[];context.openPlaceSheet(place.name);
  assert.doesNotMatch(context.sheetRoot.innerHTML,/class="detail-area-tags"/);
  assert.match(context.sheetRoot.innerHTML,/class="detail-legacy-area">舊分區：港（港）/);
+});
+
+test("detail merges areaTags and restaurant category chips into one wrapping row, areaTags first, without inventing a missing category", () => {
+ const restaurant=savedPlace({kind:"restaurant",areaTags:["銀座"],restaurantTags:["燒肉"],category:"燒肉店",detailsLocked:true});
+ const before=structuredClone(restaurant);const {context}=frontend([restaurant],null);
+ context.travelAreaDisplayName=()=>"銀座（銀座）";
+ context.openPlaceSheet(restaurant.name);
+ const html=context.sheetRoot.innerHTML;
+ assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag">銀座<\/span><span class="highlight-tag">燒肉<\/span><\/div><\/section>/);
+ assert.doesNotMatch(html,/detail-restaurant-tags|尚未設定|地區：|<span>類別/);
+ assert.deepEqual(restaurant,before);
+
+ restaurant.areaTags=["原宿","表參道"];restaurant.restaurantTags=["咖啡甜點","早午餐"];
+ context.openPlaceSheet(restaurant.name);
+ const multi=context.sheetRoot.innerHTML;
+ assert.match(multi,/<div><span class="highlight-tag">原宿<\/span><span class="highlight-tag">表參道<\/span><span class="highlight-tag">咖啡甜點<\/span><span class="highlight-tag">早午餐<\/span><\/div>/);
+
+ restaurant.areaTags=[];restaurant.restaurantTags=[];
+ context.openPlaceSheet(restaurant.name);
+ assert.doesNotMatch(context.sheetRoot.innerHTML,/class="detail-area-tags"/);
 });

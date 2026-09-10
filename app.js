@@ -230,7 +230,7 @@ const state = {
   flights: [],
   activeTab: "overview",
   placesMode: "list",
-  placeKind: "all", placeAreaFilter: "", areaTagFilter: "", restaurantTagFilter: "",
+  placeKind: "all", placeAreaFilter: "", areaTagFilter: "", areaTagComparison: null, restaurantTagFilter: "",
   selectedArea: "",
   selectedMapPlace: "",
   mapView: "planning",
@@ -1603,7 +1603,7 @@ function clearTripView() {
   Object.assign(state, { tripId: "", tripTitle: "", destination: "", startDate: "", endDate: "",
     inviteCode: "", ownerId: "", flights: [], places: [], deletedPlaces: [], votes: {}, itinerary: {}, transports: [],
     members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
-    placeKind: "all", placeAreaFilter: "", areaTagFilter: "", restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
+    placeKind: "all", placeAreaFilter: "", areaTagFilter: "", areaTagComparison: null, restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
     shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
     shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
   shoppingUndoSnapshot = null;
@@ -2093,15 +2093,18 @@ function addCustomRestaurantTag(form) {
   form.querySelector(".tag-custom-entry").hidden = true;
 }
 
-function areaTagDetail(place) {
-  const tags = AreaTags.values(place);
-  return tags.length ? `<section class="detail-area-tags"><span>地區：</span><div>${tags.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</div></section>` : "";
+// areaTags chips first, then category (restaurant) chips, sharing one wrapping row.
+// Never invents a category chip for a kind/place that has none.
+function placeTagsDetail(place) {
+  const chips = [...AreaTags.values(place), ...(place.kind === "restaurant" ? restaurantTagValues(place) : [])];
+  return chips.length ? `<section class="detail-area-tags"><div>${chips.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</div></section>` : "";
 }
 
 function areaTagEditor() {
   return `<section class="field full area-tag-editor" data-area-tag-editor aria-label="地區標籤">
     <strong>地區標籤 <small>選填，可多選或留空</small></strong>
     <div class="area-tag-chips" data-area-tags-selected aria-live="polite"></div>
+    <div class="area-tag-chips area-tag-address-suggestions" data-area-tag-address-suggestions aria-label="地址建議"></div>
     <div class="area-tag-autocomplete">
       <div class="area-tag-input"><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入自訂地區" /><button type="button" data-area-tag-add>＋新增地區</button></div>
       <div id="area-tag-options" data-area-tags-suggestions role="listbox" aria-label="地區標籤建議" hidden></div>
@@ -2116,9 +2119,27 @@ function canSaveAreaTagsOnly(form) {
     && Object.entries(session.tagEditBaseline).every(([key, value]) => (form.elements[key]?.value || "") === value));
 }
 
+function areaTagAddressSource(form) {
+  const session = form.placeEditorSession;
+  const base = session.areaTagSource;
+  const current = placeEditorAddress(form);
+  // The saved/seeded record's structured addressComponents describe only the address shown
+  // when this editor opened (session.areaTagBaseline). Once the live textarea diverges from
+  // it, keep the current typed/pasted text (still real user-provided evidence, never async
+  // resolver output) but drop the now-stale structured components/legacy address field so a
+  // suggestion is never read for a different address than the one on screen.
+  if (current === session.areaTagBaseline) return base;
+  return { countryCode: base?.countryCode || "", manualAddress: current, address: current };
+}
+
 function renderAreaTagDraft(form) {
   const session = form.placeEditorSession;
+  const source = areaTagAddressSource(form);
+  session.areaTagComparison = AreaTags.comparison([...state.places, source]);
   form.querySelector("[data-area-tags-selected]").innerHTML = session.areaTags.map((tag) => `<button type="button" data-area-tag-remove="${escapeHtml(tag)}" aria-label="移除 ${escapeHtml(tag)}">${escapeHtml(tag)} ×</button>`).join("");
+  const relevant = AreaTags.suggestions(source, state.places, session.areaTags).address;
+  form.querySelector("[data-area-tag-address-suggestions]").innerHTML = relevant.length
+    ? `<span>地址建議</span>${relevant.map((tag) => `<button type="button" data-area-tag-choose="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}` : "";
   renderAreaTagAutocomplete(form);
   // A tag-only save must work even for an old place lacking a resolvable address.
   form.querySelector('button[type="submit"]').formNoValidate = canSaveAreaTagsOnly(form);
@@ -2128,13 +2149,12 @@ function renderAreaTagAutocomplete(form) {
   const session = form.placeEditorSession;
   const input = form.querySelector("[data-area-tag-input]");
   const dropdown = form.querySelector("[data-area-tags-suggestions]");
-  const query = AreaTags.key(input.value);
+  const query = AreaTags.key(input.value, session.areaTagComparison);
   const suggested = AreaTags.suggestions(session.areaTagSource, state.places, session.areaTags);
-  const matching = (tags) => tags.filter((tag) => AreaTags.key(tag).includes(query));
-  // Presentation only: trip labels require a query; saved-address suggestions are
-  // available on focus. Source/localization rules remain in AreaTags.suggestions.
+  const matching = (tags) => tags.filter((tag) => AreaTags.queryMatches(tag, input.value, session.areaTagComparison));
+  // Only trip-used matching labels belong to this focus/query overlay.
   const groups = session.areaTagAutocompleteOpen ? [
-    ["旅程已使用", query ? matching(suggested.trip) : []], ["地址建議", matching(suggested.address)],
+    ["旅程已使用", query ? matching(suggested.trip) : []],
   ].filter(([, tags]) => tags.length) : [];
   session.areaTagOptions = groups.flatMap(([, tags]) => tags);
   if (session.areaTagActiveIndex >= session.areaTagOptions.length) session.areaTagActiveIndex = -1;
@@ -2151,7 +2171,8 @@ function renderAreaTagAutocomplete(form) {
 
 function chooseAreaTag(form, tag) {
   const session = form.placeEditorSession;
-  session.areaTags = AreaTags.normalize([...session.areaTags, tag]);
+  const label = AreaTags.preferredLabel(tag, state.places, session.areaTagComparison);
+  session.areaTags = AreaTags.normalize([...session.areaTags, label], session.areaTagComparison);
   session.dirty.add("areaTags");
   session.areaTagActiveIndex = -1;
   form.querySelector("[data-area-tag-input]").value = "";
@@ -2167,8 +2188,10 @@ function addAreaTagInput(form) {
 
 function bindAreaTagEditor(form, source) {
   const session = form.placeEditorSession;
-  session.areaTags = AreaTags.values(source);
+  session.areaTagComparison = AreaTags.comparison([...state.places, source]);
+  session.areaTags = AreaTags.values(source, session.areaTagComparison);
   session.areaTagSource = source; // Suggestions read saved evidence, never async resolver output.
+  session.areaTagBaseline = placeEditorAddress(form); // Address shown when this evidence was captured.
   session.areaTagAutocompleteOpen = false;
   session.areaTagActiveIndex = -1;
   const editor = form.querySelector("[data-area-tag-editor]");
@@ -2183,7 +2206,7 @@ function bindAreaTagEditor(form, source) {
     if (!target) return;
     if (target.hasAttribute("data-area-tag-add")) { addAreaTagInput(form); return; }
     if (target.dataset.areaTagChoose !== undefined) { chooseAreaTag(form, target.dataset.areaTagChoose); return; }
-    session.areaTags = session.areaTags.filter((tag) => AreaTags.key(tag) !== AreaTags.key(target.dataset.areaTagRemove));
+    session.areaTags = session.areaTags.filter((tag) => AreaTags.key(tag, session.areaTagComparison) !== AreaTags.key(target.dataset.areaTagRemove, session.areaTagComparison));
     session.dirty.add("areaTags");
     renderAreaTagDraft(form);
   });
@@ -2224,7 +2247,7 @@ function bindAreaTagEditor(form, source) {
 function saveAreaTagsOnly(form) {
   const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
   if (!existing) return false;
-  existing.areaTags = AreaTags.normalize(form.placeEditorSession.areaTags);
+  existing.areaTags = AreaTags.normalize(form.placeEditorSession.areaTags, form.placeEditorSession.areaTagComparison);
   if (form.placeEditorSession.dirty.has("restaurantTags") && existing.kind === "restaurant") {
     existing.restaurantTags = restaurantTagValues({ kind: "restaurant", restaurantTags: new FormData(form).getAll("restaurantTags") });
     existing.restaurantTagsSource = "manual";
@@ -2239,14 +2262,15 @@ function saveAreaTagsOnly(form) {
 function placesFilterModel(places, selection) {
   const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, globalThis.TravelAreaAudit?.isLegacy(place) ? "地區待確認" : place.travelAreaZh])).entries()];
   if (!areas.some(([key]) => key === selection.placeAreaFilter)) selection.placeAreaFilter = "";
-  const areaTags = AreaTags.tripTags(places);
-  selection.areaTagFilter = areaTags.find((tag) => AreaTags.key(tag) === AreaTags.key(selection.areaTagFilter)) || "";
+  selection.areaTagComparison = AreaTags.comparison(places);
+  const areaTags = AreaTags.tripTags(places, selection.areaTagComparison);
+  selection.areaTagFilter = areaTags.find((tag) => AreaTags.key(tag, selection.areaTagComparison) === AreaTags.key(selection.areaTagFilter, selection.areaTagComparison)) || "";
   const areaPlaces = places.filter((place) => !selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter);
   const tags = [...new Set(areaPlaces.flatMap(restaurantTagValues))];
   if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
   const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
     && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
-    && AreaTags.matches(place, selection.areaTagFilter)
+    && AreaTags.matches(place, selection.areaTagFilter, selection.areaTagComparison)
     && (!selection.restaurantTagFilter || restaurantTagValues(place).includes(selection.restaurantTagFilter)));
   return { areas, tags, areaTags, visible };
 }
@@ -2470,7 +2494,7 @@ function placeMapStatus(place) {
 }
 
 function matchesMapFilters(place) {
-  if (!AreaTags.matches(place, state.areaTagFilter)) return false;
+  if (!AreaTags.matches(place, state.areaTagFilter, state.areaTagComparison || undefined)) return false;
   if (state.placeAreaFilter && place.travelAreaKey !== state.placeAreaFilter) return false;
   if (state.restaurantTagFilter && !restaurantTagValues(place).includes(state.restaurantTagFilter)) return false;
   if (state.placeKind !== "all" && place.kind !== state.placeKind) return false;
@@ -5015,10 +5039,9 @@ function openPlaceSheet(name) {
           <div><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        ${areaTagDetail(place)}
+        ${placeTagsDetail(place)}
         <p class="detail-legacy-area">舊分區：${escapeHtml(travelAreaDisplayName(place))}</p>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
-        ${place.kind === "restaurant" ? `<section class="detail-restaurant-tags"><span>類別</span><div>${restaurantTagValues(place).map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("") || `<small>尚未設定</small>`}</div></section>` : ""}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
           <span>${place.customPhotoDataUrl ? (place.photoOrigin === "lodging_source" ? "使用原住宿頁照片" : "包含你自行加入的照片") : place.photos?.length ? "Google Maps 景點照片" : "尚未加入地點照片"}</span>
@@ -7043,6 +7066,7 @@ function bindPlaceEditor(form, existing, seed) {
     if (!session.dirty.has("address") && session.sourceAddress && placeEditorAddress(form) === session.sourceAddress) {
       form.elements.address.value = "";
       session.invalidate();
+      renderAreaTagDraft(form);
     }
     session.sourceAddress = "";
     if (!session.dirty.has("photo") && form.elements.photoOrigin.value === "lodging_source") {
@@ -7067,7 +7091,7 @@ function bindPlaceEditor(form, existing, seed) {
       category.dataset.categoryKind = event.target.value;
       form.elements.name.placeholder = placeEditorNamePlaceholder(event.target.value);
     }
-    if (event.target.name === "address") { session.invalidate(); session.schedule(); }
+    if (event.target.name === "address") { session.invalidate(); session.schedule(); renderAreaTagDraft(form); }
     if (event.target.name === "referenceUrl") {
       session.syncSource();
       session.metadataTimer = setTimeout(() => fillPlaceEditorFromUrl(form), 700);
@@ -7166,7 +7190,14 @@ async function fillPlaceEditorFromUrl(form) {
     for (const field of ["name", "address", "sourcePlatform", "sourceLodgingName", "sourceListingId"]) {
       if (untouched(field) && seed[field]) form.elements[field].value = seed[field];
     }
-    if (untouched("address") && seed.address) { session.sourceAddress = placeEditorAddress(form); session.invalidate(); session.schedule(); }
+    if (untouched("address") && seed.address) {
+      session.sourceAddress = placeEditorAddress(form);
+      session.invalidate();
+      session.schedule();
+      // The recognized draft's address never reaches area-tag suggestions through an
+      // "input" event (this is a direct value assignment), so recompute explicitly.
+      renderAreaTagDraft(form);
+    }
     session.loadedUrl = url;
     status.textContent = lodgingSourceStatusMessage(draft, placeEditorAddress(form));
     if (untouched("photo")) {
@@ -8922,7 +8953,7 @@ document.addEventListener("submit", async (event) => {
     const locationSource = resolved || (addressUnchanged ? existing : null);
     const nextPlace = {
       ...(existing || {}),
-      ...(session.dirty.has("areaTags") ? { areaTags: AreaTags.normalize(session.areaTags) } : {}),
+      ...(session.dirty.has("areaTags") ? { areaTags: AreaTags.normalize(session.areaTags, session.areaTagComparison) } : {}),
       id: existing?.id || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
       name,
       fullName: name,

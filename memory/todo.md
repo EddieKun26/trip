@@ -31,3 +31,5 @@
 ## areaTags experiment acceptance — 2026-09-10
 
 - [ ] User production comparison: optional empty tags, two tags on one Place, one-click trip/address candidates, custom overrides, save/reload, independent List/Map/fullscreen filtering and unchanged identity. Record suggestion/UI ambiguity manually; no analytics or alias resolver in this release.
+- [x] User production check of the 2026-09-10 address-suggestion decoupling and English chome fallback confirmed the saved-address row still visible-without-focus behavior, but found the real Booking lodging "自由之家" still showed no Okubo/大久保 suggestion despite Travel Area resolving to 新宿 -- root cause was a stale-snapshot integration bug (not the parser), fixed the same day; see decisions.md "Booking suggestion integration fix and detail chip-row merge".
+- [ ] User production re-check on a real device: reopen/re-import "自由之家" (or any Booking-style English address) and confirm the Okubo/大久保 suggestion now appears immediately (typed, pasted, and via Booking-link recognition), and that the merged areaTags+category chip row on restaurant detail pages looks correct (single wrapping row, no horizontal overflow on mobile).

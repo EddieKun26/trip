@@ -666,7 +666,7 @@ test("area tag chips edit only the draft, allow removal/clear, and save without 
  const dropdown=h.form.querySelector("[data-area-tags-suggestions]");
  assert.equal(dropdown.hidden,true);assert.equal(dropdown.innerHTML,"");
  const tagInput=h.form.querySelector("[data-area-tag-input]");tagInput.fire("focus");
- assert.match(dropdown.innerHTML,/神宮前/);assert.doesNotMatch(dropdown.innerHTML,/表參道/);
+ assert.match(h.form.querySelector("[data-area-tag-address-suggestions]").innerHTML,/神宮前/);assert.equal(dropdown.hidden,true);assert.doesNotMatch(dropdown.innerHTML,/表參道/);
  tagInput.value="表";tagInput.fire("input");
  assert.match(dropdown.innerHTML,/表參道/);assert.doesNotMatch(dropdown.innerHTML,/神宮前/);
  assert.deepEqual(existing,before,"opening and suggestions cannot persist");
@@ -746,12 +746,12 @@ test("area tag autocomplete requires input for trip tags, excludes selected, and
  h.context.state.places.push({name:"Other",areaTags:["銀座","銀座周邊","西新宿","CAFÉ"]});
  const input=h.form.querySelector("[data-area-tag-input]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
  assert.equal(popup.hidden,true);assert.equal(input.attributes["aria-expanded"],"false");
- input.fire("focus");assert.match(popup.innerHTML,/芝/);assert.doesNotMatch(popup.innerHTML,/銀座|西新宿/);
+ input.fire("focus");assert.match(h.form.querySelector("[data-area-tag-address-suggestions]").innerHTML,/芝/);assert.equal(popup.hidden,true);assert.doesNotMatch(popup.innerHTML,/銀座|西新宿/);
  input.value="銀";input.fire("input");
  assert.deepEqual(Array.from(h.session.areaTagOptions),["銀座周邊"]);
  assert.doesNotMatch(popup.innerHTML,/data-area-tag-choose="銀座"/);
  input.value="cafe\u0301";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),["CAFÉ"]);
- input.value="";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),["芝"]);
+ input.value="";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),[]);
  input.fire("blur");assert.equal(popup.hidden,true);assert.equal(popup.innerHTML,"");
  input.fire("focus");input.fire("keydown",{key:"Escape"});assert.equal(popup.hidden,true);
  assert.deepEqual(existing,before);assert.equal(h.session.dirty.has("areaTags"),false);
@@ -798,4 +798,92 @@ test("empty-single-empty selected row and overlay toggling preserve persistent e
  const html=h.context.areaTagEditor();
  assert.ok(html.indexOf('data-area-tags-selected')<html.indexOf('data-area-tag-input'));
  assert.ok(html.indexOf('data-area-tag-input')<html.indexOf('data-area-tags-suggestions'));
+});
+
+
+test("HERE Tokyo structured and Booking formatted suggestions appear before focus, reserve the row, and never auto-save", async () => {
+ const raw="Room 202 , 1 Chome - 16 - 19 Okubo\nShinjuku - ku, Tōkyō - to 169 - 0072";
+ const c=(longText)=>({longText,types:["sublocality_level_2"]});
+ for(const existing of [
+  {name:"HERE ! tokyo",areaTags:[],countryCode:"JP",formattedAddress:"3-chōme-10-1 Ōkubo, Shinjuku City, Tokyo 169-0072",addressComponents:[{longText:"3-chōme",types:["sublocality_level_3"]},c("Ōkubo"),{longText:"Shinjuku City",types:["locality"]}],addressComponentsOriginal:[c("大久保")]},
+  {name:"自由之家",areaTags:[],formattedAddress:raw},
+ ]) {
+  const before=structuredClone(existing);const h=harness({existing,address:existing.formattedAddress});
+  const relevant=h.form.querySelector("[data-area-tag-address-suggestions]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
+  const expected=existing.name==="自由之家"?"Okubo":"大久保";
+  assert.match(relevant.innerHTML,new RegExp('data-area-tag-choose="'+expected+'"'));
+  assert.doesNotMatch(relevant.innerHTML,/chōme|Chome|Shinjuku|Tokyo|169/);
+  assert.equal(popup.hidden,true);assert.deepEqual(existing,before);assert.deepEqual(Array.from(h.session.areaTags),[]);
+  h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagChoose:expected},hasAttribute:()=>false})}});
+  assert.deepEqual(existing,before);assert.equal(relevant.innerHTML,"");
+  await h.save();assert.equal(h.requests.length,0);
+  assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,areaTags:[expected]});
+ }
+ const css=readFileSync(new URL("../styles.css",import.meta.url),"utf8");
+ assert.match(css,/\.area-tag-address-suggestions \{ height: 44px; min-height: 44px; flex-wrap: nowrap;/);
+ const h=harness({existing:{name:"Test"},address:""});const html=h.context.areaTagEditor();
+ assert.ok(html.indexOf("data-area-tags-selected")<html.indexOf("data-area-tag-address-suggestions"));
+ assert.ok(html.indexOf("data-area-tag-address-suggestions")<html.indexOf("data-area-tag-input"));
+});
+
+test("editor reuses the trip's exact localized display label and matches romanized queries without duplicate selections", () => {
+ const c=longText=>({longText,types:["sublocality_level_2"]});
+ const existing={name:"HERE",areaTags:[],countryCode:"JP",addressComponents:[c("Ōkubo")],addressComponentsOriginal:[c("大久保")]};
+ const h=harness({existing,address:""});h.context.state.places.push({name:"Tagged",areaTags:["大久保"]});
+ h.context.renderAreaTagDraft(h.form);assert.match(h.form.querySelector("[data-area-tag-address-suggestions]").innerHTML,/大久保/);
+ const input=h.form.querySelector("[data-area-tag-input]");input.value="Okubo";input.fire("input");
+ assert.deepEqual(Array.from(h.session.areaTagOptions),["大久保"]);
+ h.context.addAreaTagInput(h.form);assert.deepEqual(Array.from(h.session.areaTags),["大久保"]);
+ input.value="Ōkubo";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),[]);
+ h.context.addAreaTagInput(h.form);assert.deepEqual(Array.from(h.session.areaTags),["大久保"]);
+ assert.deepEqual(existing.areaTags,[]);
+});
+
+test("real Booking address-suggestion integration: a typed/pasted or async-recognized address reaches the suggestion row through the actual editor pipeline, survives Travel Area resolving to Shinjuku, and the saved place still offers it on reopen", async () => {
+ const bookingAddress="Room 202 , 1 Chome - 16 - 19 Okubo\nShinjuku - ku, Tōkyō - to 169 - 0072";
+ const forbidden=/Room 202|\bChome\b|Shinjuku-ku|T[oō]kyo-to|169-0072/i;
+ const suggestionRow=(h)=>h.form.querySelector("[data-area-tag-address-suggestions]");
+
+ // A real user typing/pasting the full address (native "input" events, no direct value set)
+ // must reach the suggestion row without ever opening/focusing the trip-tag autocomplete.
+ const typed=harness({});
+ typed.input("address",bookingAddress);
+ assert.match(suggestionRow(typed).innerHTML,/data-area-tag-choose="Okubo"/);
+ assert.doesNotMatch(suggestionRow(typed).innerHTML,forbidden);
+
+ // A Booking share-link recognition draft fills the address via a direct DOM value assignment
+ // (fillPlaceEditorFromUrl), which fires no "input" event at all -- this is the path that was
+ // silently stale before this round's fix.
+ const draftUrl="https://www.booking.com/hotel/jp/jiyuu-no-ie.html";
+ const imported=harness({drafts:[{referenceUrl:draftUrl,sourceLodgingName:"自由之家",sourcePlatform:"Booking.com",address:bookingAddress}]});
+ imported.form.elements.referenceUrl.value=draftUrl;
+ await imported.context.fillPlaceEditorFromUrl(imported.form);
+ assert.equal(imported.form.elements.address.value,bookingAddress);
+ assert.match(suggestionRow(imported).innerHTML,/data-area-tag-choose="Okubo"/);
+ assert.doesNotMatch(suggestionRow(imported).innerHTML,forbidden);
+
+ // Travel Area resolving to 新宿 (a different, coarser domain concept) must never suppress the
+ // finer Okubo areaTags candidate once the geocode confirms the same real Google address.
+ await typed.advance(700);
+ assert.equal(typed.requests.length,1);
+ const okuboGeocode={latitude:35.7008698,longitude:139.7030542,countryCode:"JP",
+  formattedAddress:"1-chōme-16-19 Ōkubo, Shinjuku City, Tokyo 169-0072",
+  addressComponents:[{longText:"1 Chome",types:["sublocality_level_2","sublocality","political"]},{longText:"Ōkubo",types:["sublocality_level_1","sublocality","political"]},{longText:"Shinjuku City",types:["locality","political"]}],
+  addressComponentsOriginal:[{longText:"1丁目",types:["sublocality_level_2","sublocality","political"]},{longText:"大久保",types:["sublocality_level_1","sublocality","political"]},{longText:"新宿区",types:["locality","political"]}],
+  travelAreaKey:"shinjuku",travelAreaZh:"新宿",travelAreaLocal:"新宿",travelAreaResolved:true,travelAreaSource:"automatic",travelAreaResolver:"JP_NAMED_AREA",travelAreaResolutionVersion:5};
+ typed.reply(0,okuboGeocode);
+ await tick();await tick();
+ assert.match(suggestionRow(typed).innerHTML,/data-area-tag-choose="Okubo"/);
+ assert.doesNotMatch(suggestionRow(typed).innerHTML,forbidden);
+
+ // Save, then reopen the persisted place: the suggestion must keep working from real saved
+ // evidence (manualAddress/formattedAddress/addressComponents), not from in-progress resolver state.
+ await typed.save();
+ assert.equal(typed.context.state.places.length,1);
+ const persisted=typed.context.state.places[0];
+ assert.equal(persisted.manualAddress,bookingAddress);
+ assert.equal(persisted.formattedAddress,okuboGeocode.formattedAddress);
+ const reopened=harness({existing:persisted});
+ assert.match(suggestionRow(reopened).innerHTML,/data-area-tag-choose="(Okubo|Ōkubo|大久保)"/);
+ assert.doesNotMatch(suggestionRow(reopened).innerHTML,forbidden);
 });

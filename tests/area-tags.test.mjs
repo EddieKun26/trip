@@ -102,13 +102,21 @@ test('List and Map share multi-tag membership, trip-only options, All and stale 
   assert.match(source,/const drawerTags = placesFilterChips\(filterModel, \{ area: false/);
 });
 
-test('detail omits empty tags, escapes custom display and retains separate legacy/address sections', () => {
-  const c=vm.createContext({AreaTags,escapeHtml:s=>s.replaceAll('<','&lt;')});
-  vm.runInContext(section('function areaTagDetail','function areaTagEditor'),c);
-  assert.equal(c.areaTagDetail({}),'');assert.equal(c.areaTagDetail({areaTags:[]}),'');
-  assert.match(c.areaTagDetail({areaTags:['<custom>','表參道']}),/&lt;custom>/);
+test('detail omits empty tags, escapes custom display, merges category chips after areaTags in one row, and retains separate legacy/address sections', () => {
+  const c=vm.createContext({AreaTags,escapeHtml:s=>s.replaceAll('<','&lt;'),restaurantTagValues:(place)=>Array.isArray(place.restaurantTags)?place.restaurantTags:[]});
+  vm.runInContext(section('function placeTagsDetail','function areaTagEditor'),c);
+  assert.equal(c.placeTagsDetail({}),'');assert.equal(c.placeTagsDetail({areaTags:[]}),'');
+  assert.match(c.placeTagsDetail({areaTags:['<custom>','表參道']}),/&lt;custom>/);
+  assert.doesNotMatch(c.placeTagsDetail({areaTags:[]}),/highlight-tag/);
+  // areaTags first, then category chips, only for kind restaurant, never invented when absent.
+  assert.equal(c.placeTagsDetail({kind:'restaurant',areaTags:[],restaurantTags:[]}),'');
+  assert.match(c.placeTagsDetail({kind:'attraction',areaTags:['銀座'],restaurantTags:['燒肉']}),/^<section class="detail-area-tags"><div><span class="highlight-tag">銀座<\/span><\/div><\/section>$/);
+  const merged=c.placeTagsDetail({kind:'restaurant',areaTags:['銀座'],restaurantTags:['燒肉']});
+  assert.equal(merged,'<section class="detail-area-tags"><div><span class="highlight-tag">銀座</span><span class="highlight-tag">燒肉</span></div></section>');
+  assert.ok(merged.indexOf('銀座')<merged.indexOf('燒肉'));
   const detail=section('function openPlaceSheet','async function ensurePlaceDetails');
-  assert.match(detail,/areaTagDetail\(place\)/);assert.match(detail,/travelAreaDisplayName\(place\)/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
+  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/travelAreaDisplayName\(place\)/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
+  assert.doesNotMatch(detail,/detail-restaurant-tags/);
 });
 
 test('tag selection does not invoke the boundary loader or draw geometry; legacy boundary selection is still the sole key', async () => {
@@ -199,4 +207,65 @@ test('selected chip styling is shared with categories; detail has primary tags a
  const editor=section('function areaTagEditor','function saveAreaTagsOnly');
  assert.doesNotMatch(editor,/inputmode=["']none|\.blur\(|visualViewport|user-scalable|maximum-scale/);
  assert.doesNotMatch(section('function areaTagEditor','function canSaveAreaTagsOnly'),/↑|↓|✓/);
+});
+
+
+const bookingAddress='Room 202 , 1 Chome - 16 - 19 Okubo\nShinjuku - ku, Tōkyō - to 169 - 0072';
+const okuboPair={countryCode:'JP',addressComponents:[{longText:'Ōkubo',types:['sublocality_level_2']}],addressComponentsOriginal:[{longText:'大久保',types:['sublocality_level_2']}]};
+test('formatted fallback accepts Booking whitespace/dashes in a parser-only copy; structured evidence stays first',()=>{
+ for(const raw of [bookingAddress,bookingAddress.replaceAll('-','–'),bookingAddress.replaceAll(' ','  '),'3-chōme-10-1 Ōkubo, Shinjuku City, Tokyo 169-0072']) {
+  const p={name:'自由之家',formattedAddress:raw,address:raw,manualAddress:raw,placeId:'identity',latitude:35.7,longitude:139.7,photos:[{name:'original'}],areaTags:[]};const before=json(p);
+  assert.deepEqual(AreaTags.addressSuggestions(p),[raw.startsWith('3-')?'Ōkubo':'Okubo']);assert.deepEqual(p,before);
+ }
+ assert.deepEqual(AreaTags.addressSuggestions({manualAddress:bookingAddress}),['Okubo']);
+ assert.deepEqual(AreaTags.addressSuggestions({...okuboPair,formattedAddress:'中央区銀座4丁目'}),['大久保']);
+ assert.deepEqual(AreaTags.addressSuggestions({countryCode:'JP',addressComponents:[{longText:'3-chōme',types:['sublocality_level_3']},{longText:'Shinjuku City',types:['locality']}],formattedAddress:bookingAddress}),['Okubo']);
+ assert.deepEqual(AreaTags.addressSuggestions({formattedAddress:'Tokyo, Shinjuku City, Okubo, 3-chōme-10-1'}),['Okubo']);
+ for(const raw of ['Room 202, Shinjuku-ku, Tokyo-to 169-0072','1 Chome-16-19 Room 202','Okubo shop, Tokyo','169-0072 Tokyo-to','Room 202 Okubo']) assert.deepEqual(AreaTags.addressSuggestions({formattedAddress:raw}),[],raw);
+});
+
+test('Japanese candidate context folds only vowel macrons, retains persisted display, and does not strip global diacritics',()=>{
+ for(const [first,second] of [['Ōkubo','Okubo'],['Okubo','Ōkubo']]) {
+  const places=[{areaTags:[first]},{countryCode:'JP',formattedAddress:bookingAddress,areaTags:[second]}];const before=json(places);
+  const context=AreaTags.comparison(places);
+  assert.equal(AreaTags.key(first,context),AreaTags.key(second,context));
+  assert.deepEqual(AreaTags.tripTags(places),[first]);assert.deepEqual(places,before);
+  assert(places.every(p=>AreaTags.matches(p,first,context)));
+  assert.equal(AreaTags.preferredLabel(second,places,context),first);
+ }
+ const context=AreaTags.comparison([{countryCode:'JP',addressComponents:[{longText:'Āēīōū',types:['neighborhood']}]}]);
+ assert.equal(AreaTags.key('āēīōū',context),AreaTags.key('AEIOU',context));
+ assert.deepEqual(AreaTags.tripTags([{countryCode:'FR',areaTags:['Ōkubo','Okubo','Café','Cafe','Mâcon','Macon']}]),['Ōkubo','Okubo','Café','Cafe','Mâcon','Macon']);
+ assert.notEqual(AreaTags.key('Ōkubo'),AreaTags.key('Okubo'));
+ assert.notEqual(AreaTags.key('Café',context),AreaTags.key('Cafe',context));
+});
+
+test('exact saved localization supplies display only after persisted labels; no invented dictionary or semantic alias',()=>{
+ const p={formattedAddress:bookingAddress,areaTags:[]};
+ for(const existing of ['大久保','Ōkubo','Okubo']) {
+  const places=[{areaTags:[existing]},okuboPair,p];const before=json(places);
+  assert.deepEqual(AreaTags.suggestions(p,places).address,[existing]);assert.deepEqual(places,before);
+  assert.deepEqual(AreaTags.suggestions(p,places,[existing]).address,[]);
+  const context=AreaTags.comparison(places);assert(AreaTags.queryMatches(existing,'Okubo',context));assert(AreaTags.queryMatches(existing,'Ōku',context));
+ }
+ assert.deepEqual(AreaTags.suggestions(p,[okuboPair]).address,['大久保']);
+ assert.deepEqual(AreaTags.suggestions(p,[{travelAreaZh:'新大久保',travelAreaLocal:'新大久保',areaTags:[]}]).address,['Okubo']);
+ const badPair={...okuboPair,addressComponentsOriginal:[{longText:'別の大久保',types:['sublocality_level_2']}]};
+ const ambiguous=AreaTags.comparison([okuboPair,badPair]);assert.equal(AreaTags.preferredLabel('Okubo',[],ambiguous),'Okubo');
+ for(const [roman,local,forbidden] of [['Ebisunishi','恵比寿西','惠比壽'],['Shiba','芝','芝公園'],['Nishishinjuku','西新宿','新宿'],['Jingumae','神宮前','原宿'],['Sotokanda','外神田','秋葉原'],['Aomi','青海','台場'],['Yoyogi','代々木','代代木']]) {
+  const place={countryCode:'JP',travelAreaZh:forbidden,addressComponents:[{longText:roman,types:['neighborhood']}],addressComponentsOriginal:[{longText:local,types:['neighborhood']}]};
+  assert.deepEqual(AreaTags.suggestions(place,[]).address,[local]);
+ }
+});
+
+test('List and Map use the same evidenced Japanese identity and expose only one persisted filter label',()=>{
+ const c=vm.createContext({AreaTags,state:{placeKind:'all',mapCategory:'all',mapPreference:'all'},placeVoters:()=>[],escapeHtml:String});
+ vm.runInContext(section('function restaurantTagValues','function placesScreen')+section('function matchesMapFilters','function spreadOverlappingPins'),c);
+ const places=[{name:'one',areaTags:['Ōkubo']},{name:'two',...okuboPair,areaTags:['Okubo']},{name:'three',areaTags:['大久保']},{name:'empty',areaTags:[]}];
+ for(const filter of ['Okubo','Ōkubo','大久保']) {
+  c.state.areaTagFilter=filter;const model=c.placesFilterModel(places,c.state);
+  assert.deepEqual(Array.from(model.areaTags),['Ōkubo']);
+  assert.deepEqual(Array.from(model.visible,p=>p.name),['one','two','three']);
+  assert.deepEqual(places.filter(c.matchesMapFilters).map(p=>p.name),['one','two','three']);
+ }
 });
