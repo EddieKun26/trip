@@ -18,7 +18,8 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
   const timers = new Map();
   let time = 0, timerId = 0;
   const requests = [], toasts = [];
-  const node = (value = "") => ({ value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, clickCount: 0, listeners: {},
+  const node = (value = "") => ({ value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, attributes: {}, clickCount: 0, listeners: {},
+    setAttribute(name, value) { this.attributes[name] = value; }, removeAttribute(name) { delete this.attributes[name]; },
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }, fire(type, event = {}) { let result; for (const fn of this.listeners[type] || []) result = fn(event); return result; }, click() { this.clickCount += 1; } });
   const form = node();
   form.id = "place-editor-form";
@@ -662,8 +663,12 @@ test("area tag chips edit only the draft, allow removal/clear, and save without 
  const h=harness({existing,address:""});
  h.context.state.places.push({name:"other",areaTags:["表參道"]});
  h.context.renderAreaTagDraft(h.form);
- const suggestions=h.form.querySelector("[data-area-tags-suggestions]").innerHTML;
- assert.match(suggestions,/表參道/);assert.match(suggestions,/神宮前/);
+ const dropdown=h.form.querySelector("[data-area-tags-suggestions]");
+ assert.equal(dropdown.hidden,true);assert.equal(dropdown.innerHTML,"");
+ const tagInput=h.form.querySelector("[data-area-tag-input]");tagInput.fire("focus");
+ assert.match(dropdown.innerHTML,/神宮前/);assert.doesNotMatch(dropdown.innerHTML,/表參道/);
+ tagInput.value="表";tagInput.fire("input");
+ assert.match(dropdown.innerHTML,/表參道/);assert.doesNotMatch(dropdown.innerHTML,/神宮前/);
  assert.deepEqual(existing,before,"opening and suggestions cannot persist");
  const click=(data)=>h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:data,hasAttribute:()=>false})}});
  click({areaTagChoose:"表參道"});click({areaTagChoose:"表參道"});
@@ -732,4 +737,65 @@ test("pending custom input bypasses address validation only for an otherwise unc
  assert.equal(h.form.querySelector('button[type="submit"]').formNoValidate,true);
  h.input("name","Changed");
  assert.equal(h.form.querySelector('button[type="submit"]').formNoValidate,false);
+});
+
+
+test("area tag autocomplete requires input for trip tags, excludes selected, and closes on blur/Escape without changing data", () => {
+ const existing={name:"Test",kind:"attraction",areaTags:["銀座"],addressComponents:[{longText:"芝",types:["neighborhood"]}]};
+ const before=structuredClone(existing);const h=harness({existing,address:""});
+ h.context.state.places.push({name:"Other",areaTags:["銀座","銀座周邊","西新宿","CAFÉ"]});
+ const input=h.form.querySelector("[data-area-tag-input]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
+ assert.equal(popup.hidden,true);assert.equal(input.attributes["aria-expanded"],"false");
+ input.fire("focus");assert.match(popup.innerHTML,/芝/);assert.doesNotMatch(popup.innerHTML,/銀座|西新宿/);
+ input.value="銀";input.fire("input");
+ assert.deepEqual(Array.from(h.session.areaTagOptions),["銀座周邊"]);
+ assert.doesNotMatch(popup.innerHTML,/data-area-tag-choose="銀座"/);
+ input.value="cafe\u0301";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),["CAFÉ"]);
+ input.value="";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),["芝"]);
+ input.fire("blur");assert.equal(popup.hidden,true);assert.equal(popup.innerHTML,"");
+ input.fire("focus");input.fire("keydown",{key:"Escape"});assert.equal(popup.hidden,true);
+ assert.deepEqual(existing,before);assert.equal(h.session.dirty.has("areaTags"),false);
+});
+
+test("autocomplete supports touch selection and keyboard navigation without native input hacks or saving before confirmation", () => {
+ const existing={name:"Test",kind:"attraction",areaTags:[]};const before=structuredClone(existing);const h=harness({existing,address:""});
+ h.context.state.places.push({name:"Other",areaTags:["銀座","銀座周邊"]});
+ const input=h.form.querySelector("[data-area-tag-input]");const editor=h.form.querySelector("[data-area-tag-editor]");
+ input.value="銀";input.fire("input");let prevented=0;
+ input.fire("keydown",{key:"ArrowUp",preventDefault(){prevented++;}});
+ assert.equal(input.attributes["aria-activedescendant"],"area-tag-option-1");
+ input.fire("keydown",{key:"ArrowDown",preventDefault(){prevented++;}});
+ assert.equal(input.attributes["aria-activedescendant"],"area-tag-option-0");
+ input.fire("keydown",{key:"Enter",isComposing:true,preventDefault(){throw Error("IME interrupted");}});
+ assert.deepEqual(Array.from(h.session.areaTags),[]);
+ input.fire("keydown",{key:"Enter",preventDefault(){prevented++;}});
+ assert.deepEqual(Array.from(h.session.areaTags),["銀座"]);assert.equal(input.value,"");
+ assert.deepEqual(existing,before);assert.equal(prevented,3);
+ input.value="周";input.fire("input");
+ editor.fire("pointerdown",{target:{closest:()=>({})},preventDefault(){prevented++;}});
+ editor.fire("click",{target:{closest:()=>({dataset:{areaTagChoose:"銀座周邊"},hasAttribute:()=>false})}});
+ assert.deepEqual(Array.from(h.session.areaTags),["銀座","銀座周邊"]);assert.equal(prevented,4);
+ assert.equal(h.form.querySelector("[data-area-tags-suggestions]").hidden,true);
+ assert.deepEqual(existing,before);
+});
+
+test("empty-single-empty selected row and overlay toggling preserve persistent editor controls", () => {
+ const h=harness({existing:{name:"Test",kind:"attraction",areaTags:[]},address:"原地址"});
+ const selected=h.form.querySelector("[data-area-tags-selected]");const input=h.form.querySelector("[data-area-tag-input]");
+ const popup=h.form.querySelector("[data-area-tags-suggestions]");const address=h.form.elements.address;
+ assert.equal(selected.innerHTML,"");input.value="銀座";h.context.addAreaTagInput(h.form);
+ assert.match(selected.innerHTML,/data-area-tag-remove="銀座"/);
+ h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagRemove:"銀座"},hasAttribute:()=>false})}});
+ assert.equal(selected.innerHTML,"");assert.equal(input,h.form.querySelector("[data-area-tag-input]"));
+ assert.equal(popup,h.form.querySelector("[data-area-tags-suggestions]"));assert.equal(address,h.form.elements.address);assert.equal(address.value,"原地址");
+ const css=readFileSync(new URL("../styles.css",import.meta.url),"utf8");
+ assert.match(css,/\[data-area-tags-selected\] \{ min-height: 44px;/);
+ assert.match(css,/\.restaurant-tag-options label,\s*\.area-tag-chips button \{[^}]*min-height: 44px/);
+ assert.match(css,/\.area-tag-chips \{[^}]*flex-wrap: wrap/);
+ assert.match(css,/\.area-tag-autocomplete \{ position: relative;/);
+ assert.match(css,/\[data-area-tags-suggestions\] \{ position: absolute;[^}]*top: calc\(100% \+ 4px\)/);
+ assert.match(css,/\[data-area-tags-suggestions\]\[hidden\] \{ display: none;/);
+ const html=h.context.areaTagEditor();
+ assert.ok(html.indexOf('data-area-tags-selected')<html.indexOf('data-area-tag-input'));
+ assert.ok(html.indexOf('data-area-tag-input')<html.indexOf('data-area-tags-suggestions'));
 });

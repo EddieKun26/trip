@@ -2102,8 +2102,10 @@ function areaTagEditor() {
   return `<section class="field full area-tag-editor" data-area-tag-editor aria-label="地區標籤">
     <strong>地區標籤 <small>選填，可多選或留空</small></strong>
     <div class="area-tag-chips" data-area-tags-selected aria-live="polite"></div>
-    <div data-area-tags-suggestions></div>
-    <div class="area-tag-input"><input data-area-tag-input aria-label="新增自訂地區標籤" placeholder="輸入自訂地區" /><button type="button" data-area-tag-add>＋新增地區</button></div>
+    <div class="area-tag-autocomplete">
+      <div class="area-tag-input"><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入自訂地區" /><button type="button" data-area-tag-add>＋新增地區</button></div>
+      <div id="area-tag-options" data-area-tags-suggestions role="listbox" aria-label="地區標籤建議" hidden></div>
+    </div>
   </section>`;
 }
 
@@ -2116,43 +2118,96 @@ function canSaveAreaTagsOnly(form) {
 
 function renderAreaTagDraft(form) {
   const session = form.placeEditorSession;
-  const chips = (tags, action) => tags.map((tag) => `<button type="button" data-area-tag-${action}="${escapeHtml(tag)}"${action === "remove" ? ` aria-label="移除 ${escapeHtml(tag)}"` : ""}>${escapeHtml(tag)}${action === "remove" ? " ×" : ""}</button>`).join("");
-  form.querySelector("[data-area-tags-selected]").innerHTML = chips(session.areaTags, "remove");
-  const suggestedAreaTags = AreaTags.suggestions(session.areaTagSource, state.places, session.areaTags);
-  form.querySelector("[data-area-tags-suggestions]").innerHTML = [
-    ["旅程已使用", suggestedAreaTags.trip], ["地址建議", suggestedAreaTags.address],
-  ].filter(([, tags]) => tags.length).map(([label, tags]) => `<div class="area-tag-suggestions"><small>${label}</small><div class="area-tag-chips">${chips(tags, "choose")}</div></div>`).join("");
+  form.querySelector("[data-area-tags-selected]").innerHTML = session.areaTags.map((tag) => `<button type="button" data-area-tag-remove="${escapeHtml(tag)}" aria-label="移除 ${escapeHtml(tag)}">${escapeHtml(tag)} ×</button>`).join("");
+  renderAreaTagAutocomplete(form);
   // A tag-only save must work even for an old place lacking a resolvable address.
   form.querySelector('button[type="submit"]').formNoValidate = canSaveAreaTagsOnly(form);
+}
+
+function renderAreaTagAutocomplete(form) {
+  const session = form.placeEditorSession;
+  const input = form.querySelector("[data-area-tag-input]");
+  const dropdown = form.querySelector("[data-area-tags-suggestions]");
+  const query = AreaTags.key(input.value);
+  const suggested = AreaTags.suggestions(session.areaTagSource, state.places, session.areaTags);
+  const matching = (tags) => tags.filter((tag) => AreaTags.key(tag).includes(query));
+  // Presentation only: trip labels require a query; saved-address suggestions are
+  // available on focus. Source/localization rules remain in AreaTags.suggestions.
+  const groups = session.areaTagAutocompleteOpen ? [
+    ["旅程已使用", query ? matching(suggested.trip) : []], ["地址建議", matching(suggested.address)],
+  ].filter(([, tags]) => tags.length) : [];
+  session.areaTagOptions = groups.flatMap(([, tags]) => tags);
+  if (session.areaTagActiveIndex >= session.areaTagOptions.length) session.areaTagActiveIndex = -1;
+  let index = 0;
+  dropdown.innerHTML = groups.map(([label, tags]) => `<div class="area-tag-suggestions" role="group" aria-label="${label}"><small>${label}</small>${tags.map((tag) => {
+    const optionIndex = index++;
+    return `<button type="button" role="option" tabindex="-1" id="area-tag-option-${optionIndex}" aria-selected="${session.areaTagActiveIndex === optionIndex}" data-area-tag-choose="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`;
+  }).join("")}</div>`).join("");
+  dropdown.hidden = !session.areaTagOptions.length;
+  input.setAttribute("aria-expanded", String(!dropdown.hidden));
+  if (!dropdown.hidden && session.areaTagActiveIndex >= 0) input.setAttribute("aria-activedescendant", `area-tag-option-${session.areaTagActiveIndex}`);
+  else input.removeAttribute("aria-activedescendant");
+}
+
+function chooseAreaTag(form, tag) {
+  const session = form.placeEditorSession;
+  session.areaTags = AreaTags.normalize([...session.areaTags, tag]);
+  session.dirty.add("areaTags");
+  session.areaTagActiveIndex = -1;
+  form.querySelector("[data-area-tag-input]").value = "";
+  renderAreaTagDraft(form);
 }
 
 function addAreaTagInput(form) {
   const input = form.querySelector("[data-area-tag-input]");
   const tag = AreaTags.normalize([input?.value])[0];
   if (!tag || form.placeEditorSession.saving) return;
-  form.placeEditorSession.areaTags = AreaTags.normalize([...form.placeEditorSession.areaTags, tag]);
-  form.placeEditorSession.dirty.add("areaTags");
-  input.value = "";
-  renderAreaTagDraft(form);
+  chooseAreaTag(form, tag);
 }
 
 function bindAreaTagEditor(form, source) {
   const session = form.placeEditorSession;
   session.areaTags = AreaTags.values(source);
   session.areaTagSource = source; // Suggestions read saved evidence, never async resolver output.
+  session.areaTagAutocompleteOpen = false;
+  session.areaTagActiveIndex = -1;
   const editor = form.querySelector("[data-area-tag-editor]");
+  // Keep focus in the combobox while tapping an option so blur cannot dismiss it
+  // before its click. This does not alter native keyboard/accessory behavior.
+  editor.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("[data-area-tag-choose]")) event.preventDefault();
+  });
   editor.addEventListener("click", (event) => {
     if (session.saving) return;
     const target = event.target.closest("[data-area-tag-choose], [data-area-tag-remove], [data-area-tag-add]");
     if (!target) return;
     if (target.hasAttribute("data-area-tag-add")) { addAreaTagInput(form); return; }
-    if (target.dataset.areaTagChoose !== undefined) session.areaTags = AreaTags.normalize([...session.areaTags, target.dataset.areaTagChoose]);
-    else session.areaTags = session.areaTags.filter((tag) => AreaTags.key(tag) !== AreaTags.key(target.dataset.areaTagRemove));
+    if (target.dataset.areaTagChoose !== undefined) { chooseAreaTag(form, target.dataset.areaTagChoose); return; }
+    session.areaTags = session.areaTags.filter((tag) => AreaTags.key(tag) !== AreaTags.key(target.dataset.areaTagRemove));
     session.dirty.add("areaTags");
     renderAreaTagDraft(form);
   });
-  form.querySelector("[data-area-tag-input]").addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); addAreaTagInput(form); }
+  const input = form.querySelector("[data-area-tag-input]");
+  const openAutocomplete = () => { session.areaTagAutocompleteOpen = true; session.areaTagActiveIndex = -1; renderAreaTagAutocomplete(form); };
+  input.addEventListener("focus", openAutocomplete);
+  input.addEventListener("input", openAutocomplete);
+  input.addEventListener("blur", () => { session.areaTagAutocompleteOpen = false; session.areaTagActiveIndex = -1; renderAreaTagAutocomplete(form); });
+  input.addEventListener("keydown", (event) => {
+    if (event.isComposing || session.saving) return;
+    if (event.key === "Escape") { session.areaTagAutocompleteOpen = false; renderAreaTagAutocomplete(form); return; }
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && session.areaTagOptions.length) {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      session.areaTagActiveIndex = session.areaTagActiveIndex < 0 ? (direction === 1 ? 0 : session.areaTagOptions.length - 1)
+        : (session.areaTagActiveIndex + direction + session.areaTagOptions.length) % session.areaTagOptions.length;
+      renderAreaTagAutocomplete(form);
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const active = session.areaTagOptions[session.areaTagActiveIndex];
+      if (active) chooseAreaTag(form, active);
+      else addAreaTagInput(form);
+    }
   });
   // Capture ensures validation is restored when another field changes. A pending custom
   // value is added by explicit Save as well as the add button/Enter.
@@ -4957,10 +5012,11 @@ function openPlaceSheet(name) {
     <div class="modal-backdrop" data-dismiss-sheet>
       <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(placeDetailKey(place))}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(travelAreaDisplayName(place))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
+          <div><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
         ${areaTagDetail(place)}
+        <p class="detail-legacy-area">舊分區：${escapeHtml(travelAreaDisplayName(place))}</p>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
         ${place.kind === "restaurant" ? `<section class="detail-restaurant-tags"><span>類別</span><div>${restaurantTagValues(place).map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("") || `<small>尚未設定</small>`}</div></section>` : ""}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>

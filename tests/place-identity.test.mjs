@@ -198,3 +198,23 @@ test("detail photos link to place page while photo fetch remains bound to matchi
  assert.match(html, /src="\/api\/place-photo\?name=places%2FChIJ/);
  assert.doesNotMatch(html, /<img[^>]*src="[^"]*(?:maps\/dir|destination=)/);
 });
+
+
+test("detail promotes manual areaTags, demotes only legacy area, and retains independent category/description/highlights", () => {
+ const place=savedPlace({kind:"attraction",areaTags:["芝"],category:"地區歷史景點",description:"芝的歷史描述",highlights:["芝","歷史"],detailsLocked:true});
+ const before=structuredClone(place);const {context}=frontend([place],null);
+ context.travelAreaDisplayName=()=>"港（港）";
+ context.openPlaceSheet(place.name);const html=context.sheetRoot.innerHTML;
+ const header=html.slice(html.indexOf('class="section-row"'),html.indexOf('class="detail-area-tags"'));
+ assert.match(header,/id="place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
+ assert.match(html,/<section class="detail-area-tags"><span>地區：<\/span><div><span class="highlight-tag">芝<\/span>/);
+ assert.match(html,/<p class="detail-legacy-area">舊分區：港（港）<\/p>/);
+ assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-legacy-area"'));
+ assert.match(html,/class="place-byline"[^>]*>[^<]*地區歷史景點/);
+ assert.match(html,/class="place-description">芝的歷史描述/);
+ assert.match(html,/class="highlight-list"><span class="highlight-tag">芝<\/span><span class="highlight-tag">歷史/);
+ assert.deepEqual(place,before);
+ place.areaTags=[];context.openPlaceSheet(place.name);
+ assert.doesNotMatch(context.sheetRoot.innerHTML,/class="detail-area-tags"/);
+ assert.match(context.sheetRoot.innerHTML,/class="detail-legacy-area">舊分區：港（港）/);
+});

@@ -187,3 +187,16 @@ test('localization uses unique saved component counterparts, not ordering, legac
   assert.deepEqual(AreaTags.addressSuggestions({addressComponents:[district(name)],addressComponentsOriginal:[district(local)],travelAreaZh:legacy}),[local]);
  }
 });
+
+
+test('selected chip styling is shared with categories; detail has primary tags and secondary legacy text',()=>{
+ const css=readFileSync(new URL('../styles.css',import.meta.url),'utf8');
+ const shared=css.match(/\.restaurant-tag-options label:has\(input:checked\),\s*\[data-area-tags-selected\] button \{([^}]+)\}/);
+ assert.ok(shared);assert.match(shared[1],/background: #315c50/);assert.match(shared[1],/color: white/);assert.match(shared[1],/border-color: #315c50/);
+ assert.doesNotMatch(css,/background: #fff1e8; border-color: #db8b62/);
+ assert.match(css,/\.detail-area-tags \{[^}]*color: var\(--ink\); font-weight: 600/);
+ assert.match(css,/\.detail-legacy-area \{[^}]*color: var\(--muted\); font-size: 12px; font-weight: 400/);
+ const editor=section('function areaTagEditor','function saveAreaTagsOnly');
+ assert.doesNotMatch(editor,/inputmode=["']none|\.blur\(|visualViewport|user-scalable|maximum-scale/);
+ assert.doesNotMatch(section('function areaTagEditor','function canSaveAreaTagsOnly'),/↑|↓|✓/);
+});

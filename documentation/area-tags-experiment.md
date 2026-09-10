@@ -13,7 +13,7 @@ Implementation baseline: `origin/main` at `4d778b5c3556a99a510c5b38664c0683d0132
 
 ## Suggestions and UI
 
-- The main Place editor shows removable selected chips, immediately visible current-trip used-tag chips, separate address suggestions, and a custom input with `＋新增地區`. It is optional for every Place kind. An otherwise unchanged existing record can save labels even if its old address is missing or unresolved.
+- The main Place editor shows removable selected chips, matching current-trip tags in a focus/query autocomplete, saved-address suggestions, and a custom input with `＋新增地區`. It is optional for every Place kind. An otherwise unchanged existing record can save labels even if its old address is missing or unresolved.
 - Trip suggestions read only actual persisted `areaTags` in the active trip. Already selected labels are excluded using the same Unicode/case comparison; no cross-trip/global learning exists.
 - Address candidates read saved `addressComponents` with `neighborhood` or meaningful `sublocality`/levels types, supporting Google longText and long_name shapes. Pure numeric chome levels are omitted; named numeric chome suffixes are stripped.
 - When usable structured candidates are absent, formatted-address fallback accepts only a Japanese named block with an explicit numeric 丁目 after a municipality delimiter, or a standalone named 丁目 fragment. Ambiguous address strings yield no suggestion. It does not parse every Japanese address format.
@@ -41,3 +41,24 @@ Validation result: targeted **122/122**, full regression **393/393** in one full
 Explicit administrative/locality, postal, street-number and country exclusions precede the positive geographic types. Japanese sublocality level 1 is excluded as ward/municipality; explicit City/Ward labels are excluded too. Numeric block names are checked with Unicode mark/hyphen normalization so chōme and chome are equally excluded, alongside 丁目/番/號.
 
 For display localization, use the current saved component name or its unique exact-type counterpart in the same Place's saved original address array. Prefer existing localized text; ambiguous/missing counterparts keep the source spelling. No legacy area metadata, positional pairing, translation dictionary or semantic alias is used. The three production fixtures pass with literal Ginza / Ebisunishi / Shiba and reliable saved local equivalents. Targeted 93/93; one full run 398/398. This correction does not edit app.js, API, persistence, filters or legacy geography.
+
+
+### UI acceptance polish (2026-09-10)
+
+This supersedes the initial always-visible suggestion rows. Selected chips now share the category chip's dark solid/white rule and reserve a 44px empty row. The input/add row follows the selected container; autocomplete is an absolute overlay beneath it, so opening/closing it does not move the full address. Trip-used labels require nonempty substring-matching text; focus alone can show saved-address suggestions. The source, localization and persisted-tag contract are unchanged.
+
+Detail data provenance was reviewed before moving anything:
+
+| UI text | Data source | Treatment |
+| --- | --- | --- |
+| Primary 地區 | areaTags | Keep as primary label row; omit when empty |
+| Old title kicker | travelAreaDisplayName(place) | Move to small muted 舊分區 below tags |
+| Byline/category | fullName/name, category | Preserve |
+| Restaurant chips | restaurantTagValues(place) | Preserve |
+| Description | place.description | Preserve, including any geographic wording |
+| Highlights | place.highlights | Preserve, even if a highlight repeats an area name |
+| Full address | place.formattedAddress | Preserve |
+
+The iPhone ↑/↓/✓ control is consistent with the native form accessory (Previous/Next/Done) described in [Apple's Designing Forms documentation](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/DesigningForms/DesigningForms.html). Source review finds no editor-rendered equivalent; app arrows elsewhere belong to itinerary reordering. No native-keyboard workaround was added. No production App or browser smoke test was run.
+
+Validation: targeted 85/85; full regression once 403/403, including UI state/node and stylesheet layout contracts. Real-device visual acceptance remains with the user.
