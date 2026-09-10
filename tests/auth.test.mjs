@@ -310,3 +310,28 @@ test('legacy area split on authenticated read and save preserves Google identity
   assert.equal(again.payload.places[0].travelAreaKey,'daikanyama');
   assert.deepEqual(again.payload.places[1],unknown);
 });
+
+
+test("authenticated trip API stores and reloads optional areaTags without changing Place identity", async () => {
+ store.clear();
+ const original={id:"area-label-place",name:"Saved Place",placeId:"ChIJExact",address:"原地址",formattedAddress:"東京都",latitude:35.7,longitude:139.7,photos:[{name:"places/ChIJExact/photos/exact"}],restaurantTags:["日式"],areaTags:["原宿","表參道"]};
+ store.set("tokyo-family-trip:v1",JSON.stringify({places:[original],votes:{},itinerary:{},members:{"area-label-member":"Tag tester"},revision:1}));
+ const login=responseMock();
+ await memberHandler({method:"POST",body:{nickname:"Tag tester",pin:"4826"},headers:{"x-forwarded-for":"203.0.113.50"}},login);
+ assert.equal(login.statusCode,200);
+ const cookie=login.headers["set-cookie"].split(";")[0];
+ const request=async(method,places)=>{
+  const response=responseMock();
+  await tripHandler({method,headers:{cookie},body:{places},url:"/api/trip?id=tokyo-family-2026"},response);
+  assert.equal(response.statusCode,200);return response.payload;
+ };
+ const put=await request("PUT",[{...original,areaTags:[" 原宿 ","表參道","原宿","自訂區"]},{id:"old",name:"No tags"}]);
+ assert.deepEqual(put.places[0],{...original,areaTags:["原宿","表參道","自訂區"]});
+ assert.equal(Object.hasOwn(put.places[1],"areaTags"),false);
+ assert.deepEqual((await request("GET")).places,put.places);
+ const {areaTags,...olderClient}=put.places[0];
+ await request("PUT",[olderClient]);
+ assert.deepEqual((await request("GET")).places[0].areaTags,["原宿","表參道","自訂區"]);
+ await request("PUT",[{...olderClient,areaTags:[]}]);
+ assert.deepEqual((await request("GET")).places[0],{...original,areaTags:[]});
+});

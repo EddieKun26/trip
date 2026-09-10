@@ -230,7 +230,7 @@ const state = {
   flights: [],
   activeTab: "overview",
   placesMode: "list",
-  placeKind: "all", placeAreaFilter: "", restaurantTagFilter: "",
+  placeKind: "all", placeAreaFilter: "", areaTagFilter: "", restaurantTagFilter: "",
   selectedArea: "",
   selectedMapPlace: "",
   mapView: "planning",
@@ -1603,7 +1603,7 @@ function clearTripView() {
   Object.assign(state, { tripId: "", tripTitle: "", destination: "", startDate: "", endDate: "",
     inviteCode: "", ownerId: "", flights: [], places: [], deletedPlaces: [], votes: {}, itinerary: {}, transports: [],
     members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
-    placeKind: "all", placeAreaFilter: "", restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
+    placeKind: "all", placeAreaFilter: "", areaTagFilter: "", restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
     shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
     shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
   shoppingUndoSnapshot = null;
@@ -2093,21 +2093,112 @@ function addCustomRestaurantTag(form) {
   form.querySelector(".tag-custom-entry").hidden = true;
 }
 
+function areaTagDetail(place) {
+  const tags = AreaTags.values(place);
+  return tags.length ? `<section class="detail-area-tags"><span>地區：</span><div>${tags.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</div></section>` : "";
+}
+
+function areaTagEditor() {
+  return `<section class="field full area-tag-editor" data-area-tag-editor aria-label="地區標籤">
+    <strong>地區標籤 <small>選填，可多選或留空</small></strong>
+    <div class="area-tag-chips" data-area-tags-selected aria-live="polite"></div>
+    <div data-area-tags-suggestions></div>
+    <div class="area-tag-input"><input data-area-tag-input aria-label="新增自訂地區標籤" placeholder="輸入自訂地區" /><button type="button" data-area-tag-add>＋新增地區</button></div>
+  </section>`;
+}
+
+function canSaveAreaTagsOnly(form) {
+  const session = form.placeEditorSession;
+  return Boolean(form.dataset.originalPlaceName && session?.dirty.has("areaTags") && !session.saving && !session.restoreAuto
+    && !pendingPlacePhoto && !removePendingPlacePhoto && !session.sourcePhotoPreparing && !session.loadingUrl
+    && Object.entries(session.tagEditBaseline).every(([key, value]) => (form.elements[key]?.value || "") === value));
+}
+
+function renderAreaTagDraft(form) {
+  const session = form.placeEditorSession;
+  const chips = (tags, action) => tags.map((tag) => `<button type="button" data-area-tag-${action}="${escapeHtml(tag)}"${action === "remove" ? ` aria-label="移除 ${escapeHtml(tag)}"` : ""}>${escapeHtml(tag)}${action === "remove" ? " ×" : ""}</button>`).join("");
+  form.querySelector("[data-area-tags-selected]").innerHTML = chips(session.areaTags, "remove");
+  const suggestedAreaTags = AreaTags.suggestions(session.areaTagSource, state.places, session.areaTags);
+  form.querySelector("[data-area-tags-suggestions]").innerHTML = [
+    ["旅程已使用", suggestedAreaTags.trip], ["地址建議", suggestedAreaTags.address],
+  ].filter(([, tags]) => tags.length).map(([label, tags]) => `<div class="area-tag-suggestions"><small>${label}</small><div class="area-tag-chips">${chips(tags, "choose")}</div></div>`).join("");
+  // A tag-only save must work even for an old place lacking a resolvable address.
+  form.querySelector('button[type="submit"]').formNoValidate = canSaveAreaTagsOnly(form);
+}
+
+function addAreaTagInput(form) {
+  const input = form.querySelector("[data-area-tag-input]");
+  const tag = AreaTags.normalize([input?.value])[0];
+  if (!tag || form.placeEditorSession.saving) return;
+  form.placeEditorSession.areaTags = AreaTags.normalize([...form.placeEditorSession.areaTags, tag]);
+  form.placeEditorSession.dirty.add("areaTags");
+  input.value = "";
+  renderAreaTagDraft(form);
+}
+
+function bindAreaTagEditor(form, source) {
+  const session = form.placeEditorSession;
+  session.areaTags = AreaTags.values(source);
+  session.areaTagSource = source; // Suggestions read saved evidence, never async resolver output.
+  const editor = form.querySelector("[data-area-tag-editor]");
+  editor.addEventListener("click", (event) => {
+    if (session.saving) return;
+    const target = event.target.closest("[data-area-tag-choose], [data-area-tag-remove], [data-area-tag-add]");
+    if (!target) return;
+    if (target.hasAttribute("data-area-tag-add")) { addAreaTagInput(form); return; }
+    if (target.dataset.areaTagChoose !== undefined) session.areaTags = AreaTags.normalize([...session.areaTags, target.dataset.areaTagChoose]);
+    else session.areaTags = session.areaTags.filter((tag) => AreaTags.key(tag) !== AreaTags.key(target.dataset.areaTagRemove));
+    session.dirty.add("areaTags");
+    renderAreaTagDraft(form);
+  });
+  form.querySelector("[data-area-tag-input]").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); addAreaTagInput(form); }
+  });
+  // Capture ensures validation is restored when another field changes. A pending custom
+  // value is added by explicit Save as well as the add button/Enter.
+  form.addEventListener("input", () => {
+    const pending = Boolean(AreaTags.normalize([form.querySelector("[data-area-tag-input]").value]).length);
+    const submit = form.querySelector('button[type="submit"]');
+    submit.formNoValidate = canSaveAreaTagsOnly(form) || Boolean(pending && form.dataset.originalPlaceName
+      && !session.restoreAuto && !pendingPlacePhoto && !removePendingPlacePhoto
+      && Object.entries(session.tagEditBaseline).every(([key, value]) => (form.elements[key]?.value || "") === value));
+  }, true);
+  renderAreaTagDraft(form);
+}
+
+function saveAreaTagsOnly(form) {
+  const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
+  if (!existing) return false;
+  existing.areaTags = AreaTags.normalize(form.placeEditorSession.areaTags);
+  if (form.placeEditorSession.dirty.has("restaurantTags") && existing.kind === "restaurant") {
+    existing.restaurantTags = restaurantTagValues({ kind: "restaurant", restaurantTags: new FormData(form).getAll("restaurantTags") });
+    existing.restaurantTagsSource = "manual";
+  }
+  persist();
+  closeSheet();
+  render({ filterOnly: true });
+  showToast("地區標籤已儲存");
+  return true;
+}
+
 function placesFilterModel(places, selection) {
   const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, globalThis.TravelAreaAudit?.isLegacy(place) ? "地區待確認" : place.travelAreaZh])).entries()];
   if (!areas.some(([key]) => key === selection.placeAreaFilter)) selection.placeAreaFilter = "";
+  const areaTags = AreaTags.tripTags(places);
+  selection.areaTagFilter = areaTags.find((tag) => AreaTags.key(tag) === AreaTags.key(selection.areaTagFilter)) || "";
   const areaPlaces = places.filter((place) => !selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter);
   const tags = [...new Set(areaPlaces.flatMap(restaurantTagValues))];
   if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
   const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
     && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
+    && AreaTags.matches(place, selection.areaTagFilter)
     && (!selection.restaurantTagFilter || restaurantTagValues(place).includes(selection.restaurantTagFilter)));
-  return { areas, tags, visible };
+  return { areas, tags, areaTags, visible };
 }
 
-function placesFilterChips(model, { cuisine = true, area = true } = {}) {
+function placesFilterChips(model, { cuisine = true, area = true, areaTags = true } = {}) {
   const row = (label, attribute, selected, options) => `<div class="places-filter-row"><span>${label}</span><div class="places-filter-chips" role="group" aria-label="${label}">${[["", "全部"], ...options].map(([key, name]) => `<button type="button" data-${attribute}="${escapeHtml(key)}" aria-pressed="${selected === key}" class="${selected === key ? "active" : ""}">${escapeHtml(name)}</button>`).join("")}</div></div>`;
-  return `<div class="places-filters">${area ? row("地區", "place-area-filter", state.placeAreaFilter, model.areas) : ""}${cuisine && model.tags.length ? row("類別", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
+  return `<div class="places-filters">${area ? row("地區", "place-area-filter", state.placeAreaFilter, model.areas) : ""}${areaTags ? row("地區標籤", "area-tag-filter", state.areaTagFilter, (model.areaTags || []).map((tag) => [tag, tag])) : ""}${cuisine && model.tags.length ? row("類別", "restaurant-tag-filter", state.restaurantTagFilter, model.tags.map((tag) => [tag, tag])) : ""}</div>`;
 }
 
 function placesScreen() {
@@ -2324,6 +2415,7 @@ function placeMapStatus(place) {
 }
 
 function matchesMapFilters(place) {
+  if (!AreaTags.matches(place, state.areaTagFilter)) return false;
   if (state.placeAreaFilter && place.travelAreaKey !== state.placeAreaFilter) return false;
   if (state.restaurantTagFilter && !restaurantTagValues(place).includes(state.restaurantTagFilter)) return false;
   if (state.placeKind !== "all" && place.kind !== state.placeKind) return false;
@@ -2396,7 +2488,7 @@ function filteredMapPlaces() {
       .flatMap((item) => item.type === "flight"
         ? airportMapNodes(item).map((place) => ({ item, place }))
         : [{ item, place: placesByName.get(item.name) }])
-      .filter(({ place }) => place && ((place.isAirport && !state.placeAreaFilter) || matchesMapFilters(place)))
+      .filter(({ place }) => place && ((place.isAirport && !state.placeAreaFilter && !state.areaTagFilter) || matchesMapFilters(place)))
       .map(({ item, place }, index) => ({
         ...place,
         itineraryItemId: itineraryItemKey(item),
@@ -2504,7 +2596,7 @@ function offsetOverlappingMapPins(places) {
 function mapScreen() {
   const filterModel = placesFilterModel(state.places, state);
   const areaFilters = placesFilterChips(filterModel, { cuisine: false });
-  const drawerTags = state.placeKind === "restaurant" && filterModel.tags.length ? placesFilterChips(filterModel, { area: false }) : "";
+  const drawerTags = placesFilterChips(filterModel, { area: false, cuisine: state.placeKind === "restaurant" });
   const areaDropdown = `<div class="field map-area-dropdown"><label for="fullscreen-area">地區</label><select id="fullscreen-area" data-map-area><option value="">全部</option>${filterModel.areas.map(([key, name]) => `<option value="${escapeHtml(key)}" ${state.placeAreaFilter === key ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
   const projectedPlaces = filteredMapPlaces();
   const kindPlaces = state.places.filter(matchesMapFilters);
@@ -3407,12 +3499,12 @@ async function ensureDayAirportCoordinates() {
   }
 }
 
-async function initializeInteractiveMap() {
+async function initializeInteractiveMap({ filterOnly = false } = {}) {
   const token = ++mapRenderToken;
   const host = document.querySelector("#interactive-map");
   if (!host) return;
-  const coordinatesUpdated = await ensureMapCoordinates();
-  const airportsUpdated = await ensureDayAirportCoordinates();
+  const coordinatesUpdated = filterOnly ? false : await ensureMapCoordinates();
+  const airportsUpdated = filterOnly ? false : await ensureDayAirportCoordinates();
   if (token !== mapRenderToken || !document.body.contains(host)) return;
   if (coordinatesUpdated || airportsUpdated) document.querySelector(".map-coordinate-note")?.remove();
   const places = filteredMapPlaces().filter(
@@ -4672,7 +4764,7 @@ function itineraryScreen() {
     </section>`;
 }
 
-function render({ preserveScroll = false } = {}) {
+function render({ preserveScroll = false, filterOnly = false } = {}) {
   if (state.hydrationStatus === "loading" || (state.hydrationStatus === "ready" && !tripIsHydrated())) {
     app.innerHTML = appLoadingMarkup();
     return;
@@ -4681,7 +4773,7 @@ function render({ preserveScroll = false } = {}) {
     app.innerHTML = appLoadingMarkup(true);
     return;
   }
-  scheduleLegacyTravelAreaSplit();
+  if (!filterOnly) scheduleLegacyTravelAreaSplit();
   saveUiPreference();
   rememberMapViewport();
   clearAreaBoundary();
@@ -4698,7 +4790,7 @@ function render({ preserveScroll = false } = {}) {
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
   if (state.activeTab === "places" && state.placesMode === "map") {
     if (state.mapView !== "planning" && liveLocationEnabled) stopLiveLocation();
-    window.requestAnimationFrame(initializeInteractiveMap);
+    window.requestAnimationFrame(() => initializeInteractiveMap({ filterOnly }));
   } else {
     if (liveLocationEnabled) stopLiveLocation();
     mapRenderToken += 1;
@@ -4868,6 +4960,7 @@ function openPlaceSheet(name) {
           <div><p class="section-kicker">${escapeHtml(travelAreaDisplayName(place))}</p><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
+        ${areaTagDetail(place)}
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
         ${place.kind === "restaurant" ? `<section class="detail-restaurant-tags"><span>類別</span><div>${restaurantTagValues(place).map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("") || `<small>尚未設定</small>`}</div></section>` : ""}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
@@ -6809,6 +6902,7 @@ function bindPlaceEditor(form, existing, seed) {
     result: null, request: null, timer: null, composing: false, restoreAuto: false, saving: false };
   form.placeEditorSession = session;
   session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
+  bindAreaTagEditor(form, existing || seed);
   session.referenceUrl = form.elements.referenceUrl.value.trim();
   session.sourceMetadata = { ...lodgingSourceMetadata(seed.lodgingDraft || { ...existing, ...seed, referenceUrl: session.referenceUrl }),
     locationPrecision: seed.lodgingDraft?.locationPrecision || seed.locationPrecision || existing?.locationPrecision || "" };
@@ -7222,6 +7316,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
           ${restaurantTagEditor(existing || seed, kind)}
+          ${areaTagEditor()}
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
@@ -7846,17 +7941,20 @@ document.addEventListener("click", async (event) => {
     return render();
   }
 
-  const listFilter = event.target.closest("[data-place-area-filter], [data-restaurant-tag-filter]");
+  const listFilter = event.target.closest("[data-place-area-filter], [data-restaurant-tag-filter], [data-area-tag-filter]");
   if (listFilter) {
     if (listFilter.dataset.placeAreaFilter !== undefined) {
       state.placeAreaFilter = listFilter.dataset.placeAreaFilter;
+      state.selectedMapPlace = "";
+    } else if (listFilter.dataset.areaTagFilter !== undefined) {
+      state.areaTagFilter = listFilter.dataset.areaTagFilter;
       state.selectedMapPlace = "";
     } else {
       state.restaurantTagFilter = listFilter.dataset.restaurantTagFilter;
       if (state.restaurantTagFilter && state.placeKind !== "restaurant") state.placeKind = "all";
     }
     const scrollPositions = [...document.querySelectorAll(".places-filter-chips")].map((row) => row.scrollLeft);
-    render();
+    render({ filterOnly: listFilter.dataset.areaTagFilter !== undefined });
     document.querySelectorAll(".places-filter-chips").forEach((row, index) => { row.scrollLeft = scrollPositions[index] || 0; });
     return;
   }
@@ -8690,7 +8788,9 @@ document.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
     const tagSession = event.target.placeEditorSession;
-    if (tagSession.dirty.has("restaurantTags") && tagSession.tagEditBaseline
+    addAreaTagInput(event.target);
+    if (canSaveAreaTagsOnly(event.target) && saveAreaTagsOnly(event.target)) return;
+    if (!tagSession.dirty.has("areaTags") && tagSession.dirty.has("restaurantTags") && tagSession.tagEditBaseline
       && Object.entries(tagSession.tagEditBaseline).every(([key, value]) => (event.target.elements[key]?.value || "") === value) && !tagSession.saving
       && !pendingPlacePhoto && !removePendingPlacePhoto && saveRestaurantTagsOnly(event.target)) return;
     event.target.placeEditorSession.syncSource();
@@ -8766,6 +8866,7 @@ document.addEventListener("submit", async (event) => {
     const locationSource = resolved || (addressUnchanged ? existing : null);
     const nextPlace = {
       ...(existing || {}),
+      ...(session.dirty.has("areaTags") ? { areaTags: AreaTags.normalize(session.areaTags) } : {}),
       id: existing?.id || `custom-place-${crypto.randomUUID?.() || Date.now()}`,
       name,
       fullName: name,

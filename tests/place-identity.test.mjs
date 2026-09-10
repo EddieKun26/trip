@@ -1,3 +1,4 @@
+import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -23,7 +24,7 @@ function functionSource(name) {
 }
 function frontend(places, resolved) {
   const calls = [], saves = [];
-  const context = {
+  const context = { AreaTags,
     state: { places, destination: "藤澤", tripId: "test-trip" },
     normalizeGoogleMapsUrl: (url) => url || "",
     isGoogleMapsUrl: (url) => /^https:\/\/(?:maps\.google\.com|www\.google\.com)\//.test(url || ""),
@@ -38,7 +39,7 @@ function frontend(places, resolved) {
     canEdit: () => false, placeCreatorName: () => "測試", currentMemberId: () => "test",
   };
   vm.createContext(context);
-  for (const name of ["placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
+  for (const name of ["areaTagDetail", "placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { context, calls, saves };

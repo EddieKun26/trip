@@ -26,3 +26,8 @@
 ## General place fallback acceptance (2026-09-08)
 
 - [ ] User production acceptance: restaurant social URL → empty/unsuitable candidates → 搜尋其他地點 → literal keyword search → inspect/select/import. Empty keyword result → 手動新增 with correct kind. Unknown manual kind → four explicit choices; booking/lodging source retains lodging editor. No agent production App visit.
+
+
+## areaTags experiment acceptance — 2026-09-10
+
+- [ ] User production comparison: optional empty tags, two tags on one Place, one-click trip/address candidates, custom overrides, save/reload, independent List/Map/fullscreen filtering and unchanged identity. Record suggestion/UI ambiguity manually; no analytics or alias resolver in this release.

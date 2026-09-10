@@ -1,3 +1,4 @@
+import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -44,7 +45,7 @@ function browser({ profile = member(), stored = {}, href = "https://trip.test/" 
     removeItem(key) { writes.push({ key, removed: true }); storage.delete(key); },
   };
   const setTimeout = (fn, ms = 0) => { const id = ++timerId; timers.set(id, { fn, ms, at: now + ms }); return id; };
-  context = vm.createContext({ console, URL, URLSearchParams, AbortController,
+  context = vm.createContext({ AreaTags, console, URL, URLSearchParams, AbortController,
     FormData: class {
       constructor(form) { this.values = form.values || {}; }
       get(key) { return this.values[key] ?? null; }
@@ -384,4 +385,36 @@ test("login submit and retry click use the same hydration boundary before restor
   assert.equal(b.realFrames()[0].memberId, "bob");
   assert.equal(b.realFrames()[0].tab, "places");
   assert.ok(b.writes.every((w) => !w.key.startsWith("trip-cache-v1:")));
+});
+
+
+test("areaTags survive real startup hydration, legacy normalization, tab switches, serialization, save and reload", async () => {
+ const payload={...trip("b"),places:[{id:"a",name:"Saved",kind:"attraction",travelAreaKey:"unclassified:a",areaTags:["原宿","表參道"]},{id:"b",name:"Empty",kind:"attraction",areaTags:[]},{id:"c",name:"Old",kind:"attraction"}]};
+ const b=browser({stored:{[activeKey()]:JSON.stringify("b")}});
+ await b.list();await b.ready("b",payload);
+ const tags=()=>JSON.parse(JSON.stringify(b.state.places.map(p=>p.areaTags??null)));
+ assert.deepEqual(tags(),[["原宿","表參道"],[],null]);
+ b.run('state.activeTab="places"; render(); state.areaTagFilter="表參道"; render();');
+ assert.match(b.app.innerHTML,/data-area-tag-filter="表參道"/);
+ b.run('state.activeTab="overview"; render(); state.activeTab="places"; render(); state.places.forEach(ensureTravelAreaFields);');
+ assert.deepEqual(tags(),[["原宿","表參道"],[],null]);
+ b.run('persist(); saveSharedTrip();');
+ const put=b.requests.find(r=>r.options.method==="PUT"&&r.url==="/api/trip?id=b");
+ assert.ok(put);
+ const saved=JSON.parse(put.options.body);
+ assert.deepEqual(saved.places.map(p=>p.areaTags??null),[["原宿","表參道"],[],null]);
+ await b.reply(put,{revision:2});
+ const reloaded=browser({stored:{[activeKey()]:JSON.stringify("b")}});
+ await reloaded.list();await reloaded.ready("b",{...payload,...saved,revision:2});
+ assert.deepEqual(JSON.parse(JSON.stringify(reloaded.state.places.map(p=>p.areaTags??null))),[["原宿","表參道"],[],null]);
+ reloaded.run('clearTripView();');
+ assert.equal(reloaded.state.areaTagFilter,"");
+});
+
+
+test("tag-only render does not schedule a legacy split; normal render still does", async () => {
+ const b=browser({stored:{[activeKey()]:JSON.stringify("b")}});await b.list();await b.ready();
+ b.run('globalThis.splitCalls=0; scheduleLegacyTravelAreaSplit=()=>{globalThis.splitCalls++;}; render({filterOnly:true});');
+ assert.equal(b.context.splitCalls,0);
+ b.run('render();');assert.equal(b.context.splitCalls,1);
 });

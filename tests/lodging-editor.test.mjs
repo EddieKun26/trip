@@ -1,3 +1,4 @@
+import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
@@ -18,7 +19,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
   let time = 0, timerId = 0;
   const requests = [], toasts = [];
   const node = (value = "") => ({ value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, clickCount: 0, listeners: {},
-    addEventListener(type, fn) { this.listeners[type] = fn; }, fire(type, event = {}) { return this.listeners[type]?.(event); }, click() { this.clickCount += 1; } });
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }, fire(type, event = {}) { let result; for (const fn of this.listeners[type] || []) result = fn(event); return result; }, click() { this.clickCount += 1; } });
   const form = node();
   form.id = "place-editor-form";
   form.isConnected = true;
@@ -37,7 +38,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
     return nodes.get(selector);
   };
   form.querySelectorAll = () => Object.values(form.elements);
-  const context = vm.createContext({ URL, console, pendingLodgingDrafts: drafts, pendingPlacePhoto: seed.customPhotoDataUrl || "", removePendingPlacePhoto: false,
+  const context = vm.createContext({ AreaTags, escapeHtml: String, URL, console, pendingLodgingDrafts: drafts, pendingPlacePhoto: seed.customPhotoDataUrl || "", removePendingPlacePhoto: false,
     state: { tripId: "trip", destination: "東京", places: existing ? [existing] : [], votes: {}, itinerary: {}, transports: [] },
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { at: time + delay, fn }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -652,4 +653,83 @@ test("editing only restaurant tags preserves exact Google identity, address and 
  await clear.save();
  assert.equal(clear.requests.length, 0);
  assert.deepEqual(Array.from(clear.context.restaurantTagValues(JSON.parse(JSON.stringify(saved)))), []);
+});
+
+
+test("area tag chips edit only the draft, allow removal/clear, and save without geocoding or identity changes", async () => {
+ const existing={id:"original",name:"原 Place",kind:"attraction",placeId:"ChIJExact",formattedAddress:"",address:"original",addressComponents:[{longText:"神宮前",types:["neighborhood"]}],latitude:35.7,longitude:139.7,photos:[{name:"exact"}],googleMapsUrl:"https://maps.google.com/exact",restaurantTags:["custom"],lodging:{x:1},shopping:{x:2},travelAreaKey:"unclassified:original",areaTags:["手動區"]};
+ const before=structuredClone(existing);
+ const h=harness({existing,address:""});
+ h.context.state.places.push({name:"other",areaTags:["表參道"]});
+ h.context.renderAreaTagDraft(h.form);
+ const suggestions=h.form.querySelector("[data-area-tags-suggestions]").innerHTML;
+ assert.match(suggestions,/表參道/);assert.match(suggestions,/神宮前/);
+ assert.deepEqual(existing,before,"opening and suggestions cannot persist");
+ const click=(data)=>h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:data,hasAttribute:()=>false})}});
+ click({areaTagChoose:"表參道"});click({areaTagChoose:"表參道"});
+ assert.deepEqual(Array.from(h.session.areaTags),["手動區","表參道"]);
+ assert.deepEqual(existing,before);
+ assert.equal(h.form.querySelector('button[type="submit"]').formNoValidate,true,"optional tags save even with an old missing address");
+ await h.save();
+ assert.equal(h.requests.length,0);
+ assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,areaTags:["手動區","表參道"]});
+ const cleared=harness({existing,address:""});
+ for(const tag of existing.areaTags) cleared.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagRemove:tag},hasAttribute:()=>false})}});
+ assert.deepEqual(Array.from(cleared.session.areaTags),[]);
+ await cleared.save();
+ assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,areaTags:[]});
+ assert.equal(cleared.requests.length,0);
+});
+
+test("custom area tags use Enter/add/save, trim and dedupe; cancelling never changes the Place", async () => {
+ const existing={name:"old",kind:"shopping",areaTags:[]};
+ const h=harness({existing,address:""});
+ const input=h.form.querySelector("[data-area-tag-input]");
+ input.value="  ＣＡＦＥ  ";let prevented=false;
+ input.fire("keydown",{key:"Enter",isComposing:false,preventDefault(){prevented=true;}});
+ assert.equal(prevented,true);assert.deepEqual(Array.from(h.session.areaTags),["ＣＡＦＥ"]);
+ input.value="cafe";h.context.addAreaTagInput(h.form);
+ assert.deepEqual(Array.from(h.session.areaTags),["ＣＡＦＥ"]);
+ assert.deepEqual(existing.areaTags,[]);
+ h.context.closeSheet();assert.deepEqual(existing.areaTags,[]);
+ const saved=harness({existing,address:""});
+ saved.form.querySelector("[data-area-tag-input]").value="  自訂旅遊周邊 ";
+ await saved.save();assert.deepEqual(Array.from(existing.areaTags),["自訂旅遊周邊"]);
+ assert.equal(saved.requests.length,0);
+});
+
+test("general save preserves manual tags while legacy area changes and never copies an untouched suggestion", async () => {
+ for(const tags of [undefined,[],["手動周邊","原宿"]]) {
+  const existing={name:"Place",kind:"attraction",formattedAddress:"舊地址",...(tags===undefined?{}:{areaTags:tags}),addressComponents:[{longText:"外神田",types:["neighborhood"]}]};
+  const h=harness({existing,address:"新地址"});
+  const saving=h.save();h.reply(0);await saving;
+  const result=h.context.state.places[0];
+  assert.deepEqual(result.areaTags,tags);
+  assert.equal(result.travelAreaKey,"shinjuku");
+ }
+ const h=harness({address:"新地址"});
+ h.form.querySelector("[data-area-tag-input]").value="原宿";
+ h.context.addAreaTagInput(h.form);
+ const saving=h.save();h.reply(0);await saving;
+ assert.deepEqual(Array.from(h.context.state.places[0].areaTags),["原宿"]);
+});
+
+test("editing area and restaurant tags together saves both without changing any other field", async () => {
+ const existing={name:"Exact",kind:"restaurant",placeId:"ChIJExact",photos:[{name:"exact"}],restaurantTags:["日式"],areaTags:["原宿"]};
+ const before=structuredClone(existing);const h=harness({existing,address:""});
+ h.form.checkedTags=["牛排"];h.session.dirty.add("restaurantTags");
+ h.form.querySelector("[data-area-tag-input]").value="表參道";
+ await h.save();
+ assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,restaurantTags:["牛排"],restaurantTagsSource:"manual",areaTags:["原宿","表參道"]});
+ assert.equal(h.requests.length,0);
+});
+
+
+test("pending custom input bypasses address validation only for an otherwise unchanged saved Place", () => {
+ const h=harness({existing:{name:"Old",kind:"attraction"},address:""});
+ const input=h.form.querySelector("[data-area-tag-input]");input.value="自訂區";
+ h.form.fire("input",{target:input});
+ assert.equal(h.form.querySelector('button[type="submit"]').formNoValidate,true);
+ h.input("name","Changed");
+ assert.equal(h.form.querySelector('button[type="submit"]').formNoValidate,false);
 });

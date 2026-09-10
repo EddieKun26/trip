@@ -1,3 +1,4 @@
+import AreaTags from "../lib/area-tags.js";
 import areaAudit from "../lib/travel-area-audit.js";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -5,7 +6,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
-const c = vm.createContext({ escapeHtml: (s) => String(s).replaceAll('"', '&quot;'), state: {} });
+const c = vm.createContext({ AreaTags, escapeHtml: (s) => String(s).replaceAll('"', '&quot;'), state: {} });
 vm.runInContext(section("function restaurantTagValues", "function placesScreen"), c);
 const places = [
  { name: "a", kind: "restaurant", travelAreaKey: "ueno", travelAreaZh: "上野", restaurantTags: ["燒肉", "日式"] },
@@ -57,7 +58,7 @@ test("automatic suggestions only accept exact explicit categories, never names",
 test("shared sanitizer and JSON reload retain optional tags and explicit empty arrays", () => {
  const server = readFileSync(new URL("../api/trip.mjs", import.meta.url), "utf8");
  const fn = server.slice(server.indexOf("function cleanTrip"), server.indexOf("export default async function"));
- const clean = new Function("areaAudit", "areaCatalog", `${fn}; return cleanTrip;`)(areaAudit, {});
+ const clean = new Function("areaAudit", "areaCatalog", "areaTags", `${fn}; return cleanTrip;`)(areaAudit, {}, AreaTags);
  const before = [...places, { kind: "restaurant", restaurantTags: [] }];
  const payload = clean({ places: before }, { title: "旅程" }, { id: "a", nickname: "a" });
  const reload = JSON.parse(JSON.stringify(payload));
@@ -78,7 +79,7 @@ test("filter controls expose pressed state, scroll horizontally, and do not invo
 
 
 test("List and Map share stable area key; area changes filter map without cuisine leakage", () => {
- const context = vm.createContext({ state: { placeKind: "all", placeAreaFilter: "ueno", mapCategory: "all", mapPreference: "all" }, placeVoters: () => [] });
+ const context = vm.createContext({ AreaTags, state: { placeKind: "all", placeAreaFilter: "ueno", mapCategory: "all", mapPreference: "all" }, placeVoters: () => [] });
  vm.runInContext(section("function matchesMapFilters", "function spreadOverlappingPins"), context);
  assert.deepEqual(places.filter(context.matchesMapFilters).map(p => p.name), ["a", "c"]);
  context.state.placeAreaFilter = "shinjuku";
@@ -88,7 +89,7 @@ test("List and Map share stable area key; area changes filter map without cuisin
 });
 
 test("empty area preserves Google/Leaflet viewport, scoped to the current trip", () => {
- const context = vm.createContext({ state: { tripId: "trip" }, activeGoogleMap: { getCenter: () => ({ lat: () => 35.64, lng: () => 139.7 }), getZoom: () => 15 }, activeLeafletMap: null });
+ const context = vm.createContext({ AreaTags, state: { tripId: "trip" }, activeGoogleMap: { getCenter: () => ({ lat: () => 35.64, lng: () => 139.7 }), getZoom: () => 15 }, activeLeafletMap: null });
  vm.runInContext(section("let lastMapViewport", "function renderGoogleInteractiveMap"), context);
  context.rememberMapViewport();
  assert.equal(context.emptyMapViewport().zoom, 15);

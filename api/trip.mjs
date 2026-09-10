@@ -1,3 +1,4 @@
+import areaTags from "../lib/area-tags.js";
 import areaAudit from "../lib/travel-area-audit.js";
 import { readFileSync } from "node:fs";
 let areaCatalog = null;
@@ -167,7 +168,7 @@ function cleanTrip(input, previous, member) {
     startDate: String(input?.startDate || previous.startDate),
     endDate: String(input?.endDate || previous.endDate),
     flights: Array.isArray(input?.flights) ? input.flights.slice(0, 30) : previous.flights || [],
-    places: Array.isArray(input?.places) ? input.places.slice(0, 250).map(place => areaAudit.reclassify(place, areaCatalog)) : [],
+    places: Array.isArray(input?.places) ? input.places.slice(0, 250).map(place => areaTags.cleanPlace(areaAudit.reclassify(place, areaCatalog), previous.places || [])) : [],
     votes: input?.votes && typeof input.votes === "object" ? input.votes : {},
     itinerary: input?.itinerary && typeof input.itinerary === "object" ? input.itinerary : {},
     transports: Array.isArray(input?.transports) ? input.transports.slice(0, 500) : previous.transports || [],
