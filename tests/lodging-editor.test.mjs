@@ -6,9 +6,16 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+const functionSource = (name) => {
+  const start = source.search(new RegExp(`(?:async )?function ${name}\\(`));
+  const rest = source.slice(start);
+  const end = rest.slice(1).search(/\n(?:async )?function /);
+  return rest.slice(0, end + 1);
+};
 const helpers = section("function manualPlaceSeed", "async function compressPlacePhoto(file)");
 const editorValueHelpers = section("function defaultPlaceCategory", "function openPlaceEditSheet");
 const submit = section('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
+const placeDetailKeyHelper = functionSource("placeDetailKey");
 const good = { latitude: 35.7, longitude: 139.7, formattedAddress: "Google 標準地址 1-2-3", countryCode: "JP",
   travelAreaKey: "shinjuku", travelAreaZh: "新宿", travelAreaLocal: "新宿", travelAreaResolved: true,
   travelAreaSource: "automatic", travelAreaResolver: "JP_NAMED_AREA", travelAreaResolutionVersion: 5 };
@@ -51,9 +58,11 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
     canEdit: () => true, guestOnlyMessage() {}, showToast: (message) => toasts.push(message),
     crypto: { randomUUID: () => "id" }, persist() {}, render() {}, renamePlaceReferences() {},
     closeSheet() { form.isConnected = false; },
+    normalizeGoogleMapsUrl: (url) => url || "",
+    openPlaceSheet() {},
     FormData: class { constructor(form) { this.tags = form.checkedTags || []; this.values = Object.fromEntries(Object.entries(form.elements).map(([key, node]) => [key, node.value])); } get(key) { return this.values[key]; } getAll(key) { return this.tags; } },
   });
-  vm.runInContext(section("function restaurantTagValues", "function placesScreen") + section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + section("function saveRestaurantTagsOnly", "function renamePlaceReferences") + helpers + editorValueHelpers + `\nasync function submitEditor(event) { ${submit} }`, context);
+  vm.runInContext(section("function restaurantTagValues", "function placesScreen") + section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + section("function saveRestaurantTagsOnly", "function renamePlaceReferences") + helpers + editorValueHelpers + placeDetailKeyHelper + `\nasync function submitEditor(event) { ${submit} }`, context);
   const session = context.bindPlaceEditor(form, existing, seed);
   const input = (key, value) => { const target = form.elements[key]; target.name = key; target.value = value; form.fire("input", { target }); };
   return { context, form, session, requests, toasts, input,

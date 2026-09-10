@@ -2247,6 +2247,7 @@ function bindAreaTagEditor(form, source) {
 function saveAreaTagsOnly(form) {
   const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
   if (!existing) return false;
+  const returnKey = form.placeEditorSession.detailReturnKey;
   existing.areaTags = AreaTags.normalize(form.placeEditorSession.areaTags, form.placeEditorSession.areaTagComparison);
   if (form.placeEditorSession.dirty.has("restaurantTags") && existing.kind === "restaurant") {
     existing.restaurantTags = restaurantTagValues({ kind: "restaurant", restaurantTags: new FormData(form).getAll("restaurantTags") });
@@ -2254,7 +2255,8 @@ function saveAreaTagsOnly(form) {
   }
   persist();
   closeSheet();
-  render({ filterOnly: true });
+  render({ preserveScroll: true, filterOnly: true });
+  if (returnKey) openPlaceSheet(returnKey);
   showToast("地區標籤已儲存");
   return true;
 }
@@ -6980,6 +6982,9 @@ function bindPlaceEditor(form, existing, seed) {
   const session = { sequence: 0, metadataSequence: 0, dirty: new Set(seed.touchedFields || []), address: placeEditorAddress(form),
     result: null, request: null, timer: null, composing: false, restoreAuto: false, saving: false };
   form.placeEditorSession = session;
+  // Editing an existing place always opens from its detail sheet (data-edit-place). Save and
+  // Cancel both return there via this stable identity, never a name/filtered-list re-lookup.
+  session.detailReturnKey = existing ? placeDetailKey(existing) : "";
   session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
   bindAreaTagEditor(form, existing || seed);
   session.referenceUrl = form.elements.referenceUrl.value.trim();
@@ -7427,12 +7432,14 @@ function openPlaceEditSheet(name = "", seed = {}) {
 function saveRestaurantTagsOnly(form) {
   const existing = state.places.find((place) => place.name === form.dataset.originalPlaceName);
   if (!existing || existing.kind !== "restaurant" || form.elements.kind.value !== "restaurant") return false;
+  const returnKey = form.placeEditorSession.detailReturnKey;
   const restaurantTags = new FormData(form).getAll("restaurantTags");
   existing.restaurantTags = restaurantTagValues({ kind: "restaurant", restaurantTags });
   existing.restaurantTagsSource = "manual";
   persist();
   closeSheet();
-  render();
+  render({ preserveScroll: true });
+  if (returnKey) openPlaceSheet(returnKey);
   showToast("類別已儲存");
   return true;
 }
@@ -8479,8 +8486,16 @@ document.addEventListener("click", async (event) => {
     return showToast("時間與行程順序已更新");
   }
 
-  if (event.target.closest("[data-close-sheet]")) return closeSheet();
-  if (event.target.matches("[data-dismiss-sheet]")) return closeSheet();
+  if (event.target.closest("[data-close-sheet]")) {
+    const returnKey = event.target.closest("#place-editor-form")?.placeEditorSession?.detailReturnKey;
+    closeSheet();
+    return returnKey ? openPlaceSheet(returnKey) : undefined;
+  }
+  if (event.target.matches("[data-dismiss-sheet]")) {
+    const returnKey = event.target.querySelector("#place-editor-form")?.placeEditorSession?.detailReturnKey;
+    closeSheet();
+    return returnKey ? openPlaceSheet(returnKey) : undefined;
+  }
 
   const reorderMenu = event.target.closest("[data-reorder-menu]");
   if (reorderMenu) {
@@ -9002,11 +9017,12 @@ document.addEventListener("submit", async (event) => {
     } else {
       state.places.push(nextPlace);
     }
-    state.placeKind = kind;
-    state.selectedArea = "";
+    const returnKey = session.detailReturnKey;
+    if (!returnKey) { state.placeKind = kind; state.selectedArea = ""; }
     persist();
     closeSheet();
-    render();
+    render({ preserveScroll: true });
+    if (returnKey) openPlaceSheet(placeDetailKey(nextPlace));
     return showToast(resolved ? (existing ? "地點資料已更新" : "已加入自訂地點") : (existing ? "資料已更新；地址暫時無法定位" : "已加入；地址暫時無法定位"));
   }
 

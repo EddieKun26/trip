@@ -33,3 +33,8 @@
 - [ ] User production comparison: optional empty tags, two tags on one Place, one-click trip/address candidates, custom overrides, save/reload, independent List/Map/fullscreen filtering and unchanged identity. Record suggestion/UI ambiguity manually; no analytics or alias resolver in this release.
 - [x] User production check of the 2026-09-10 address-suggestion decoupling and English chome fallback confirmed the saved-address row still visible-without-focus behavior, but found the real Booking lodging "自由之家" still showed no Okubo/大久保 suggestion despite Travel Area resolving to 新宿 -- root cause was a stale-snapshot integration bug (not the parser), fixed the same day; see decisions.md "Booking suggestion integration fix and detail chip-row merge".
 - [ ] User production re-check on a real device: reopen/re-import "自由之家" (or any Booking-style English address) and confirm the Okubo/大久保 suggestion now appears immediately (typed, pasted, and via Booking-link recognition), and that the merged areaTags+category chip row on restaurant detail pages looks correct (single wrapping row, no horizontal overflow on mobile).
+
+
+## Sticky save footer and same-place navigation acceptance — 2026-09-11
+
+- [ ] User production check on a real iPhone/Android device during bulk areaTags editing: the Save/Cancel bar stays visible while scrolling the editor, is not obscured by or fighting the on-screen keyboard, and the last field (photo section) is never hidden behind it. Confirm Save and Cancel on an existing place both return to that same place's detail (not the list), Save shows the freshly saved data, Cancel shows the untouched original, and the underlying Places list's scroll position/filters are exactly as left when the editor is eventually closed.

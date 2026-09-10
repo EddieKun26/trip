@@ -4333,6 +4333,23 @@ body.transport-sheet-open .app {
   overscroll-behavior: contain;
 }
 
+/* Sticky action bar inside the sheet's own scroll container (not viewport-fixed), so it
+   stays clear of the iOS keyboard/accessory bar compressing the visual viewport. */
+.place-editor-sheet > .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 18px -20px -20px;
+  padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--paper-2);
+  box-shadow: 0 -6px 14px -10px rgba(37, 31, 26, 0.35);
+}
+
+.place-editor-sheet > .place-photo-editor {
+  padding-bottom: 8px;
+}
+
 .place-editor-intro {
   margin: 6px 0 13px;
   color: var(--muted);
