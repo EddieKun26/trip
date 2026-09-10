@@ -60,6 +60,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
     closeSheet() { form.isConnected = false; },
     normalizeGoogleMapsUrl: (url) => url || "",
     openPlaceSheet() {},
+    areaGeometryCatalog: null, loadAreaGeometry: () => Promise.resolve(null),
     FormData: class { constructor(form) { this.tags = form.checkedTags || []; this.values = Object.fromEntries(Object.entries(form.elements).map(([key, node]) => [key, node.value])); } get(key) { return this.values[key]; } getAll(key) { return this.tags; } },
   });
   vm.runInContext(section("function restaurantTagValues", "function placesScreen") + section("const TRAVEL_AREA_RESOLUTION_VERSION", "function placeVoters") + section("function saveRestaurantTagsOnly", "function renamePlaceReferences") + helpers + editorValueHelpers + placeDetailKeyHelper + `\nasync function submitEditor(event) { ${submit} }`, context);

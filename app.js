@@ -1414,7 +1414,29 @@ function applySharedTrip(payload) {
   syncFlightItineraryItems();
   if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
   resetUndoBaseline({ clear: true });
+  scheduleContainmentMigration();
   return true;
+}
+
+// A whitelisted tag string only decides whether the boundary file is worth fetching at all.
+// Every actual replacement is re-proved below by that place's own coordinates.
+function scheduleContainmentMigration() {
+  if (containmentMigrationDone === state.tripId || !canEdit()) return;
+  const pending = state.places.some((place) => (Array.isArray(place?.areaTags) ? place.areaTags : [])
+    .some((tag) => Object.hasOwn(AreaTags.CONTAINMENT_MIGRATIONS, String(tag || "").normalize("NFKC").trim())));
+  if (!pending) return;
+  containmentMigrationDone = state.tripId;
+  const tripId = state.tripId;
+  loadAreaGeometry().then((catalog) => {
+    if (!catalog?.areas || !canEdit() || tripId !== state.tripId) return;
+    const { changes, blocked } = AreaTags.containmentMigration(state.places, catalog);
+    // All-or-nothing. Any failed containment, multi-area hit or ambiguous canonical label
+    // leaves every persisted areaTag exactly as it is; there is no partial migration.
+    if (blocked.length || !changes.length) return;
+    for (const change of changes) change.place.areaTags = change.after;
+    persist();
+    render({ preserveScroll: true, filterOnly: true });
+  });
 }
 
 async function saveSharedTrip() {
@@ -2137,7 +2159,7 @@ function renderAreaTagDraft(form) {
   const source = areaTagAddressSource(form);
   session.areaTagComparison = AreaTags.comparison([...state.places, source]);
   form.querySelector("[data-area-tags-selected]").innerHTML = session.areaTags.map((tag) => `<button type="button" data-area-tag-remove="${escapeHtml(tag)}" aria-label="移除 ${escapeHtml(tag)}">${escapeHtml(tag)} ×</button>`).join("");
-  const relevant = AreaTags.suggestions(source, state.places, session.areaTags).address;
+  const relevant = AreaTags.suggestions(source, state.places, session.areaTags, areaGeometryCatalog).address;
   form.querySelector("[data-area-tag-address-suggestions]").innerHTML = relevant.length
     ? `<span>地址建議</span>${relevant.map((tag) => `<button type="button" data-area-tag-choose="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}` : "";
   renderAreaTagAutocomplete(form);
@@ -2192,6 +2214,11 @@ function bindAreaTagEditor(form, source) {
   session.areaTags = AreaTags.values(source, session.areaTagComparison);
   session.areaTagSource = source; // Suggestions read saved evidence, never async resolver output.
   session.areaTagBaseline = placeEditorAddress(form); // Address shown when this evidence was captured.
+  // Verified containment needs the same pre-generated boundary file the map already caches.
+  // The first paint uses the address fallback; the row upgrades in place once it arrives.
+  if (!areaGeometryCatalog && Number.isFinite(source?.latitude) && Number.isFinite(source?.longitude)) {
+    loadAreaGeometry().then(() => { if (form.placeEditorSession === session && form.isConnected) renderAreaTagDraft(form); });
+  }
   session.areaTagAutocompleteOpen = false;
   session.areaTagActiveIndex = -1;
   const editor = form.querySelector("[data-area-tag-editor]");
@@ -3074,6 +3101,8 @@ function loadGoogleMapsScript(key) {
 }
 
 let areaGeometryPromise = null;
+let areaGeometryCatalog = null;
+let containmentMigrationDone = "";
 const splitAuditAttempts = new WeakSet();
 function scheduleLegacyTravelAreaSplit() {
   if (!globalThis.TravelAreaAudit) return;
@@ -3107,7 +3136,9 @@ function clearAreaBoundary() {
 
 function loadAreaGeometry() {
   if (!areaGeometryPromise) areaGeometryPromise = fetch("./data/area-geometry/travel-area-boundaries.json?v=20260910.1", { signal: AbortSignal.timeout(12000) })
-    .then((response) => response.ok ? response.json() : null).catch(() => null);
+    .then((response) => response.ok ? response.json() : null).catch(() => null)
+    // Cached synchronously so areaTag suggestions can read containment without going async.
+    .then((catalog) => { areaGeometryCatalog = catalog; return catalog; });
   return areaGeometryPromise;
 }
 

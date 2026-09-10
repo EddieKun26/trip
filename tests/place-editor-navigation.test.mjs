@@ -95,6 +95,7 @@ function harness({ existing = null, extraState = {} } = {}) {
     formatOpeningHours: () => "", avatarMarkup: () => "", memberName: () => "",
     placeAssignments: () => [], placeScheduleLabel: () => "", placeCreatorName: () => "測試",
     ensurePlaceDetails: async () => {},
+    areaGeometryCatalog: null, loadAreaGeometry: () => Promise.resolve(null),
   });
   vm.runInContext(editorCore + detailCore
     + `\nasync function submitEditor(event) { ${submit} }\nfunction dismissSheet(event) { ${dismissSnippet} }`, context);
