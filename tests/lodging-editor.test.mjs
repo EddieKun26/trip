@@ -434,7 +434,13 @@ test("source whitelist merges into lodging candidates without changing Google id
     submittablePlaceImports: (places) => places.filter((p) => p.selected),
     withStoredTabelogLink: (place) => place, persist: () => { saves += 1; },
     FormData: class { get() { return "auto"; } },
+    candidateDraftStore: new Map(), endImportSession: () => {},
+    CANDIDATE_DRAFT_IDENTITY_FIELDS: ["placeId", "latitude", "longitude", "photos", "sourceUrl", "formattedAddress",
+      "rating", "ratingCount", "phone", "openingHours", "description", "addressComponents",
+      "addressComponentsOriginal", "countryCode", "addressProvider", "locationApproximate", "coordinateFallback", "coordinateLocation"],
   });
+  vm.runInContext(functionSource("importCandidateIdentity"), h.context);
+  vm.runInContext(functionSource("finalizeCandidateForBatchAdd"), h.context);
   vm.runInContext(`async function submitImport(event) { ${section('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")')} }`, h.context);
   await h.context.submitImport({ target: { id: "import-places-form" }, preventDefault() {} });
   assert.equal(saves, 1); assert.equal(h.context.state.places.length, 1);

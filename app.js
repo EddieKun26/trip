@@ -267,6 +267,12 @@ let pendingPlaceImportScreenshot = "";
 let pendingPlaceImportNotice = "";
 let pendingPlacePhoto = "";
 let removePendingPlacePhoto = false;
+// Candidate drafts are session-only edits made before a batch add, keyed by the same stable
+// identity (placeId/sourceUrl) used throughout the import flow. The original candidate objects
+// in pendingPlaceImports are never mutated by editing; only this map is written to, and it is
+// cleared when the import session ends (batch add succeeds or the whole flow is cancelled).
+let candidateDraftStore = new Map();
+let importSheetReturnState = null;
 let sharedSaveTimer = 0;
 let sharedSyncBusy = false;
 let tripContextVersion = 0;
@@ -6439,6 +6445,50 @@ function importCandidateIdentity(place) {
   return String(place?.placeId || place?.sourceUrl || "");
 }
 
+// Fields that only Google/the import pipeline can populate. A candidate draft may override the
+// user-editable content (name/kind/category/tags/photo) but must never be able to overwrite
+// these at batch-add time, even if a future editor field accidentally touches them.
+const CANDIDATE_DRAFT_IDENTITY_FIELDS = [
+  "placeId", "latitude", "longitude", "photos", "sourceUrl", "formattedAddress",
+  "rating", "ratingCount", "phone", "openingHours", "description",
+  "addressComponents", "addressComponentsOriginal", "countryCode", "addressProvider",
+  "locationApproximate", "coordinateFallback", "coordinateLocation",
+];
+
+function cloneCandidateForDraft(candidate) {
+  return { ...candidate };
+}
+
+function candidateDraft(identity, original) {
+  return candidateDraftStore.get(identity) || cloneCandidateForDraft(original);
+}
+
+// Builds the seed consumed by the existing place editor (openPlaceEditSheet). The editor reads
+// seed.address, not formattedAddress, so it is mapped here; every other field the editor or the
+// areaTags suggestion pipeline reads (kind/category/latitude/longitude/addressComponents/...)
+// already matches a candidate's own field names.
+function candidateDraftEditorSeed(identity, draft) {
+  return {
+    ...draft,
+    address: draft.formattedAddress || draft.manualAddress || draft.candidateAddress || "",
+    editorMode: "candidate-draft",
+    candidateIdentity: identity,
+  };
+}
+
+// Batch add must build the final place from the candidate draft's edited content while keeping
+// the original candidate's Google identity evidence authoritative, never a re-search/re-geocode.
+function finalizeCandidateForBatchAdd(candidate) {
+  const identity = importCandidateIdentity(candidate);
+  const draft = identity ? candidateDraftStore.get(identity) : null;
+  if (!draft) return candidate;
+  const merged = { ...candidate, ...draft };
+  CANDIDATE_DRAFT_IDENTITY_FIELDS.forEach((field) => {
+    if (field in candidate) merged[field] = candidate[field];
+  });
+  return merged;
+}
+
 function renderImportPreview({ preserveScroll = false } = {}) {
   const preview = document.querySelector("#import-preview");
   if (!preview) return;
@@ -6690,9 +6740,13 @@ function importCandidateGalleryMarkup(place) {
 }
 
 function openImportCandidatePreview(identity) {
-  const place = pendingPlaceImports.find((candidate) => importCandidateIdentity(candidate) === identity);
-  if (!place) return;
+  const original = pendingPlaceImports.find((candidate) => importCandidateIdentity(candidate) === identity);
+  if (!original) return;
   closeImportCandidatePreview();
+  // The confirmation page always reflects the candidate draft (if the user has edited and saved
+  // one this session); identity/evidence fields are untouched by the draft so merging is safe.
+  const draft = candidateDraftStore.get(identity);
+  const place = draft ? { ...original, ...draft } : original;
   const rating = Number(place.rating) > 0
     ? `★ ${Number(place.rating).toFixed(1)}${Number(place.ratingCount) > 0 ? `（${Number(place.ratingCount).toLocaleString("zh-TW")} 則評價）` : ""}`
     : "尚無評分資料";
@@ -6702,16 +6756,15 @@ function openImportCandidatePreview(identity) {
   const mapPreview = validMapCoordinates(latitude, longitude)
     ? `<section class="import-location-preview" aria-label="${escapeHtml(place.name)}地圖位置"><iframe title="${escapeHtml(place.name)}地圖位置" src="https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}&z=17&output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe><span>請用地圖與下方完整地址確認位置</span></section>`
     : "";
-  const selectionMode = importCandidateSelectionMode(place);
-  const selectLabel = selectionMode === "multiple"
-    ? place.selected ? "取消選取" : "加入這個地點"
-    : place.selected ? "✓ 已選擇這個住宿" : "選擇這個住宿";
   sheetRoot.insertAdjacentHTML("beforeend", `
     <div class="import-candidate-backdrop" data-import-candidate-preview-root data-dismiss-import-candidate>
       <section class="modal-sheet import-candidate-sheet" role="dialog" aria-modal="true" aria-labelledby="import-candidate-title">
         <div class="section-row">
           <div><p class="section-kicker">加入前確認 · 候選 ${Number(place.candidateRank) || 1}</p><h2 id="import-candidate-title">${escapeHtml(place.name)}</h2></div>
-          <button class="icon-button" type="button" data-close-import-candidate aria-label="關閉候選預覽">×</button>
+          <div class="import-candidate-header-actions">
+            <button class="text-button" type="button" data-edit-import-candidate="${escapeHtml(identity)}">編輯</button>
+            <button class="icon-button" type="button" data-close-import-candidate aria-label="關閉候選預覽">×</button>
+          </div>
         </div>
         ${fullName}
         ${place.locationApproximate ? `<p class="coordinate-fallback-notice"><strong>這是住宿大約位置，不是入住地址</strong><span>Airbnb 等平台可能在預訂前隱藏門牌；預訂後請用房東提供的完整地址更新。</span></p>` : place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
@@ -6733,7 +6786,7 @@ function openImportCandidatePreview(identity) {
         </section>
         <div class="modal-actions import-candidate-actions">
           <button class="secondary-button" type="button" data-close-import-candidate>返回候選</button>
-          ${place.candidateGroupId ? `<button class="primary-button" type="button" data-select-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" data-candidate-checked="${place.selected ? "false" : "true"}">${selectLabel}</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
+          ${place.candidateGroupId ? `<button class="primary-button" type="button" data-confirm-import-candidate="${escapeHtml(identity)}" data-candidate-group="${escapeHtml(place.candidateGroupId)}">確認選取</button>` : `<button class="primary-button" type="button" data-close-import-candidate>確認位置後返回</button>`}
         </div>
       </section>
     </div>`);
@@ -6865,15 +6918,32 @@ function setImportSheetState(nextState) {
   updateImportSourceSummary(form);
 }
 
+// Ends the current import session's candidate-draft bookkeeping: batch add succeeding, or the
+// whole import flow being cancelled/closed. Returning to the candidate list or unchecking a
+// candidate is not a session end and must never call this.
+function endImportSession() {
+  candidateDraftStore.clear();
+  importSheetReturnState = null;
+}
+
 function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
   pendingPlaceImports = [];
   pendingLodgingDrafts = [];
   pendingPlaceImportScreenshot = "";
   pendingPlaceImportNotice = "";
+  endImportSession();
   const fromShareTarget = Boolean(initialText);
-  sheetRoot.innerHTML = `
+  sheetRoot.innerHTML = importPlacesSheetMarkup({ fromShareTarget, initialText });
+  if (autoAnalyze) {
+    const analyzeButton = sheetRoot.querySelector("[data-analyze-places]");
+    window.setTimeout(() => analyzePlaceImportSheet(analyzeButton), 0);
+  }
+}
+
+function importPlacesSheetMarkup({ fromShareTarget = false, initialText = "" } = {}) {
+  return `
     <div class="modal-backdrop import-places-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet import-places-sheet" id="import-places-form" data-import-state="input" aria-busy="false">
+      <form class="modal-sheet import-places-sheet" id="import-places-form" data-import-state="input" data-from-share-target="${fromShareTarget ? "true" : "false"}" aria-busy="false">
         <div class="section-row">
           <div><p class="section-kicker">${fromShareTarget ? "從系統分享收到" : "地點匯入"}</p>${fromShareTarget ? "<h2>確認分享地點</h2>" : "<h2>新增地點</h2>"}</div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
@@ -6897,10 +6967,35 @@ function openAddPlaceSheet({ initialText = "", autoAnalyze = false } = {}) {
         <div class="modal-actions import-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit" data-confirm-import disabled>尚未選擇地點</button></div>
       </form>
     </div>`;
-  if (autoAnalyze) {
-    const analyzeButton = sheetRoot.querySelector("[data-analyze-places]");
-    window.setTimeout(() => analyzePlaceImportSheet(analyzeButton), 0);
-  }
+}
+
+// The general place editor (openPlaceEditSheet) replaces the whole sheetRoot, so opening it from
+// the candidate confirmation page destroys the underlying import list sheet. This captures just
+// enough to rebuild it (and reopen the same candidate's confirmation page) once the editor closes.
+function openImportCandidateEditor(identity) {
+  const original = pendingPlaceImports.find((place) => importCandidateIdentity(place) === identity);
+  if (!original) return showToast("找不到這個候選");
+  const draft = candidateDraft(identity, original);
+  const activeForm = document.querySelector("#import-places-form");
+  importSheetReturnState = {
+    mapsListValue: activeForm?.elements.mapsList?.value || "",
+    fromShareTarget: activeForm?.dataset.fromShareTarget === "true",
+    importState: activeForm?.dataset.importState || "results",
+  };
+  openPlaceEditSheet("", candidateDraftEditorSeed(identity, draft));
+}
+
+function reopenImportCandidateSheet(identity) {
+  const restore = importSheetReturnState || {
+    mapsListValue: "",
+    fromShareTarget: false,
+    importState: pendingPlaceImports.length || pendingLodgingDrafts.length ? "results" : "input",
+  };
+  sheetRoot.innerHTML = importPlacesSheetMarkup({ fromShareTarget: restore.fromShareTarget, initialText: restore.mapsListValue });
+  setImportSheetState(restore.importState);
+  renderImportPreview();
+  updateImportConfirmState();
+  if (identity) openImportCandidatePreview(identity);
 }
 
 function manualPlaceSeed(value = "", requestedKind = "auto") {
@@ -7402,6 +7497,8 @@ function manualImportGroupSeed(place) {
 function openPlaceEditSheet(name = "", seed = {}) {
   const existing = name ? state.places.find((place) => place.name === name) : null;
   if (name && !existing) return showToast("找不到這個地點");
+  // Explicit mode, never inferred from data shape: a candidate draft never touches state.places.
+  const isCandidateDraftMode = !existing && seed.editorMode === "candidate-draft" && Boolean(seed.candidateIdentity);
   pendingPlacePhoto = String(seed.customPhotoDataUrl || "");
   removePendingPlacePhoto = false;
   const kind = seed.kind && seed.kind !== "auto" ? seed.kind : existing?.kind || "attraction";
@@ -7422,12 +7519,12 @@ function openPlaceEditSheet(name = "", seed = {}) {
   const travelAreaLocal = manualTravelArea && !globalThis.TravelAreaAudit?.isLegacy(existing) ? existing.travelAreaLocal : "";
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet place-editor-sheet" id="place-editor-form" data-original-place-name="${escapeHtml(existing?.name || "")}" data-original-address="${escapeHtml(existing?.formattedAddress || "")}">
+      <form class="modal-sheet place-editor-sheet" id="place-editor-form" data-editor-mode="${isCandidateDraftMode ? "candidate-draft" : "persisted-place"}" data-candidate-identity="${escapeHtml(isCandidateDraftMode ? seed.candidateIdentity : "")}" data-original-place-name="${escapeHtml(existing?.name || "")}" data-original-address="${escapeHtml(existing?.formattedAddress || "")}">
         <div class="section-row">
-          <div><p class="section-kicker">${existing ? "地點資料" : "不依賴商家搜尋"}</p><h2>${existing ? "編輯地點" : "手動新增地點"}</h2></div>
+          <div><p class="section-kicker">${existing ? "地點資料" : isCandidateDraftMode ? "候選資料" : "不依賴商家搜尋"}</p><h2>${existing ? "編輯地點" : isCandidateDraftMode ? "編輯候選" : "手動新增地點"}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p class="place-editor-intro">${kind === "lodging" ? "私人住宿不一定有 Google 商家頁面。這裡會用門牌定位，名稱、地址與照片則以你填寫的內容為準。" : "填寫地點名稱與完整地址，確認後加入旅程。"}</p>
+        <p class="place-editor-intro">${isCandidateDraftMode ? "修改這個候選的名稱、類型、類別、地區標籤或照片；儲存只會更新候選資料，回到候選確認頁後仍要按「加入已選」才會真正加入旅程。" : kind === "lodging" ? "私人住宿不一定有 Google 商家頁面。這裡會用門牌定位，名稱、地址與照片則以你填寫的內容為準。" : "填寫地點名稱與完整地址，確認後加入旅程。"}</p>
         <div class="field"><label for="place-editor-reference">${kind === "lodging" ? "住宿來源連結" : "原始來源連結"}（選填）</label><input id="place-editor-reference" name="referenceUrl" inputmode="url" maxlength="1000" value="${escapeHtml(referenceUrl)}" placeholder="${kind === "lodging" ? "Airbnb、Booking、Agoda 或 Trip.com 連結" : "Instagram、Threads 或其他來源連結"}" /><small data-lodging-source-status aria-live="polite"></small></div>
         <input type="hidden" name="sourcePlatform" value="${escapeHtml(sourcePlatform)}" />
         <input type="hidden" name="sourceLodgingName" value="${escapeHtml(sourceLodgingName)}" />
@@ -7454,10 +7551,55 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="place-photo-actions"><label class="secondary-button" for="place-photo-input" data-replace-place-photo ${editorPhoto ? "" : "hidden"}>更換照片</label><input class="visually-hidden" id="place-photo-input" type="file" accept="image/*" data-place-photo-input /><button type="button" data-remove-place-photo ${editorPhoto ? "" : "hidden"}>移除照片</button></div>
           <small data-place-photo-status>${editorPhoto ? (photoOrigin === "lodging_source" ? "已帶入原住宿頁的照片，儲存時會壓縮保留" : "這張照片會顯示在地點詳情與地圖預覽") : "照片會壓縮後與旅伴共用"}</small>
         </section>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : "確認新增"}</button></div>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : isCandidateDraftMode ? "儲存候選" : "確認新增"}</button></div>
       </form>
     </div>`;
   bindPlaceEditor(sheetRoot.querySelector("#place-editor-form"), existing, seed);
+}
+
+// candidate-draft mode Save never touches state.places, never persists the trip, and never
+// re-geocodes/re-searches: it only commits the editable, non-identity fields (name/kind/
+// category/restaurantTags/areaTags/photo) into this candidate's draft, then returns to its
+// confirmation page. Identity/location/photos evidence always stays the original candidate's.
+async function submitCandidateDraftEditor(form) {
+  addAreaTagInput(form);
+  const session = form.placeEditorSession;
+  if (session.saving) return;
+  const identity = form.dataset.candidateIdentity || "";
+  const original = pendingPlaceImports.find((place) => importCandidateIdentity(place) === identity);
+  if (!identity || !original) {
+    closeSheet();
+    return showToast("這個候選已不存在");
+  }
+  const draft = candidateDraft(identity, original);
+  const formData = new FormData(form);
+  const name = String(formData.get("name") || "").normalize("NFKC").trim().slice(0, 100);
+  if (!name) return showToast("請輸入候選名稱");
+  const kind = String(formData.get("kind") || draft.kind || "attraction");
+  const category = String(formData.get("category") || "").normalize("NFKC").trim().slice(0, 60) || defaultPlaceCategory(kind);
+  const restaurantTags = kind === "restaurant" ? restaurantTagValues({ kind, restaurantTags: formData.getAll("restaurantTags") }) : draft.restaurantTags;
+  const restaurantTagsSource = kind === "restaurant" ? "manual" : draft.restaurantTagsSource;
+  const areaTags = session.dirty.has("areaTags") ? AreaTags.normalize(session.areaTags, session.areaTagComparison) : draft.areaTags;
+  const submitButton = form.querySelector('button[type="submit"]');
+  session.saving = true;
+  submitButton.disabled = true;
+  let customPhotoDataUrl = pendingPlacePhoto || (!removePendingPlacePhoto ? draft.customPhotoDataUrl || "" : "");
+  let photoOrigin = String(formData.get("photoOrigin") || draft.photoOrigin || "").trim();
+  if (customPhotoDataUrl && customPhotoDataUrl.length > 260000) {
+    try {
+      customPhotoDataUrl = await compressPlacePhotoDataUrl(customPhotoDataUrl);
+    } catch {
+      session.saving = false;
+      submitButton.disabled = false;
+      return showToast("來源照片無法儲存，請移除或更換照片");
+    }
+  }
+  if (!customPhotoDataUrl) photoOrigin = "";
+  if (!session.active()) return;
+  candidateDraftStore.set(identity, { ...draft, name, kind, category, restaurantTags, restaurantTagsSource, areaTags, customPhotoDataUrl, photoOrigin });
+  closeSheet();
+  reopenImportCandidateSheet(identity);
+  return showToast("候選資料已更新");
 }
 
 function saveRestaurantTagsOnly(form) {
@@ -7828,12 +7970,20 @@ document.addEventListener("click", async (event) => {
     return closeImportCandidatePreview();
   }
 
-  const selectImportCandidateButton = event.target.closest("[data-select-import-candidate]");
-  if (selectImportCandidateButton) {
+  const editImportCandidateButton = event.target.closest("[data-edit-import-candidate]");
+  if (editImportCandidateButton) {
+    if (!canEdit()) return guestOnlyMessage();
+    return openImportCandidateEditor(editImportCandidateButton.dataset.editImportCandidate);
+  }
+
+  // Confirming a candidate only sets its checked state (selectImportCandidate already guards
+  // against selecting an unavailable/duplicate candidate); it never touches state.places.
+  const confirmImportCandidateButton = event.target.closest("[data-confirm-import-candidate]");
+  if (confirmImportCandidateButton) {
     selectImportCandidate(
-      selectImportCandidateButton.dataset.candidateGroup,
-      selectImportCandidateButton.dataset.selectImportCandidate,
-      selectImportCandidateButton.dataset.candidateChecked === "true",
+      confirmImportCandidateButton.dataset.candidateGroup,
+      confirmImportCandidateButton.dataset.confirmImportCandidate,
+      true,
     );
     closeImportCandidatePreview();
     return;
@@ -8518,14 +8668,26 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.closest("[data-close-sheet]")) {
-    const returnKey = event.target.closest("#place-editor-form")?.placeEditorSession?.detailReturnKey;
+    const editorForm = event.target.closest("#place-editor-form");
+    const returnKey = editorForm?.placeEditorSession?.detailReturnKey;
+    const candidateIdentity = editorForm?.dataset.editorMode === "candidate-draft" ? editorForm.dataset.candidateIdentity : "";
+    const closingImportSheet = Boolean(event.target.closest("#import-places-form"));
     closeSheet();
-    return returnKey ? openPlaceSheet(returnKey) : undefined;
+    if (returnKey) return openPlaceSheet(returnKey);
+    if (candidateIdentity) return reopenImportCandidateSheet(candidateIdentity);
+    if (closingImportSheet) endImportSession();
+    return undefined;
   }
   if (event.target.matches("[data-dismiss-sheet]")) {
-    const returnKey = event.target.querySelector("#place-editor-form")?.placeEditorSession?.detailReturnKey;
+    const editorForm = event.target.querySelector("#place-editor-form");
+    const returnKey = editorForm?.placeEditorSession?.detailReturnKey;
+    const candidateIdentity = editorForm?.dataset.editorMode === "candidate-draft" ? editorForm.dataset.candidateIdentity : "";
+    const closingImportSheet = Boolean(event.target.querySelector("#import-places-form"));
     closeSheet();
-    return returnKey ? openPlaceSheet(returnKey) : undefined;
+    if (returnKey) return openPlaceSheet(returnKey);
+    if (candidateIdentity) return reopenImportCandidateSheet(candidateIdentity);
+    if (closingImportSheet) endImportSession();
+    return undefined;
   }
 
   const reorderMenu = event.target.closest("[data-reorder-menu]");
@@ -8920,6 +9082,7 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "place-editor-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
+    if (event.target.dataset.editorMode === "candidate-draft") return submitCandidateDraftEditor(event.target);
     const tagSession = event.target.placeEditorSession;
     addAreaTagInput(event.target);
     if (canSaveAreaTagsOnly(event.target) && saveAreaTagsOnly(event.target)) return;
@@ -9492,7 +9655,10 @@ document.addEventListener("submit", async (event) => {
       ? pendingPlaceImports
       : parseGoogleMapsList(String(form.get("mapsList") || ""));
     const requestedKind = String(form.get("placeKind") || "auto");
+    // Batch add is the only place that writes to state.places: it builds each final place from
+    // this candidate's saved draft (if any), never the stale original and never a fresh search.
     const additions = submittablePlaceImports(parsed)
+      .map((candidate) => finalizeCandidateForBatchAdd(candidate))
       .map(({ importAddress, requiresAddressConfirmation, recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => withStoredTabelogLink({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
@@ -9506,6 +9672,7 @@ document.addEventListener("submit", async (event) => {
     state.placeKind = addedKinds.length === 1 ? addedKinds[0] : "all";
     state.selectedArea = "";
     persist();
+    endImportSession();
     closeSheet();
     render();
     showToast(`已加入 ${additions.length} 個地點`);

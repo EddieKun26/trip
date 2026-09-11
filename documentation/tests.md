@@ -17,6 +17,7 @@
 | 社群匯入授權 | 必須是登入旅程成員；來源被擋時要求截圖 | `tests/social-place-import.test.mjs` | existing integration |
 | 社群安全媒體 | allowlist、排除 avatar、輪播上限、最多 20 地點 | `tests/social-place-import.test.mjs` | existing unit/integration |
 | 候選確認 | 分組、來源比對、重搜、略過，不強迫錯誤候選 | `tests/ui-logic.test.mjs`、`tests/social-place-import.test.mjs` | existing static/integration |
+| 候選草稿編輯 | 候選確認頁「編輯」重用既有 editor（candidate-draft mode，不寫入 state.places、不重新 geocode）；Save 只 commit 到 draft，Cancel 只丟本次未存working copy；draft 以穩定 identity（placeId/sourceUrl）而非 array index 綁定，跨候選切換與取消勾選皆保留；areaTags 建議沿用既有 verified containment／地址 fallback pipeline；「確認選取」只改 checked 狀態；批次加入使用 draft 覆蓋 original 的可編輯欄位，但 Google identity（placeId/座標/照片等）永遠以 original 為準；session 結束（批次加入成功或整個匯入流程取消）才清除 draft | `tests/candidate-draft.test.mjs` | new unit/integration |
 | Booking 地址 | 結構化完整地址優先，門牌不符候選排除，無商家頁使用座標候選 | `tests/social-place-import.test.mjs` | existing integration |
 | Booking 阻擋頁降級 | 頁面回傳空白挑戰頁時，房東訊息的名稱與地址仍產生正確命名座標候選；Google 羅馬字地址（`1-chōme-16-19 Ōkubo`）門牌可正確比對，鄰近錯誤門牌排除 | `tests/social-place-import.test.mjs` | existing integration |
 | 房東訊息擷取 | 多行編號訊息的地址不會吃進下一欄位；`公寓名稱：…` 成為住宿名稱；URL slug 轉為拼音線索 | `tests/social-place-import.test.mjs` | existing unit |

@@ -4904,6 +4904,17 @@ body.transport-sheet-open .app {
   margin-bottom: 12px;
 }
 
+.import-candidate-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.import-candidate-header-actions .text-button {
+  white-space: nowrap;
+}
+
 .import-candidate-facts {
   display: grid;
   grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);

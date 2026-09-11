@@ -17,6 +17,10 @@ function frontend() {
     URL, state: { places: [], profile: {}, destination: "東京" },
     fallbackPlaces: [], placeDetails: {}, currentMemberId: () => "test",
     pendingPlaceImports: [], pendingLodgingDrafts: [], pendingPlaceImportNotice: "",
+    candidateDraftStore: new Map(), endImportSession: () => {},
+    CANDIDATE_DRAFT_IDENTITY_FIELDS: ["placeId", "latitude", "longitude", "photos", "sourceUrl", "formattedAddress",
+      "rating", "ratingCount", "phone", "openingHours", "description", "addressComponents",
+      "addressComponentsOriginal", "countryCode", "addressProvider", "locationApproximate", "coordinateFallback", "coordinateLocation"],
     escapeHtml: (value) => String(value ?? "").replaceAll('"', '&quot;'),
     lodgingDraftsMarkup: () => "",
     document: { querySelector: (selector) => selector === "[data-confirm-import]" ? button : preview },
@@ -29,7 +33,7 @@ function frontend() {
     },
   };
   vm.createContext(context);
-  for (const name of ["isGoogleMapsUrl", "isSocialPlaceUrl", "normalizeGoogleMapsUrl", "validMapCoordinates", "coordinatesFromText", "coordinatesFromGoogleMapsUrl", "extractNameFromGoogleMapsUrl", "inferPlaceArea", "inferPlaceCategory", "inferPlaceKind", "knownGooglePlace", "addressImportLineParts", "groupPlainTextAddressCandidates", "googleMapsImportCandidates", "parseGoogleMapsList", "samePlaceIdentity", "importAlreadyExists", "importCanBeAdded", "importCandidateSelectionMode", "samePendingImportIdentity", "submittablePlaceImports", "importCandidateIdentity", "selectImportCandidate", "updateImportConfirmState", "renderImportPreview", "socialImportStats", "importPreviewMarkup", "enrichPlaceImportsFromApi", "expandGoogleMapsSharedLists", "promoteSinglePlaceImport", "placeAreaFromAddress"]) {
+  for (const name of ["isGoogleMapsUrl", "isSocialPlaceUrl", "normalizeGoogleMapsUrl", "validMapCoordinates", "coordinatesFromText", "coordinatesFromGoogleMapsUrl", "extractNameFromGoogleMapsUrl", "inferPlaceArea", "inferPlaceCategory", "inferPlaceKind", "knownGooglePlace", "addressImportLineParts", "groupPlainTextAddressCandidates", "googleMapsImportCandidates", "parseGoogleMapsList", "samePlaceIdentity", "importAlreadyExists", "importCanBeAdded", "importCandidateSelectionMode", "samePendingImportIdentity", "submittablePlaceImports", "importCandidateIdentity", "selectImportCandidate", "updateImportConfirmState", "renderImportPreview", "socialImportStats", "importPreviewMarkup", "enrichPlaceImportsFromApi", "expandGoogleMapsSharedLists", "promoteSinglePlaceImport", "placeAreaFromAddress", "finalizeCandidateForBatchAdd"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { c: context, button, calls, preview };

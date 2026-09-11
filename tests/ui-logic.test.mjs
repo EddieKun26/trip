@@ -785,7 +785,7 @@ test("place import accepts social links with a confirmation-only Google candidat
   assert.doesNotMatch(appSource, /data-social-import-fallback/);
   assert.match(appSource, /data-social-place-candidate/);
   assert.match(appSource, /data-preview-import-candidate/);
-  assert.match(appSource, /data-select-import-candidate/);
+  assert.match(appSource, /data-confirm-import-candidate/);
   assert.match(appSource, /<article class="import-place-row[^`]*\$\{previewTarget\}/s);
   assert.match(appSource, /previewImportCandidate && !clickedCandidateRadio/);
   assert.match(appSource, /function openImportCandidatePreview/);

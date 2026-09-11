@@ -35,6 +35,11 @@
 - [ ] User production re-check on a real device: reopen/re-import "自由之家" (or any Booking-style English address) and confirm the Okubo/大久保 suggestion now appears immediately (typed, pasted, and via Booking-link recognition), and that the merged areaTags+category chip row on restaurant detail pages looks correct (single wrapping row, no horizontal overflow on mobile).
 
 
+## Candidate confirmation draft editor acceptance — 2026-09-11
+
+- [ ] User production check on a real device: import a social/Google Maps candidate, open its confirmation page, tap 編輯 near the title, change name/kind/category/areaTags/photo, Save, confirm it returns to the same candidate's confirmation page showing the edit. Re-open 編輯, make an unsaved change, Cancel, confirm the prior Save is intact and the unsaved change is gone. Tap 確認選取 (not the removed 取消選取), confirm it only checks the candidate and returns to the candidate list. Uncheck it from the list, re-check it, re-open 編輯 and confirm the draft is still there. Finally tap "加入已選 N 個地點" and confirm the added place has the edited name/kind/category/areaTags/photo while its map pin, address, phone, hours, rating and photos still match the original Google listing (no re-search). Close/cancel the whole import sheet and start a new import; confirm no leftover draft from the previous session appears.
+
+
 ## Sticky save footer and same-place navigation acceptance — 2026-09-11
 
 - [ ] User production check on a real iPhone/Android device during bulk areaTags editing: the Save/Cancel bar stays visible while scrolling the editor, is not obscured by or fighting the on-screen keyboard, and the last field (photo section) is never hidden behind it. Confirm Save and Cancel on an existing place both return to that same place's detail (not the list), Save shows the freshly saved data, Cancel shows the untouched original, and the underlying Places list's scroll position/filters are exactly as left when the editor is eventually closed.
