@@ -2121,23 +2121,17 @@ function initialCandidateRestaurantTags(place) {
 
 function restaurantTagEditor(place, kind) {
   const selected = persistedRestaurantTagValues({ ...place, kind: "restaurant" });
-  const available = [...new Set((state.places || []).flatMap(persistedRestaurantTagValues))].filter(tag => !selected.includes(tag));
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options"><div data-restaurant-tags-selected aria-label="已選類別">${selected.map(tag => restaurantTagChip(tag, true)).join("")}</div><div data-restaurant-tags-available aria-label="可新增類別" ${available.length ? "" : "hidden"}>${available.map(tag => restaurantTagChip(tag, false)).join("")}</div></div><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增自訂類別</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="自訂類別" placeholder="輸入類別"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div><small>已選類別可按 × 移除；修改後按儲存，全部移除即清空。</small></fieldset>`;
+  // Available options are editor-local. Only checked inputs are submitted on Save.
+  const available = [...new Set([...selected, ...(state.places || []).flatMap(persistedRestaurantTagValues)])];
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options" aria-label="可用類別">${available.map(tag => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><div class="tag-add-row"><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增自訂類別</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="自訂類別" placeholder="輸入類別"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div></div><small>點選類別切換是否使用，修改後按儲存。</small></fieldset>`;
 }
 
 function restaurantTagChip(tag, selected) {
-  return `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected ? "checked" : ""} aria-label="${selected ? "移除" : "新增"} ${escapeHtml(tag)}"><span>${escapeHtml(tag)}</span><span class="restaurant-tag-remove" aria-hidden="true">×</span></label>`;
+  return `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected ? "checked" : ""} aria-label="${escapeHtml(tag)}"><span>${escapeHtml(tag)}</span></label>`;
 }
 
 function syncRestaurantTagEditor(form) {
-  const options = form.querySelector(".restaurant-tag-options");
-  const selected = options.querySelector("[data-restaurant-tags-selected]");
-  const available = options.querySelector("[data-restaurant-tags-available]");
-  for (const input of options.querySelectorAll('input[name="restaurantTags"]')) {
-    input.setAttribute("aria-label", `${input.checked ? "移除" : "新增"} ${input.value}`);
-    (input.checked ? selected : available).append(input.closest("label"));
-  }
-  available.hidden = !available.querySelector("input");
+  // Native checked state supplies both accessibility and styling without moving any chip.
   form.placeEditorSession.dirty.add("restaurantTags");
 }
 
@@ -2170,8 +2164,7 @@ function placeTagsList(place) {
 function areaTagEditor() {
   return `<section class="field full area-tag-editor" data-area-tag-editor aria-label="地區標籤">
     <strong>地區標籤 <small>選填，可多選或留空</small></strong>
-    <div class="area-tag-chips" data-area-tags-selected aria-live="polite"></div>
-    <div class="area-tag-chips area-tag-address-suggestions" data-area-tag-address-suggestions aria-label="地址建議"></div>
+    <div class="area-tag-chips" data-area-tags-selected data-area-tags-options aria-label="可用地區標籤" hidden></div>
     <div class="area-tag-autocomplete">
       <div class="area-tag-input"><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入自訂地區" /><button type="button" data-area-tag-add>＋新增地區</button></div>
       <div id="area-tag-options" data-area-tags-suggestions role="listbox" aria-label="地區標籤建議" hidden></div>
@@ -2203,10 +2196,25 @@ function renderAreaTagDraft(form) {
   const session = form.placeEditorSession;
   const source = areaTagAddressSource(form);
   session.areaTagComparison = AreaTags.comparison([...state.places, source]);
-  form.querySelector("[data-area-tags-selected]").innerHTML = session.areaTags.map((tag) => `<button type="button" data-area-tag-remove="${escapeHtml(tag)}" aria-label="移除 ${escapeHtml(tag)}">${escapeHtml(tag)} ×</button>`).join("");
-  const relevant = AreaTags.suggestions(source, state.places, session.areaTags, areaGeometryCatalog).address;
-  form.querySelector("[data-area-tag-address-suggestions]").innerHTML = relevant.length
-    ? `<span>地址建議</span>${relevant.map((tag) => `<button type="button" data-area-tag-choose="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}` : "";
+  // Keep available values separate from the selected working array. The legacy
+  // data-area-tags-selected hook now identifies the one combined options row.
+  const suggested = AreaTags.suggestions(source, state.places, [], areaGeometryCatalog);
+  const available = AreaTags.normalize([...session.areaTagAvailable, ...suggested.address, ...suggested.trip], session.areaTagComparison);
+  const options = form.querySelector("[data-area-tags-selected]");
+  const selectedKeys = new Set(session.areaTags.map(tag => AreaTags.key(tag, session.areaTagComparison)));
+  const availableKeys = new Set(available.map(tag => AreaTags.key(tag, session.areaTagComparison)));
+  const renderedKeys = new Set();
+  for (const chip of options.querySelectorAll("[data-area-tag-toggle]")) {
+    const key = AreaTags.key(chip.dataset.areaTagToggle, session.areaTagComparison);
+    if (!availableKeys.has(key)) { chip.remove(); continue; }
+    renderedKeys.add(key);
+    chip.setAttribute("aria-pressed", String(selectedKeys.has(key)));
+  }
+  for (const tag of available) {
+    const key = AreaTags.key(tag, session.areaTagComparison);
+    if (!renderedKeys.has(key)) options.insertAdjacentHTML("beforeend", `<button type="button" data-area-tag-toggle="${escapeHtml(tag)}" aria-pressed="${selectedKeys.has(key)}">${escapeHtml(tag)}</button>`);
+  }
+  options.hidden = !available.length;
   renderAreaTagAutocomplete(form);
   // A tag-only save must work even for an old place lacking a resolvable address.
   form.querySelector('button[type="submit"]').formNoValidate = canSaveAreaTagsOnly(form);
@@ -2240,6 +2248,7 @@ function chooseAreaTag(form, tag) {
   const session = form.placeEditorSession;
   const label = AreaTags.preferredLabel(tag, state.places, session.areaTagComparison);
   session.areaTags = AreaTags.normalize([...session.areaTags, label], session.areaTagComparison);
+  session.areaTagAvailable = AreaTags.normalize([...session.areaTagAvailable, label], session.areaTagComparison);
   session.dirty.add("areaTags");
   session.areaTagActiveIndex = -1;
   form.querySelector("[data-area-tag-input]").value = "";
@@ -2257,6 +2266,7 @@ function bindAreaTagEditor(form, source) {
   const session = form.placeEditorSession;
   session.areaTagComparison = AreaTags.comparison([...state.places, source]);
   session.areaTags = AreaTags.values(source, session.areaTagComparison);
+  session.areaTagAvailable = [...session.areaTags];
   session.areaTagSource = source; // Suggestions read saved evidence, never async resolver output.
   session.areaTagBaseline = placeEditorAddress(form); // Address shown when this evidence was captured.
   // Verified containment needs the same pre-generated boundary file the map already caches.
@@ -2274,11 +2284,16 @@ function bindAreaTagEditor(form, source) {
   });
   editor.addEventListener("click", (event) => {
     if (session.saving) return;
-    const target = event.target.closest("[data-area-tag-choose], [data-area-tag-remove], [data-area-tag-add]");
+    const target = event.target.closest("[data-area-tag-choose], [data-area-tag-toggle], [data-area-tag-add]");
     if (!target) return;
     if (target.hasAttribute("data-area-tag-add")) { addAreaTagInput(form); return; }
     if (target.dataset.areaTagChoose !== undefined) { chooseAreaTag(form, target.dataset.areaTagChoose); return; }
-    session.areaTags = session.areaTags.filter((tag) => AreaTags.key(tag, session.areaTagComparison) !== AreaTags.key(target.dataset.areaTagRemove, session.areaTagComparison));
+    const key = AreaTags.key(target.dataset.areaTagToggle, session.areaTagComparison);
+    if (!session.areaTags.some(tag => AreaTags.key(tag, session.areaTagComparison) === key)) {
+      chooseAreaTag(form, target.dataset.areaTagToggle);
+      return;
+    }
+    session.areaTags = session.areaTags.filter(tag => AreaTags.key(tag, session.areaTagComparison) !== key);
     session.dirty.add("areaTags");
     renderAreaTagDraft(form);
   });

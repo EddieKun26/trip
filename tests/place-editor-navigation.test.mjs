@@ -1,3 +1,4 @@
+import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -31,6 +32,7 @@ const dismissSnippet = section('if (event.target.closest("[data-close-sheet]")) 
 
 function node(value = "") {
   return { value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, attributes: {}, clickCount: 0, listeners: {},
+    ...tagOptionsNode(),
     setAttribute(name, value) { this.attributes[name] = value; }, removeAttribute(name) { delete this.attributes[name]; },
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
     fire(type, event = {}) { let result; for (const fn of this.listeners[type] || []) result = fn(event); return result; },

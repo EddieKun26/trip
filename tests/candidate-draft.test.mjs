@@ -1,3 +1,4 @@
+import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import "../lib/travel-area-audit.js";
 import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
@@ -29,6 +30,7 @@ function node(value = "") {
   return {
     value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, attributes: {},
     listeners: {}, formNoValidate: false, innerHTML: "",
+    ...tagOptionsNode(),
     setAttribute(n, v) { this.attributes[n] = v; }, removeAttribute(n) { delete this.attributes[n]; },
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
     fire(type, event = {}) { let r; for (const fn of this.listeners[type] || []) r = fn(event); return r; },

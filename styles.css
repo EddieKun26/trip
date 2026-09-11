@@ -7967,7 +7967,7 @@ body.transport-sheet-open .app {
 .restaurant-tag-editor[hidden] { display: none; }
 .restaurant-tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
 .restaurant-tag-options label,
-.area-tag-chips button { position: relative; display: flex; align-items: center; min-height: 44px; padding: 4px 12px; border: 1px solid #d8ddd8; border-radius: 24px; font-size: 13px; background: transparent; cursor: pointer; }
+.area-tag-chips button { position: relative; display: flex; align-items: center; min-height: 44px; padding: 4px 12px; border: 1px solid #d8ddd8; border-radius: 24px; font-size: 13px; font-weight: 400; line-height: 20px; background: transparent; cursor: pointer; }
 .restaurant-tag-options input { position: absolute; opacity: 0; width: 1px; min-height: 1px; height: 1px; margin: 0; }
 .restaurant-tag-options label:has(input:checked),
 [data-area-tags-selected] button { background: #315c50; color: white; border-color: #315c50; }
@@ -8024,7 +8024,8 @@ body.transport-sheet-open .app {
 .area-tag-editor strong small { font-weight: 400; color: var(--muted); }
 .area-tag-chips { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
 .area-tag-chips button { overflow-wrap: anywhere; max-width: 100%; }
-[data-area-tags-selected] { min-height: 44px; }
+[data-area-tags-selected][hidden] { display: none; }
+[data-area-tags-selected] button[aria-pressed="false"] { background: transparent; color: var(--ink); border-color: #d8ddd8; }
 .area-tag-autocomplete { position: relative; min-width: 0; }
 [data-area-tags-suggestions] { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; padding: 6px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 [data-area-tags-suggestions][hidden] { display: none; }
@@ -8040,11 +8041,6 @@ body.transport-sheet-open .app {
 .detail-area-tags > div { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .detail-area-tags .highlight-tag { overflow-wrap: anywhere; max-width: 100%; }
 
-/* Reserved address row stays in place when a relevant suggestion is selected. */
-.area-tag-address-suggestions { height: 44px; min-height: 44px; flex-wrap: nowrap; align-items: center; overflow-x: auto; overflow-y: hidden; }
-.area-tag-address-suggestions > span { flex-shrink: 0; font-size: 12px; color: var(--muted); }
-.area-tag-address-suggestions button { flex-shrink: 0; white-space: nowrap; }
-
 .place-copy .place-list-tags, .import-place-copy .place-list-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; max-height: 76px; overflow: hidden; margin: 5px 0; }
 .place-copy .place-list-tags .highlight-tag, .import-place-copy .place-list-tags .highlight-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 11px; line-height: 16px; padding: 3px 7px; }
 
@@ -8054,9 +8050,14 @@ body.transport-sheet-open .app {
 .place-detail-header-actions .sheet-undo-button { position: static; flex-shrink: 0; }
 .place-detail-sheet > .section-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 
-.restaurant-tag-options { display: grid; gap: 8px; }
-.restaurant-tag-options > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.restaurant-tag-options > div[hidden] { display: none; }
-.restaurant-tag-options label { gap: 6px; max-width: 100%; overflow-wrap: anywhere; }
-.restaurant-tag-options .restaurant-tag-remove { display: none; font-size: 17px; }
-.restaurant-tag-options label:has(input:checked) .restaurant-tag-remove { display: inline; }
+/* A single fixed-order option set; selection changes colors only. */
+.restaurant-tag-options:empty { display: none; }
+.restaurant-tag-options label { max-width: 100%; overflow-wrap: anywhere; font-weight: 400; }
+.tag-add-row { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; height: 44px; }
+.tag-add-row > * { grid-area: 1 / 1; min-width: 0; }
+.tag-add-row:has(.tag-custom-entry:not([hidden])) > .tag-add-button { visibility: hidden; }
+.tag-add-row .tag-custom-entry { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; height: 44px; }
+.tag-add-row .tag-custom-entry:not([hidden]) { display: grid; }
+.tag-add-row input, .tag-add-row button { height: 44px; min-height: 44px; margin: 0; }
+.area-tag-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 44px; }
+.area-tag-input input, .area-tag-input button { width: 100%; min-width: 0; height: 44px; min-height: 44px; margin: 0; }

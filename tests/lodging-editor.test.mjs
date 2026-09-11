@@ -1,3 +1,4 @@
+import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -26,6 +27,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
   let time = 0, timerId = 0;
   const requests = [], toasts = [];
   const node = (value = "") => ({ value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, attributes: {}, clickCount: 0, listeners: {},
+    ...tagOptionsNode(),
     setAttribute(name, value) { this.attributes[name] = value; }, removeAttribute(name) { delete this.attributes[name]; },
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }, fire(type, event = {}) { let result; for (const fn of this.listeners[type] || []) result = fn(event); return result; }, click() { this.clickCount += 1; } });
   const form = node();
@@ -683,7 +685,7 @@ test("area tag chips edit only the draft, allow removal/clear, and save without 
  const dropdown=h.form.querySelector("[data-area-tags-suggestions]");
  assert.equal(dropdown.hidden,true);assert.equal(dropdown.innerHTML,"");
  const tagInput=h.form.querySelector("[data-area-tag-input]");tagInput.fire("focus");
- assert.match(h.form.querySelector("[data-area-tag-address-suggestions]").innerHTML,/神宮前/);assert.equal(dropdown.hidden,true);assert.doesNotMatch(dropdown.innerHTML,/表參道/);
+ assert.match(h.form.querySelector("[data-area-tags-selected]").innerHTML,/神宮前/);assert.equal(dropdown.hidden,true);assert.doesNotMatch(dropdown.innerHTML,/表參道/);
  tagInput.value="表";tagInput.fire("input");
  assert.match(dropdown.innerHTML,/表參道/);assert.doesNotMatch(dropdown.innerHTML,/神宮前/);
  assert.deepEqual(existing,before,"opening and suggestions cannot persist");
@@ -696,7 +698,7 @@ test("area tag chips edit only the draft, allow removal/clear, and save without 
  assert.equal(h.requests.length,0);
  assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,areaTags:["手動區","表參道"]});
  const cleared=harness({existing,address:""});
- for(const tag of existing.areaTags) cleared.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagRemove:tag},hasAttribute:()=>false})}});
+ for(const tag of existing.areaTags) cleared.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagToggle:tag},hasAttribute:()=>false})}});
  assert.deepEqual(Array.from(cleared.session.areaTags),[]);
  await cleared.save();
  assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,areaTags:[]});
@@ -763,7 +765,7 @@ test("area tag autocomplete requires input for trip tags, excludes selected, and
  h.context.state.places.push({name:"Other",areaTags:["銀座","銀座周邊","西新宿","CAFÉ"]});
  const input=h.form.querySelector("[data-area-tag-input]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
  assert.equal(popup.hidden,true);assert.equal(input.attributes["aria-expanded"],"false");
- input.fire("focus");assert.match(h.form.querySelector("[data-area-tag-address-suggestions]").innerHTML,/芝/);assert.equal(popup.hidden,true);assert.doesNotMatch(popup.innerHTML,/銀座|西新宿/);
+ input.fire("focus");assert.match(h.form.querySelector("[data-area-tags-selected]").innerHTML,/芝/);assert.equal(popup.hidden,true);assert.doesNotMatch(popup.innerHTML,/銀座|西新宿/);
  input.value="銀";input.fire("input");
  assert.deepEqual(Array.from(h.session.areaTagOptions),["銀座周邊"]);
  assert.doesNotMatch(popup.innerHTML,/data-area-tag-choose="銀座"/);
@@ -796,17 +798,17 @@ test("autocomplete supports touch selection and keyboard navigation without nati
  assert.deepEqual(existing,before);
 });
 
-test("empty-single-empty selected row and overlay toggling preserve persistent editor controls", () => {
+test("empty options hide; custom chips stay available after toggle; controls remain stable", () => {
  const h=harness({existing:{name:"Test",kind:"attraction",areaTags:[]},address:"原地址"});
  const selected=h.form.querySelector("[data-area-tags-selected]");const input=h.form.querySelector("[data-area-tag-input]");
  const popup=h.form.querySelector("[data-area-tags-suggestions]");const address=h.form.elements.address;
  assert.equal(selected.innerHTML,"");input.value="銀座";h.context.addAreaTagInput(h.form);
- assert.match(selected.innerHTML,/data-area-tag-remove="銀座"/);
- h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagRemove:"銀座"},hasAttribute:()=>false})}});
- assert.equal(selected.innerHTML,"");assert.equal(input,h.form.querySelector("[data-area-tag-input]"));
+ assert.match(selected.innerHTML,/data-area-tag-toggle="銀座"/);
+ h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagToggle:"銀座"},hasAttribute:()=>false})}});
+ assert.match(selected.innerHTML,/aria-pressed="false"/);assert.equal(input,h.form.querySelector("[data-area-tag-input]"));
  assert.equal(popup,h.form.querySelector("[data-area-tags-suggestions]"));assert.equal(address,h.form.elements.address);assert.equal(address.value,"原地址");
  const css=readFileSync(new URL("../styles.css",import.meta.url),"utf8");
- assert.match(css,/\[data-area-tags-selected\] \{ min-height: 44px;/);
+ assert.match(css,/\[data-area-tags-selected\]\[hidden\] \{ display: none;/);
  assert.match(css,/\.restaurant-tag-options label,\s*\.area-tag-chips button \{[^}]*min-height: 44px/);
  assert.match(css,/\.area-tag-chips \{[^}]*flex-wrap: wrap/);
  assert.match(css,/\.area-tag-autocomplete \{ position: relative;/);
@@ -818,7 +820,7 @@ test("empty-single-empty selected row and overlay toggling preserve persistent e
 });
 
 
-test("HERE Tokyo structured and Booking formatted suggestions appear before focus, reserve the row, and never auto-save", async () => {
+test("HERE Tokyo structured and Booking formatted suggestions appear in the unified options before focus and never auto-save", async () => {
  const raw="Room 202 , 1 Chome - 16 - 19 Okubo\nShinjuku - ku, Tōkyō - to 169 - 0072";
  const c=(longText)=>({longText,types:["sublocality_level_2"]});
  for(const existing of [
@@ -826,28 +828,28 @@ test("HERE Tokyo structured and Booking formatted suggestions appear before focu
   {name:"自由之家",areaTags:[],formattedAddress:raw},
  ]) {
   const before=structuredClone(existing);const h=harness({existing,address:existing.formattedAddress});
-  const relevant=h.form.querySelector("[data-area-tag-address-suggestions]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
+  const relevant=h.form.querySelector("[data-area-tags-selected]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
   const expected=existing.name==="自由之家"?"Okubo":"大久保";
-  assert.match(relevant.innerHTML,new RegExp('data-area-tag-choose="'+expected+'"'));
+  assert.match(relevant.innerHTML,new RegExp('data-area-tag-toggle="'+expected+'"'));
   assert.doesNotMatch(relevant.innerHTML,/chōme|Chome|Shinjuku|Tokyo|169/);
   assert.equal(popup.hidden,true);assert.deepEqual(existing,before);assert.deepEqual(Array.from(h.session.areaTags),[]);
-  h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagChoose:expected},hasAttribute:()=>false})}});
-  assert.deepEqual(existing,before);assert.equal(relevant.innerHTML,"");
+  h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:{areaTagToggle:expected},hasAttribute:()=>false})}});
+  assert.deepEqual(existing,before);assert.match(relevant.innerHTML,/aria-pressed="true"/);
   await h.save();assert.equal(h.requests.length,0);
   assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,areaTags:[expected]});
  }
  const css=readFileSync(new URL("../styles.css",import.meta.url),"utf8");
- assert.match(css,/\.area-tag-address-suggestions \{ height: 44px; min-height: 44px; flex-wrap: nowrap;/);
+ assert.doesNotMatch(css,/\.area-tag-address-suggestions/);
  const h=harness({existing:{name:"Test"},address:""});const html=h.context.areaTagEditor();
- assert.ok(html.indexOf("data-area-tags-selected")<html.indexOf("data-area-tag-address-suggestions"));
- assert.ok(html.indexOf("data-area-tag-address-suggestions")<html.indexOf("data-area-tag-input"));
+ assert.doesNotMatch(html,/data-area-tag-address-suggestions/);
+ assert.ok(html.indexOf("data-area-tags-selected")<html.indexOf("data-area-tag-input"));
 });
 
 test("editor reuses the trip's exact localized display label and matches romanized queries without duplicate selections", () => {
  const c=longText=>({longText,types:["sublocality_level_2"]});
  const existing={name:"HERE",areaTags:[],countryCode:"JP",addressComponents:[c("Ōkubo")],addressComponentsOriginal:[c("大久保")]};
  const h=harness({existing,address:""});h.context.state.places.push({name:"Tagged",areaTags:["大久保"]});
- h.context.renderAreaTagDraft(h.form);assert.match(h.form.querySelector("[data-area-tag-address-suggestions]").innerHTML,/大久保/);
+ h.context.renderAreaTagDraft(h.form);assert.match(h.form.querySelector("[data-area-tags-selected]").innerHTML,/大久保/);
  const input=h.form.querySelector("[data-area-tag-input]");input.value="Okubo";input.fire("input");
  assert.deepEqual(Array.from(h.session.areaTagOptions),["大久保"]);
  h.context.addAreaTagInput(h.form);assert.deepEqual(Array.from(h.session.areaTags),["大久保"]);
@@ -859,13 +861,13 @@ test("editor reuses the trip's exact localized display label and matches romaniz
 test("real Booking address-suggestion integration: a typed/pasted or async-recognized address reaches the suggestion row through the actual editor pipeline, survives Travel Area resolving to Shinjuku, and the saved place still offers it on reopen", async () => {
  const bookingAddress="Room 202 , 1 Chome - 16 - 19 Okubo\nShinjuku - ku, Tōkyō - to 169 - 0072";
  const forbidden=/Room 202|\bChome\b|Shinjuku-ku|T[oō]kyo-to|169-0072/i;
- const suggestionRow=(h)=>h.form.querySelector("[data-area-tag-address-suggestions]");
+ const suggestionRow=(h)=>h.form.querySelector("[data-area-tags-selected]");
 
  // A real user typing/pasting the full address (native "input" events, no direct value set)
  // must reach the suggestion row without ever opening/focusing the trip-tag autocomplete.
  const typed=harness({});
  typed.input("address",bookingAddress);
- assert.match(suggestionRow(typed).innerHTML,/data-area-tag-choose="Okubo"/);
+ assert.match(suggestionRow(typed).innerHTML,/data-area-tag-toggle="Okubo"/);
  assert.doesNotMatch(suggestionRow(typed).innerHTML,forbidden);
 
  // A Booking share-link recognition draft fills the address via a direct DOM value assignment
@@ -876,7 +878,7 @@ test("real Booking address-suggestion integration: a typed/pasted or async-recog
  imported.form.elements.referenceUrl.value=draftUrl;
  await imported.context.fillPlaceEditorFromUrl(imported.form);
  assert.equal(imported.form.elements.address.value,bookingAddress);
- assert.match(suggestionRow(imported).innerHTML,/data-area-tag-choose="Okubo"/);
+ assert.match(suggestionRow(imported).innerHTML,/data-area-tag-toggle="Okubo"/);
  assert.doesNotMatch(suggestionRow(imported).innerHTML,forbidden);
 
  // Travel Area resolving to 新宿 (a different, coarser domain concept) must never suppress the
@@ -890,7 +892,7 @@ test("real Booking address-suggestion integration: a typed/pasted or async-recog
   travelAreaKey:"shinjuku",travelAreaZh:"新宿",travelAreaLocal:"新宿",travelAreaResolved:true,travelAreaSource:"automatic",travelAreaResolver:"JP_NAMED_AREA",travelAreaResolutionVersion:5};
  typed.reply(0,okuboGeocode);
  await tick();await tick();
- assert.match(suggestionRow(typed).innerHTML,/data-area-tag-choose="Okubo"/);
+ assert.match(suggestionRow(typed).innerHTML,/data-area-tag-toggle="Okubo"/);
  assert.doesNotMatch(suggestionRow(typed).innerHTML,forbidden);
 
  // Save, then reopen the persisted place: the suggestion must keep working from real saved
@@ -901,6 +903,6 @@ test("real Booking address-suggestion integration: a typed/pasted or async-recog
  assert.equal(persisted.manualAddress,bookingAddress);
  assert.equal(persisted.formattedAddress,okuboGeocode.formattedAddress);
  const reopened=harness({existing:persisted});
- assert.match(suggestionRow(reopened).innerHTML,/data-area-tag-choose="(Okubo|Ōkubo|大久保)"/);
+ assert.match(suggestionRow(reopened).innerHTML,/data-area-tag-toggle="(Okubo|Ōkubo|大久保)"/);
  assert.doesNotMatch(suggestionRow(reopened).innerHTML,forbidden);
 });

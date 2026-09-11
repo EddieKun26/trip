@@ -180,6 +180,6 @@ test("formal vocabulary and detail use persisted arrays only, never defaults or 
  assert.deepEqual(Array.from(c.placesFilterModel(c.state.places, c.state).tags), []);
  assert.doesNotMatch(c.placesFilterChips(c.placesFilterModel([], c.state)), /data-restaurant-tag-filter/);
  const html = c.restaurantTagEditor({ kind: "restaurant", restaurantTags: ["全新自訂"] }, "restaurant");
- assert.match(html, /value="全新自訂" checked aria-label="移除 全新自訂"/);
- assert.match(html, /restaurant-tag-remove/);
+ assert.match(html, /value="全新自訂" checked aria-label="全新自訂"/);
+ assert.doesNotMatch(html, /restaurant-tag-remove|×|data-restaurant-tags-selected/);
 });

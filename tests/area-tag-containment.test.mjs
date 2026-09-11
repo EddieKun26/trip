@@ -143,6 +143,6 @@ test("E+I. other and manual areaTags survive migration; the applier is all-or-no
   assert.match(runner, /AreaTags\.containmentMigration\(state\.places, catalog\)/);
   // Suggestions must never write to persisted tags on their own.
   const draft = appSource.slice(appSource.indexOf("function renderAreaTagDraft"), appSource.indexOf("function renderAreaTagAutocomplete"));
-  assert.match(draft, /AreaTags\.suggestions\(source, state\.places, session\.areaTags, areaGeometryCatalog\)/);
+  assert.match(draft, /AreaTags\.suggestions\(source, state\.places, \[\], areaGeometryCatalog\)/);
   assert.doesNotMatch(draft, /\.areaTags\s*=|persist\(/);
 });
