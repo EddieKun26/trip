@@ -576,6 +576,9 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(response.payload.groups[0].candidates.length, 2);
   assert.equal(response.payload.groups[0].candidates[0].name, "Cafe Mugi 新宿");
   assert.equal(response.payload.groups[0].candidates[0].kind, "restaurant");
+  assert.equal(response.payload.groups[0].candidates[0].primaryType, "cafe");
+  assert.equal(response.payload.groups[0].candidates[0].primaryTypeDisplayName, "咖啡廳");
+  assert.ok(Array.isArray(response.payload.groups[0].candidates[0].types));
   assert.equal(response.payload.groups[0].candidates[0].rating, 4.6);
   assert.equal(response.payload.groups[0].candidates[0].referenceUrl, "https://www.instagram.com/reel/ABC123/");
   assert.equal(response.payload.groups[0].candidates[0].sourceEvidence, "貼文寫明新宿一定要去 Cafe Mugi。");

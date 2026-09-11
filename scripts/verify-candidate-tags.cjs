@@ -42,6 +42,7 @@ const assert = require('node:assert/strict');
     await page.locator('[data-confirm-restaurant-tag]').click();
     await page.locator('#place-editor-form button[type="submit"]').click();
     assert.deepEqual(await chips(), ['有樂町', '居酒屋']);
+    assert.deepEqual(await page.locator('.import-place-copy .place-list-tags .highlight-tag').allTextContents(), ['有樂町', '居酒屋']);
     assert.equal(await page.evaluate(() => state.places.length), 0);
     assert.equal(await page.evaluate(() => JSON.stringify(pendingPlaceImports[0]) === window.originalSnapshot), true);
     // Cancel is the shipped delegated click path, and must restore the committed draft.
@@ -49,12 +50,14 @@ const assert = require('node:assert/strict');
     await page.locator('[data-area-tag-remove="有樂町"]').click();
     await page.locator('#place-editor-form [data-close-sheet]').first().click();
     assert.deepEqual(await chips(), ['有樂町', '居酒屋']);
+    assert.deepEqual(await page.locator('.import-place-copy .place-list-tags .highlight-tag').allTextContents(), ['有樂町', '居酒屋']);
     // Clear both tag families and Save; reopen and selection cannot repopulate them.
     await page.locator('[data-edit-import-candidate]').click();
     await page.locator('[data-area-tag-remove="有樂町"]').click();
     await page.locator('input[name="restaurantTags"][value="居酒屋"]').uncheck();
     await page.locator('#place-editor-form button[type="submit"]').click();
     assert.deepEqual(await chips(), []);
+    assert.equal(await page.locator('.import-place-copy .place-list-tags').count(), 0);
     await page.locator('[data-edit-import-candidate]').click();
     assert.equal(await page.locator('[data-area-tags-selected] button').count(), 0);
     assert.equal(await page.locator('input[name="restaurantTags"]:checked').count(), 0);
@@ -76,12 +79,28 @@ const assert = require('node:assert/strict');
       render();
     });
     assert.deepEqual(await page.locator('.place-list-tags .highlight-tag').allTextContents(), ['原宿', '表參道', '咖啡甜點']);
+    await page.evaluate(() => { state.places[0].detailsLocked = true; window.savedIdentity = [state.places[0].placeId, state.places[0].latitude, state.places[0].longitude]; });
+    await page.locator('.place-copy-button').first().click();
+    const topEdit = page.locator('.place-detail-header-actions [data-edit-place]');
+    assert.equal(await page.locator('.place-detail-sheet [data-edit-place]').count(), 1);
+    assert.ok((await topEdit.boundingBox()).y < 852);
+    await topEdit.click();
+    assert.equal(await page.locator('#place-editor-form').getAttribute('data-editor-mode'), 'persisted-place');
+    await page.locator('input[name="restaurantTags"][value="咖啡甜點"]').uncheck();
+    await page.locator('#place-editor-form button[type="submit"]').click();
+    assert.deepEqual(await page.locator('.place-detail-sheet .detail-area-tags .highlight-tag').allTextContents(), ['原宿', '表參道']);
+    await topEdit.click();
+    await page.locator('[data-area-tag-remove="原宿"]').click();
+    await page.locator('#place-editor-form [data-close-sheet]').first().click();
+    assert.deepEqual(await page.locator('.place-detail-sheet .detail-area-tags .highlight-tag').allTextContents(), ['原宿', '表參道']);
+    assert.equal(await page.evaluate(() => JSON.stringify(window.savedIdentity) === JSON.stringify([state.places[0].placeId, state.places[0].latitude, state.places[0].longitude])), true);
+    await page.locator('.place-detail-sheet [data-close-sheet]').click();
     await page.evaluate(() => { state.places[0].areaTags = Array.from({ length: 30 }, (_, i) => '很長的地區標籤' + i); render(); });
     assert.equal(await page.locator('.place-list-tags').evaluate(e => getComputedStyle(e).flexWrap), 'wrap');
     assert.ok(await page.locator('.place-list-tags').evaluate(e => e.getBoundingClientRect().height <= 76));
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     // Rematch production intake must initialize even a candidate never opened in detail.
-    await page.route('**/api/social-place-import', route => route.fulfill({ json: { candidates: [{ placeId: 'rematched-ginza', name: '新候選', kind: 'restaurant', category: '燒肉店', formattedAddress: '東京都中央区銀座8丁目', countryCode: 'JP', latitude: 35.6672123, longitude: 139.7618203, sourceUrl: 'https://maps.google.com/?cid=2' }] } }));
+    await page.route('**/api/social-place-import', route => route.fulfill({ json: { candidates: [{ placeId: 'rematched-ginza', name: '新候選', kind: 'restaurant', category: '餐廳', primaryType: 'hot_pot_restaurant', types: ['hot_pot_restaurant', 'restaurant', 'food'], formattedAddress: '東京都中央区銀座8丁目', countryCode: 'JP', latitude: 35.6672123, longitude: 139.7618203, sourceUrl: 'https://maps.google.com/?cid=2' }] } }));
     await page.evaluate(() => {
       state.places = []; candidateDraftStore.clear(); areaGeometryCatalog = null; areaGeometryPromise = null;
       pendingPlaceImports = [{ placeId: 'old', isSocialCandidate: true, name: '待重搜', kind: 'restaurant', candidateCategory: 'restaurant', candidateGroupId: 'rematch' }];
@@ -89,9 +108,21 @@ const assert = require('node:assert/strict');
     });
     await page.locator('[data-run-import-rematch]').click();
     await page.waitForFunction(() => candidateDraftStore.has('rematched-ginza'));
-    assert.deepEqual(await page.evaluate(() => { const d = candidateDraftStore.get('rematched-ginza'); return [d.areaTags, d.restaurantTags]; }), [['銀座'], ['燒肉']]);
+    assert.deepEqual(await page.evaluate(() => { const d = candidateDraftStore.get('rematched-ginza'); return [d.areaTags, d.restaurantTags]; }), [['銀座'], ['火鍋']]);
+    assert.deepEqual(await page.locator('.import-place-copy .place-list-tags .highlight-tag').allTextContents(), ['銀座', '火鍋']);
     assert.equal(await page.locator('.import-candidate-sheet').count(), 0);
+    // Initial Maps analysis (not just rematch) must preserve type evidence through enrichment.
+    await page.route('**/api/places', route => {
+      const request = route.request().postDataJSON();
+      return route.fulfill({ json: { places: request.places.map(p => ({ requestUrl: p.sourceUrl, placeId: 'maps-hotpot', name: 'Maps 火鍋', category: '餐廳', primaryType: 'hot_pot_restaurant', types: ['restaurant', 'hot_pot_restaurant'], primaryTypeDisplayName: '火鍋餐廳', formattedAddress: '東京都中央区銀座8丁目', countryCode: 'JP', latitude: 35.6672123, longitude: 139.7618203, googleMapsUrl: p.sourceUrl })) } });
+    });
+    await page.evaluate(() => openAddPlaceSheet({ initialText: 'https://www.google.com/maps/search/?api=1&query=TestHotpot' }));
+    await page.locator('[data-analyze-places]').click();
+    await page.waitForFunction(() => candidateDraftStore.has('maps-hotpot'));
+    assert.deepEqual(await page.locator('.import-place-copy .place-list-tags .highlight-tag').allTextContents(), ['銀座', '火鍋']);
+    await page.locator('[data-preview-import-candidate]').first().click();
+    assert.deepEqual(await chips(), ['銀座', '火鍋']);
     assert.deepEqual(errors, []);
-    console.log('PASS real browser: click -> editor open/bind -> submit -> restore -> detail; Cancel; clear/reopen/select; batch-add; persisted render -> Places card; 393px wrap/height/overflow.');
+    console.log('PASS real browser structured intake/list and persisted top Edit: click -> editor open/bind -> submit -> restore -> detail; Cancel; clear/reopen/select; batch-add; persisted render -> Places card; 393px wrap/height/overflow.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

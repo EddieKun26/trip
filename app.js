@@ -381,7 +381,9 @@ function decorateEditableSheetUndo() {
   button.setAttribute("aria-label", "復原上一個動作");
   button.textContent = "↶";
   button.disabled = !undoSnapshot;
-  sheet.append(button);
+  const detailActions = sheet.querySelector(".place-detail-header-actions");
+  if (detailActions) detailActions.insertBefore(button, detailActions.lastElementChild);
+  else sheet.append(button);
 }
 
 function currentMemberId() {
@@ -2088,7 +2090,7 @@ function restaurantTagsFromCategory(category) {
   // Exact source categories only; never inspect a place name or description.
   const categories = {
     拉麵店: "拉麵", ramen_restaurant: "拉麵", 壽司店: "壽司", sushi_restaurant: "壽司",
-    燒肉店: "燒肉", yakiniku_restaurant: "燒肉", 火鍋店: "火鍋", hot_pot_restaurant: "火鍋",
+    燒肉店: "燒肉", yakiniku_restaurant: "燒肉", barbecue_restaurant: "燒肉", korean_barbecue_restaurant: "燒肉", 火鍋店: "火鍋", hot_pot_restaurant: "火鍋",
     壽喜燒店: "壽喜燒", sukiyaki_restaurant: "壽喜燒", 牛排館: "牛排", steak_house: "牛排",
     居酒屋: "居酒屋", 咖啡廳: "咖啡甜點", cafe: "咖啡甜點", 咖哩店: "咖哩",
     curry_restaurant: "咖哩", 丼飯店: "丼飯", 炸豬排店: "炸豬排", tonkatsu_restaurant: "炸豬排",
@@ -2096,6 +2098,21 @@ function restaurantTagsFromCategory(category) {
   };
   const tag = categories[String(category || "").trim()];
   return tag ? [tag] : [];
+}
+
+function initialCandidateRestaurantTags(place) {
+  if (Array.isArray(place.restaurantTags)) return restaurantTagValues({ ...place, kind: "restaurant" });
+  // Exact existing taxonomy first: primary type outranks secondary types and text evidence.
+  const primary = restaurantTagsFromCategory(place.primaryType);
+  if (primary.length) return primary;
+  const secondary = [...new Set((Array.isArray(place.types) ? place.types : []).flatMap(restaurantTagsFromCategory))];
+  if (secondary.length) return secondary;
+  const display = [place.primaryTypeDisplayName?.text || place.primaryTypeDisplayName,
+    place.googleMapsTypeLabel?.text || place.googleMapsTypeLabel].filter(value => typeof value === "string");
+  const labels = display.flatMap(restaurantTagsFromCategory);
+  if (labels.length) return [...new Set(labels)];
+  const displayTags = inferredRestaurantTags({ kind: "restaurant", category: display.join("。") });
+  return displayTags.length ? displayTags : restaurantTagValues({ ...place, kind: "restaurant" });
 }
 
 function restaurantTagEditor(place, kind) {
@@ -5083,7 +5100,10 @@ function openPlaceSheet(name) {
       <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(placeDetailKey(place))}" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <div class="section-row">
           <div><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
-          <button class="icon-button" type="button" data-close-sheet>×</button>
+          <div class="place-detail-header-actions">
+            ${canEdit() ? `<button class="text-button" type="button" data-edit-place="${escapeHtml(place.name)}" aria-label="編輯地點">編輯</button>` : ""}
+            <button class="icon-button" type="button" data-close-sheet aria-label="關閉地點詳情">×</button>
+          </div>
         </div>
         ${placeTagsDetail(place)}
         <p class="detail-legacy-area">舊分區：${escapeHtml(travelAreaDisplayName(place))}</p>
@@ -5142,7 +5162,6 @@ function openPlaceSheet(name) {
           <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapPlaceUrl)}">開啟 Google Maps</button>
         </div>
-        ${canEdit() ? `<button class="place-detail-edit-button" type="button" data-edit-place="${escapeHtml(place.name)}">編輯名稱、地址、旅遊分區${place.kind === "restaurant" ? "、類別" : ""}與照片</button>` : ""}
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
       </section>
     </div>`;
@@ -6274,7 +6293,9 @@ async function enrichPlaceImportsFromApi(entries) {
         countryCode: resolved.countryCode || place.countryCode || "",
         addressComponents: Array.isArray(resolved.addressComponents) ? resolved.addressComponents : place.addressComponents || [],
         addressComponentsOriginal: Array.isArray(resolved.addressComponentsOriginal) ? resolved.addressComponentsOriginal : place.addressComponentsOriginal || [],
-        ...(normalizedPlaceKind({ ...place, category: resolved.category || place.category }) === "restaurant" && !Array.isArray(place.restaurantTags) ? { restaurantTags: restaurantTagsFromCategory(resolved.category) } : {}),
+        primaryType: resolved.primaryType || "",
+        types: Array.isArray(resolved.types) ? resolved.types : [],
+        primaryTypeDisplayName: resolved.primaryTypeDisplayName || "",
         category: resolved.category || place.category,
         kind: inferPlaceKind(resolved.category || place.category),
         formattedAddress: place.importAddress || resolved.formattedAddress || place.formattedAddress || "",
@@ -6474,7 +6495,10 @@ function candidateDraft(identity, original) {
   const existingTags = AreaTags.values(draft);
   draft.areaTags = existingTags.length ? existingTags
     : AreaTags.suggestions(draft, state.places, [], areaGeometryCatalog).address.slice(0, 1);
-  if (draft.kind === "restaurant") draft.restaurantTags = restaurantTagValues(draft);
+  const types = [draft.primaryType, ...(Array.isArray(draft.types) ? draft.types : [])];
+  if (!["lodging", "shopping"].includes(draft.kind)
+    && types.some(type => type === "restaurant" || restaurantTagsFromCategory(type).length)) draft.kind = "restaurant";
+  if (draft.kind === "restaurant") draft.restaurantTags = initialCandidateRestaurantTags(draft);
   candidateDraftStore.set(identity, draft);
   return draft;
 }
@@ -6864,9 +6888,10 @@ function importPreviewMarkup(entries) {
         ? `<input class="import-candidate-control" type="${inputType}" name="${escapeHtml(place.candidateGroupId)}" data-social-place-candidate="${escapeHtml(importCandidateIdentity(place))}" data-candidate-group="${escapeHtml(place.candidateGroupId)}" ${place.selected ? "checked" : ""} ${unavailable ? "disabled" : ""} aria-label="${place.selected ? "取消選取" : "選擇"} ${escapeHtml(place.name)}" />`
         : "";
       const previewable = place.isSocialCandidate || validMapCoordinates(Number(place.latitude), Number(place.longitude)) || Boolean(place.formattedAddress);
+      const committedTags = placeTagsList(candidateDraftStore.get(importCandidateIdentity(place)) || place);
       const copy = previewable
-        ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</button>`
-        : `<div class="import-place-copy"><strong>${escapeHtml(place.name)}</strong>${socialMeta}</div>`;
+        ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${committedTags}${socialMeta}</button>`
+        : `<div class="import-place-copy"><strong>${escapeHtml(place.name)}</strong>${committedTags}${socialMeta}</div>`;
       const previewTarget = previewable
         ? ` data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}"`
         : "";

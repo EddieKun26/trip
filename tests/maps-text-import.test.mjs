@@ -1,3 +1,4 @@
+import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -14,7 +15,7 @@ function functionSource(name) {
 function frontend() {
   const button = {}, calls = [], preview = { innerHTML: "", scrollTop: 120 };
   const context = {
-    URL, state: { places: [], profile: {}, destination: "東京" },
+    AreaTags, URL, state: { places: [], profile: {}, destination: "東京" },
     fallbackPlaces: [], placeDetails: {}, currentMemberId: () => "test",
     pendingPlaceImports: [], pendingLodgingDrafts: [], pendingPlaceImportNotice: "",
     candidateDraftStore: new Map(), endImportSession: () => {},
@@ -33,7 +34,7 @@ function frontend() {
     },
   };
   vm.createContext(context);
-  for (const name of ["isGoogleMapsUrl", "isSocialPlaceUrl", "normalizeGoogleMapsUrl", "validMapCoordinates", "coordinatesFromText", "coordinatesFromGoogleMapsUrl", "extractNameFromGoogleMapsUrl", "inferPlaceArea", "inferPlaceCategory", "inferPlaceKind", "knownGooglePlace", "addressImportLineParts", "groupPlainTextAddressCandidates", "googleMapsImportCandidates", "parseGoogleMapsList", "samePlaceIdentity", "importAlreadyExists", "importCanBeAdded", "importCandidateSelectionMode", "samePendingImportIdentity", "submittablePlaceImports", "importCandidateIdentity", "selectImportCandidate", "updateImportConfirmState", "renderImportPreview", "socialImportStats", "importPreviewMarkup", "enrichPlaceImportsFromApi", "expandGoogleMapsSharedLists", "promoteSinglePlaceImport", "placeAreaFromAddress", "finalizeCandidateForBatchAdd"]) {
+  for (const name of ["placeTagsList", "restaurantTagValues", "inferredRestaurantTags", "isGoogleMapsUrl", "isSocialPlaceUrl", "normalizeGoogleMapsUrl", "validMapCoordinates", "coordinatesFromText", "coordinatesFromGoogleMapsUrl", "extractNameFromGoogleMapsUrl", "inferPlaceArea", "inferPlaceCategory", "inferPlaceKind", "knownGooglePlace", "addressImportLineParts", "groupPlainTextAddressCandidates", "googleMapsImportCandidates", "parseGoogleMapsList", "samePlaceIdentity", "importAlreadyExists", "importCanBeAdded", "importCandidateSelectionMode", "samePendingImportIdentity", "submittablePlaceImports", "importCandidateIdentity", "selectImportCandidate", "updateImportConfirmState", "renderImportPreview", "socialImportStats", "importPreviewMarkup", "enrichPlaceImportsFromApi", "expandGoogleMapsSharedLists", "promoteSinglePlaceImport", "placeAreaFromAddress", "finalizeCandidateForBatchAdd"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { c: context, button, calls, preview };

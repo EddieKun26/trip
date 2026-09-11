@@ -478,6 +478,8 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
         "places.formattedAddress",
         "places.addressComponents",
         "places.primaryTypeDisplayName",
+        "places.primaryType",
+        "places.types",
         "places.location",
         "places.googleMapsUri",
         "places.regularOpeningHours",
@@ -508,6 +510,9 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
     placeId: place.id,
     name: place.displayName?.text || textQuery,
     ...addressFields,
+    primaryType: place.primaryType || "",
+    types: Array.isArray(place.types) ? place.types : [],
+    primaryTypeDisplayName: place.primaryTypeDisplayName?.text || "",
     category: place.primaryTypeDisplayName?.text || "景點",
     formattedAddress: place.formattedAddress || "",
     latitude: place.location?.latitude ?? null,
@@ -531,7 +536,7 @@ async function exactPlaceDetails({ apiKey, placeId, requestUrl }) {
   const response = await fetch(url, {
     headers: {
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,primaryTypeDisplayName,location,googleMapsUri,regularOpeningHours,nationalPhoneNumber,photos",
+      "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,primaryTypeDisplayName,primaryType,types,location,googleMapsUri,regularOpeningHours,nationalPhoneNumber,photos",
     },
   });
   if (!response.ok) return { requestUrl, error: `PLACE_DETAILS_${response.status}` };
@@ -544,6 +549,9 @@ async function exactPlaceDetails({ apiKey, placeId, requestUrl }) {
     placeId,
     name: place.displayName?.text || "",
     ...addressAndPlanningFields(place.addressComponents, localDetails.addressComponents),
+    primaryType: place.primaryType || "",
+    types: Array.isArray(place.types) ? place.types : [],
+    primaryTypeDisplayName: place.primaryTypeDisplayName?.text || "",
     category: place.primaryTypeDisplayName?.text || "",
     formattedAddress: place.formattedAddress || "",
     latitude: place.location?.latitude ?? null,

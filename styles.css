@@ -8045,5 +8045,11 @@ body.transport-sheet-open .app {
 .area-tag-address-suggestions > span { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .area-tag-address-suggestions button { flex-shrink: 0; white-space: nowrap; }
 
-.place-copy .place-list-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; max-height: 76px; overflow: hidden; margin: 5px 0; }
-.place-copy .place-list-tags .highlight-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 11px; line-height: 16px; padding: 3px 7px; }
+.place-copy .place-list-tags, .import-place-copy .place-list-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; max-height: 76px; overflow: hidden; margin: 5px 0; }
+.place-copy .place-list-tags .highlight-tag, .import-place-copy .place-list-tags .highlight-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 11px; line-height: 16px; padding: 3px 7px; }
+
+.place-detail-header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.place-detail-header-actions .text-button { min-height: 44px; padding: 8px; font-size: 13px; white-space: nowrap; }
+
+.place-detail-header-actions .sheet-undo-button { position: static; flex-shrink: 0; }
+.place-detail-sheet > .section-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }

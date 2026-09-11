@@ -406,3 +406,26 @@ test("T. missing containment/address evidence stays empty without consulting leg
   const { context } = makeContext();
   assert.deepEqual(Array.from(context.candidateDraft("unknown", original).areaTags), []);
 });
+
+
+test("structured candidate defaults prioritize primary type, ignore generic types and preserve manual arrays", () => {
+  for (const [evidence, expected] of [
+    [{ primaryType: "hot_pot_restaurant", types: ["restaurant", "ramen_restaurant"], category: "餐廳" }, ["火鍋"]],
+    [{ types: ["food", "sushi_restaurant", "point_of_interest"], category: "餐廳" }, ["壽司"]],
+    [{ primaryType: "steak_house" }, ["牛排"]],
+    [{ primaryType: "korean_barbecue_restaurant" }, ["燒肉"]],
+    [{ primaryType: "barbecue_restaurant" }, ["燒肉"]],
+    [{ primaryTypeDisplayName: { text: "火鍋餐廳" }, category: "餐廳" }, ["火鍋"]],
+    [{ googleMapsTypeLabel: "拉麵店", category: "餐廳" }, ["拉麵"]],
+    [{ primaryType: "restaurant", types: ["food", "establishment", "point_of_interest"], category: "餐廳", name: "海底撈燒肉拉麵" }, []],
+    [{ primaryType: "hot_pot_restaurant", restaurantTags: [] }, []],
+    [{ primaryType: "hot_pot_restaurant", restaurantTags: ["麻辣鍋"] }, ["麻辣鍋"]],
+  ]) {
+    const original = candidate({ kind: "restaurant", description: "", ...evidence });
+    const { context } = makeContext();
+    const draft = context.candidateDraft("structured", original);
+    assert.deepEqual(Array.from(draft.restaurantTags), expected);
+    draft.restaurantTags = [];
+    assert.deepEqual(Array.from(context.candidateDraft("structured", original).restaurantTags), []);
+  }
+});
