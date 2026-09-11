@@ -2061,6 +2061,10 @@ function restaurantTagValues(place = {}) {
   return [...new Set(tags.filter((tag) => typeof tag === "string").map((tag) => tag.trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
 }
 
+function persistedRestaurantTagValues(place = {}) {
+  return restaurantTagValues({ ...place, restaurantTags: Array.isArray(place.restaurantTags) ? place.restaurantTags : [] });
+}
+
 function inferredRestaurantTags(place = {}) {
   if (place.kind !== "restaurant") return [];
   const evidence = [place.category, place.sourceCategory, place.googleCategory,
@@ -2116,13 +2120,25 @@ function initialCandidateRestaurantTags(place) {
 }
 
 function restaurantTagEditor(place, kind) {
-  const selected = restaurantTagValues({ ...place, kind: "restaurant" });
-  const options = [...new Set([...(state.places || []).flatMap(restaurantTagValues), ...selected])];
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend>${!Array.isArray(place?.restaurantTags) && selected.length ? `<small>依現有地點資料辨識，可修改；儲存後以你的選擇為準。</small>` : ""}<div class="restaurant-tag-options">${options.map((tag) => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增自訂類別</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="自訂類別" placeholder="輸入類別"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div><small>點選可多選；再次點選可移除，全部取消即清空。最後按儲存。</small></fieldset>`;
+  const selected = persistedRestaurantTagValues({ ...place, kind: "restaurant" });
+  const available = [...new Set((state.places || []).flatMap(persistedRestaurantTagValues))].filter(tag => !selected.includes(tag));
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options"><div data-restaurant-tags-selected aria-label="已選類別">${selected.map(tag => restaurantTagChip(tag, true)).join("")}</div><div data-restaurant-tags-available aria-label="可新增類別" ${available.length ? "" : "hidden"}>${available.map(tag => restaurantTagChip(tag, false)).join("")}</div></div><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增自訂類別</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="自訂類別" placeholder="輸入類別"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div><small>已選類別可按 × 移除；修改後按儲存，全部移除即清空。</small></fieldset>`;
 }
 
 function restaurantTagChip(tag, selected) {
-  return `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected ? "checked" : ""}><span>${escapeHtml(tag)}</span></label>`;
+  return `<label><input type="checkbox" name="restaurantTags" value="${escapeHtml(tag)}" ${selected ? "checked" : ""} aria-label="${selected ? "移除" : "新增"} ${escapeHtml(tag)}"><span>${escapeHtml(tag)}</span><span class="restaurant-tag-remove" aria-hidden="true">×</span></label>`;
+}
+
+function syncRestaurantTagEditor(form) {
+  const options = form.querySelector(".restaurant-tag-options");
+  const selected = options.querySelector("[data-restaurant-tags-selected]");
+  const available = options.querySelector("[data-restaurant-tags-available]");
+  for (const input of options.querySelectorAll('input[name="restaurantTags"]')) {
+    input.setAttribute("aria-label", `${input.checked ? "移除" : "新增"} ${input.value}`);
+    (input.checked ? selected : available).append(input.closest("label"));
+  }
+  available.hidden = !available.querySelector("input");
+  form.placeEditorSession.dirty.add("restaurantTags");
 }
 
 function addCustomRestaurantTag(form) {
@@ -2133,7 +2149,7 @@ function addCustomRestaurantTag(form) {
   const existing = [...options.querySelectorAll("input")].find((item) => item.value === tag);
   if (existing) existing.checked = true;
   else options.insertAdjacentHTML("beforeend", restaurantTagChip(tag, true));
-  form.placeEditorSession.dirty.add("restaurantTags");
+  syncRestaurantTagEditor(form);
   input.value = "";
   form.querySelector(".tag-custom-entry").hidden = true;
 }
@@ -2141,13 +2157,13 @@ function addCustomRestaurantTag(form) {
 // areaTags chips first, then category (restaurant) chips, sharing one wrapping row.
 // Never invents a category chip for a kind/place that has none.
 function placeTagsDetail(place) {
-  const chips = [...AreaTags.values(place), ...(place.kind === "restaurant" ? restaurantTagValues(place) : [])];
+  const chips = [...AreaTags.values(place), ...(place.kind === "restaurant" && Array.isArray(place.restaurantTags) ? restaurantTagValues(place) : [])];
   return chips.length ? `<section class="detail-area-tags"><div>${chips.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</div></section>` : "";
 }
 
 function placeTagsList(place) {
   // Persisted arrays only: list rendering never infers or reads candidate session state.
-  const chips = [...AreaTags.values(place), ...restaurantTagValues({ ...place, restaurantTags: place.restaurantTags || [] })];
+  const chips = [...AreaTags.values(place), ...persistedRestaurantTagValues(place)];
   return chips.length ? `<span class="place-list-tags">${chips.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</span>` : "";
 }
 
@@ -2324,12 +2340,12 @@ function placesFilterModel(places, selection) {
   const areaTags = AreaTags.tripTags(places, selection.areaTagComparison);
   selection.areaTagFilter = areaTags.find((tag) => AreaTags.key(tag, selection.areaTagComparison) === AreaTags.key(selection.areaTagFilter, selection.areaTagComparison)) || "";
   const areaPlaces = places.filter((place) => !selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter);
-  const tags = [...new Set(areaPlaces.flatMap(restaurantTagValues))];
+  const tags = [...new Set(areaPlaces.flatMap(persistedRestaurantTagValues))];
   if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
   const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
     && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
     && AreaTags.matches(place, selection.areaTagFilter, selection.areaTagComparison)
-    && (!selection.restaurantTagFilter || restaurantTagValues(place).includes(selection.restaurantTagFilter)));
+    && (!selection.restaurantTagFilter || persistedRestaurantTagValues(place).includes(selection.restaurantTagFilter)));
   return { areas, tags, areaTags, visible };
 }
 
@@ -2555,7 +2571,7 @@ function placeMapStatus(place) {
 function matchesMapFilters(place) {
   if (!AreaTags.matches(place, state.areaTagFilter, state.areaTagComparison || undefined)) return false;
   if (state.placeAreaFilter && place.travelAreaKey !== state.placeAreaFilter) return false;
-  if (state.restaurantTagFilter && !restaurantTagValues(place).includes(state.restaurantTagFilter)) return false;
+  if (state.restaurantTagFilter && !persistedRestaurantTagValues(place).includes(state.restaurantTagFilter)) return false;
   if (state.placeKind !== "all" && place.kind !== state.placeKind) return false;
   if (state.mapCategory !== "all" && place.category !== state.mapCategory) return false;
   const voters = placeVoters(place.name);
@@ -8865,6 +8881,10 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", async (event) => {
+  if (event.target.matches('input[name="restaurantTags"]')) {
+    syncRestaurantTagEditor(event.target.form);
+    return;
+  }
   if (event.target.matches("[data-map-area]")) {
     state.placeAreaFilter = event.target.value;
     state.selectedMapPlace = "";

@@ -8053,3 +8053,10 @@ body.transport-sheet-open .app {
 
 .place-detail-header-actions .sheet-undo-button { position: static; flex-shrink: 0; }
 .place-detail-sheet > .section-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+
+.restaurant-tag-options { display: grid; gap: 8px; }
+.restaurant-tag-options > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.restaurant-tag-options > div[hidden] { display: none; }
+.restaurant-tag-options label { gap: 6px; max-width: 100%; overflow-wrap: anywhere; }
+.restaurant-tag-options .restaurant-tag-remove { display: none; font-size: 17px; }
+.restaurant-tag-options label:has(input:checked) .restaurant-tag-remove { display: inline; }

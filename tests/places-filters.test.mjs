@@ -146,9 +146,9 @@ test("editor choices are actual trip tags plus current values; unused and name-o
 });
 
 test("custom input trims, deduplicates exact values and does not persist before Save", () => {
- const input={value:"  和牛  "}, existing={value:"和牛",checked:false}, dirty=new Set(), entry={hidden:false};
+ const input={value:"  和牛  "}, existing={value:"和牛",checked:false,setAttribute(){},closest(){return this;}}, dirty=new Set(), entry={hidden:false};
  let inserted="";
- const form={querySelector(selector){ return selector.includes("data-custom") ? input : selector === ".tag-custom-entry" ? entry : {querySelectorAll:()=>[existing],insertAdjacentHTML:(_,html)=>inserted+=html}; },placeEditorSession:{dirty}};
+ const form={querySelector(selector){ return selector.includes("data-custom") ? input : selector === ".tag-custom-entry" ? entry : {querySelector:()=>({append(){},querySelector:()=>null}),querySelectorAll:()=>[existing],insertAdjacentHTML:(_,html)=>inserted+=html}; },placeEditorSession:{dirty}};
  c.addCustomRestaurantTag(form);
  assert.equal(existing.checked,true);assert.equal(inserted,"");assert.equal(entry.hidden,true);assert(dirty.has("restaurantTags"));
  input.value="  漢堡  ";c.addCustomRestaurantTag(form);assert.match(inserted,/value="漢堡" checked/);
@@ -163,4 +163,23 @@ test("fullscreen categories reuse common chips without duplicate area and retain
  const mode=section('  const mode = event.target.closest("[data-places-mode]")','  const listFilter =');
  assert.doesNotMatch(mode,/state\.(?:placeKind|mapCategory|mapPreference)\s*=/);
  assert.match(source,/const visiblePlaces = filters.visible.filter\(matchesMapFilters\)/);
+});
+
+
+test("formal vocabulary and detail use persisted arrays only, never defaults or legacy inference", () => {
+ const old = { kind: "restaurant", category: "燒肉店", description: "火鍋", name: "拉麵" };
+ c.state = { places: [old], placeKind: "all" };
+ assert.deepEqual(Array.from(c.placesFilterModel(c.state.places, c.state).tags), []);
+ assert.equal(c.placeTagsDetail(old), "");
+ assert.doesNotMatch(c.restaurantTagEditor(old, "restaurant"), /name="restaurantTags"/);
+ assert.deepEqual(Array.from(c.initialCandidateRestaurantTags(old)), ["燒肉", "火鍋"]);
+ const committed = { kind: "restaurant", restaurantTags: ["火鍋"] };
+ c.state.places = [committed];
+ assert.deepEqual(Array.from(c.placesFilterModel(c.state.places, c.state).tags), ["火鍋"]);
+ c.state.places = [];
+ assert.deepEqual(Array.from(c.placesFilterModel(c.state.places, c.state).tags), []);
+ assert.doesNotMatch(c.placesFilterChips(c.placesFilterModel([], c.state)), /data-restaurant-tag-filter/);
+ const html = c.restaurantTagEditor({ kind: "restaurant", restaurantTags: ["全新自訂"] }, "restaurant");
+ assert.match(html, /value="全新自訂" checked aria-label="移除 全新自訂"/);
+ assert.match(html, /restaurant-tag-remove/);
 });
