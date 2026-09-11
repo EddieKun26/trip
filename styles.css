@@ -8033,9 +8033,6 @@ body.transport-sheet-open .app {
 .area-tag-suggestions small { padding: 6px 10px; color: var(--muted); }
 .area-tag-suggestions button { min-height: 44px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
 .area-tag-suggestions button[aria-selected="true"], .area-tag-suggestions button:hover { background: var(--mineral-soft); }
-.area-tag-input { display: flex; align-items: center; gap: 8px; }
-.area-tag-input input { min-width: 0; flex: 1; }
-.area-tag-input button { flex-shrink: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; }
 .detail-area-tags { display: flex; gap: 8px; align-items: baseline; margin: 12px 0 4px; color: var(--ink); font-weight: 600; }
 .detail-legacy-area { margin: 4px 0 12px; color: var(--muted); font-size: 12px; font-weight: 400; }
 .detail-area-tags > div { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
@@ -8059,5 +8056,3 @@ body.transport-sheet-open .app {
 .tag-add-row .tag-custom-entry { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; height: 44px; }
 .tag-add-row .tag-custom-entry:not([hidden]) { display: grid; }
 .tag-add-row input, .tag-add-row button { height: 44px; min-height: 44px; margin: 0; }
-.area-tag-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 44px; }
-.area-tag-input input, .area-tag-input button { width: 100%; min-width: 0; height: 44px; min-height: 44px; margin: 0; }

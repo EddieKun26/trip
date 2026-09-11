@@ -2107,23 +2107,29 @@ function restaurantTagsFromCategory(category) {
 function initialCandidateRestaurantTags(place) {
   if (Array.isArray(place.restaurantTags)) return restaurantTagValues({ ...place, kind: "restaurant" });
   // Exact existing taxonomy first: primary type outranks secondary types and text evidence.
+  // Each structured-evidence tier yields at most one canonical system suggestion; a user adds more manually.
   const primary = restaurantTagsFromCategory(place.primaryType);
-  if (primary.length) return primary;
+  if (primary.length) return primary.slice(0, 1);
   const secondary = [...new Set((Array.isArray(place.types) ? place.types : []).flatMap(restaurantTagsFromCategory))];
-  if (secondary.length) return secondary;
+  if (secondary.length) return secondary.slice(0, 1);
   const display = [place.primaryTypeDisplayName?.text || place.primaryTypeDisplayName,
     place.googleMapsTypeLabel?.text || place.googleMapsTypeLabel].filter(value => typeof value === "string");
   const labels = display.flatMap(restaurantTagsFromCategory);
-  if (labels.length) return [...new Set(labels)];
+  if (labels.length) return [...new Set(labels)].slice(0, 1);
   const displayTags = inferredRestaurantTags({ kind: "restaurant", category: display.join("。") });
-  return displayTags.length ? displayTags : restaurantTagValues({ ...place, kind: "restaurant" });
+  if (displayTags.length) return displayTags.slice(0, 1);
+  return restaurantTagValues({ ...place, kind: "restaurant" });
 }
 
-function restaurantTagEditor(place, kind) {
+function restaurantTagEditor(place, kind, isCandidateDraftMode = false) {
   const selected = persistedRestaurantTagValues({ ...place, kind: "restaurant" });
   // Available options are editor-local. Only checked inputs are submitted on Save.
-  const available = [...new Set([...selected, ...(state.places || []).flatMap(persistedRestaurantTagValues)])];
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options" aria-label="可用類別">${available.map(tag => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><div class="tag-add-row"><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增自訂類別</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="自訂類別" placeholder="輸入類別"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div></div><small>點選類別切換是否使用，修改後按儲存。</small></fieldset>`;
+  // A candidate suggestion never pulls in the Trip-wide vocabulary: only its own canonical
+  // suggestion plus whatever this candidate session already added (place.restaurantTagOptions).
+  const available = isCandidateDraftMode
+    ? [...new Set([...(Array.isArray(place.restaurantTagOptions) ? place.restaurantTagOptions : []), ...selected])]
+    : [...new Set([...selected, ...(state.places || []).flatMap(persistedRestaurantTagValues)])];
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options" aria-label="可用類別">${available.map(tag => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><div class="tag-add-row"><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增 TAG</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="新增自訂類別" placeholder="輸入標籤"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div></div><small>點選類別切換是否使用，修改後按儲存。</small></fieldset>`;
 }
 
 function restaurantTagChip(tag, selected) {
@@ -2143,6 +2149,8 @@ function addCustomRestaurantTag(form) {
   const existing = [...options.querySelectorAll("input")].find((item) => item.value === tag);
   if (existing) existing.checked = true;
   else options.insertAdjacentHTML("beforeend", restaurantTagChip(tag, true));
+  const session = form.placeEditorSession;
+  session.restaurantTagOptions = [...new Set([...(session.restaurantTagOptions || []), tag])];
   syncRestaurantTagEditor(form);
   input.value = "";
   form.querySelector(".tag-custom-entry").hidden = true;
@@ -2166,7 +2174,7 @@ function areaTagEditor() {
     <strong>地區標籤 <small>選填，可多選或留空</small></strong>
     <div class="area-tag-chips" data-area-tags-selected data-area-tags-options aria-label="可用地區標籤" hidden></div>
     <div class="area-tag-autocomplete">
-      <div class="area-tag-input"><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入自訂地區" /><button type="button" data-area-tag-add>＋新增地區</button></div>
+      <div class="tag-add-row"><button type="button" class="tag-add-button" data-open-area-tag>＋新增 TAG</button><div class="tag-custom-entry" hidden><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入標籤" /><button type="button" data-area-tag-add>加入</button><button type="button" data-cancel-area-tag>取消</button></div></div>
       <div id="area-tag-options" data-area-tags-suggestions role="listbox" aria-label="地區標籤建議" hidden></div>
     </div>
   </section>`;
@@ -2198,8 +2206,13 @@ function renderAreaTagDraft(form) {
   session.areaTagComparison = AreaTags.comparison([...state.places, source]);
   // Keep available values separate from the selected working array. The legacy
   // data-area-tags-selected hook now identifies the one combined options row.
+  const isCandidateDraftMode = form.dataset.editorMode === "candidate-draft";
   const suggested = AreaTags.suggestions(source, state.places, [], areaGeometryCatalog);
-  const available = AreaTags.normalize([...session.areaTagAvailable, ...suggested.address, ...suggested.trip], session.areaTagComparison);
+  // A candidate suggestion converges to at most one canonical Area Tag and never pulls in
+  // the Trip-wide vocabulary; a persisted place keeps the richer live multi-candidate/trip picker.
+  const addressSuggestions = isCandidateDraftMode ? suggested.address.slice(0, 1) : suggested.address;
+  const tripSuggestions = isCandidateDraftMode ? [] : suggested.trip;
+  const available = AreaTags.normalize([...session.areaTagAvailable, ...addressSuggestions, ...tripSuggestions], session.areaTagComparison);
   const options = form.querySelector("[data-area-tags-selected]");
   const selectedKeys = new Set(session.areaTags.map(tag => AreaTags.key(tag, session.areaTagComparison)));
   const availableKeys = new Set(available.map(tag => AreaTags.key(tag, session.areaTagComparison)));
@@ -2252,6 +2265,8 @@ function chooseAreaTag(form, tag) {
   session.dirty.add("areaTags");
   session.areaTagActiveIndex = -1;
   form.querySelector("[data-area-tag-input]").value = "";
+  // Same collapse-after-add behavior as the restaurant tag editor's custom-entry row.
+  form.querySelector(".area-tag-editor .tag-custom-entry").hidden = true;
   renderAreaTagDraft(form);
 }
 
@@ -2266,7 +2281,11 @@ function bindAreaTagEditor(form, source) {
   const session = form.placeEditorSession;
   session.areaTagComparison = AreaTags.comparison([...state.places, source]);
   session.areaTags = AreaTags.values(source, session.areaTagComparison);
-  session.areaTagAvailable = [...session.areaTags];
+  // A candidate draft carries its own session-local option list (source.areaTagOptions) so a
+  // canonical suggestion toggled off stays visible/re-selectable across editor re-opens; a
+  // persisted place has no such field and falls back to exactly its current selected values.
+  session.areaTagAvailable = AreaTags.normalize(
+    [...(Array.isArray(source?.areaTagOptions) ? source.areaTagOptions : []), ...session.areaTags], session.areaTagComparison);
   session.areaTagSource = source; // Suggestions read saved evidence, never async resolver output.
   session.areaTagBaseline = placeEditorAddress(form); // Address shown when this evidence was captured.
   // Verified containment needs the same pre-generated boundary file the map already caches.
@@ -2284,8 +2303,22 @@ function bindAreaTagEditor(form, source) {
   });
   editor.addEventListener("click", (event) => {
     if (session.saving) return;
-    const target = event.target.closest("[data-area-tag-choose], [data-area-tag-toggle], [data-area-tag-add]");
+    const target = event.target.closest(
+      "[data-area-tag-choose], [data-area-tag-toggle], [data-area-tag-add], [data-open-area-tag], [data-cancel-area-tag]");
     if (!target) return;
+    // Same reveal/cancel interaction as the restaurant tag editor's own add-tag row.
+    if (target.hasAttribute("data-open-area-tag")) {
+      form.querySelector(".area-tag-editor .tag-custom-entry").hidden = false;
+      form.querySelector("[data-area-tag-input]").focus();
+      return;
+    }
+    if (target.hasAttribute("data-cancel-area-tag")) {
+      form.querySelector(".area-tag-editor .tag-custom-entry").hidden = true;
+      form.querySelector("[data-area-tag-input]").value = "";
+      session.areaTagAutocompleteOpen = false;
+      renderAreaTagAutocomplete(form);
+      return;
+    }
     if (target.hasAttribute("data-area-tag-add")) { addAreaTagInput(form); return; }
     if (target.dataset.areaTagChoose !== undefined) { chooseAreaTag(form, target.dataset.areaTagChoose); return; }
     const key = AreaTags.key(target.dataset.areaTagToggle, session.areaTagComparison);
@@ -6526,10 +6559,18 @@ function candidateDraft(identity, original) {
   const existingTags = AreaTags.values(draft);
   draft.areaTags = existingTags.length ? existingTags
     : AreaTags.suggestions(draft, state.places, [], areaGeometryCatalog).address.slice(0, 1);
+  // The editor's visible option set for this candidate's whole import session: the canonical
+  // suggestion(s) plus whatever the user later adds, even after toggling one off. Grows only;
+  // never derived from Trip-wide vocabulary. Cleared by endImportSession() with the rest of
+  // candidateDraftStore.
+  draft.areaTagOptions = [...draft.areaTags];
   const types = [draft.primaryType, ...(Array.isArray(draft.types) ? draft.types : [])];
   if (!["lodging", "shopping"].includes(draft.kind)
     && types.some(type => type === "restaurant" || restaurantTagsFromCategory(type).length)) draft.kind = "restaurant";
-  if (draft.kind === "restaurant") draft.restaurantTags = initialCandidateRestaurantTags(draft);
+  if (draft.kind === "restaurant") {
+    draft.restaurantTags = initialCandidateRestaurantTags(draft);
+    draft.restaurantTagOptions = [...draft.restaurantTags];
+  }
   candidateDraftStore.set(identity, draft);
   return draft;
 }
@@ -6841,7 +6882,7 @@ function openImportCandidatePreview(identity) {
         ${fullName}
         ${placeTagsDetail(place)}
         ${place.locationApproximate ? `<p class="coordinate-fallback-notice"><strong>這是住宿大約位置，不是入住地址</strong><span>Airbnb 等平台可能在預訂前隱藏門牌；預訂後請用房東提供的完整地址更新。</span></p>` : place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
-        ${place.coordinateLocation && !place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是地址座標，不是住宿名稱</strong><span>請核對地圖與完整地址；若要保留住宿名稱，請改貼 Booking、Agoda、Trip.com 或 Airbnb 原始連結。</span></p>` : ""}
+        ${place.kind === "lodging" && place.coordinateLocation && !place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是地址座標，不是住宿名稱</strong><span>請核對地圖與完整地址；若要保留住宿名稱，請改貼 Booking、Agoda、Trip.com 或 Airbnb 原始連結。</span></p>` : ""}
         ${mapPreview}
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${importCandidateGalleryMarkup(place)}</div>
         <div class="gallery-caption"><span>${place.photos?.length ? "Google Maps 地點照片" : "可到 Google Maps 查看更多照片"}</span><button type="button" data-open-maps="${escapeHtml(place.sourceUrl)}">查看完整地圖 ↗</button></div>
@@ -7187,6 +7228,13 @@ function bindPlaceEditor(form, existing, seed) {
   session.detailReturnKey = existing ? placeDetailKey(existing) : "";
   session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
   bindAreaTagEditor(form, existing || seed);
+  // Mirrors session.areaTagAvailable: the running set of restaurant-tag chips this editor
+  // should keep showing (canonical suggestion + anything the user adds), even after one is
+  // toggled off. Seeded from the candidate draft's own restaurantTagOptions where present.
+  session.restaurantTagOptions = [...new Set([
+    ...(Array.isArray((existing || seed).restaurantTagOptions) ? (existing || seed).restaurantTagOptions : []),
+    ...persistedRestaurantTagValues({ ...(existing || seed), kind: "restaurant" }),
+  ])];
   session.referenceUrl = form.elements.referenceUrl.value.trim();
   session.sourceMetadata = { ...lodgingSourceMetadata(seed.lodgingDraft || { ...existing, ...seed, referenceUrl: session.referenceUrl }),
     locationPrecision: seed.lodgingDraft?.locationPrecision || seed.locationPrecision || existing?.locationPrecision || "" };
@@ -7609,7 +7657,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field full"><label for="place-editor-name">顯示名稱</label><input id="place-editor-name" name="name" maxlength="100" value="${escapeHtml(displayName)}" placeholder="${escapeHtml(placeEditorNamePlaceholder(kind))}" required /></div>
           <div class="field"><label for="place-editor-kind">類型</label><select id="place-editor-kind" name="kind"><option value="lodging" ${kind === "lodging" ? "selected" : ""}>住宿</option><option value="attraction" ${kind === "attraction" ? "selected" : ""}>景點</option><option value="restaurant" ${kind === "restaurant" ? "selected" : ""}>餐廳</option><option value="shopping" ${kind === "shopping" ? "selected" : ""}>購物</option></select></div>
           <input type="hidden" name="category" value="${escapeHtml(category)}" data-category-kind="${escapeHtml(kind)}" />
-          ${restaurantTagEditor(existing || seed, kind)}
+          ${restaurantTagEditor(existing || seed, kind, isCandidateDraftMode)}
           ${areaTagEditor()}
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
@@ -7653,7 +7701,16 @@ async function submitCandidateDraftEditor(form) {
   const category = String(formData.get("category") || "").normalize("NFKC").trim().slice(0, 60) || defaultPlaceCategory(kind);
   const restaurantTags = kind === "restaurant" ? restaurantTagValues({ kind, restaurantTags: formData.getAll("restaurantTags") }) : draft.restaurantTags;
   const restaurantTagsSource = kind === "restaurant" ? "manual" : draft.restaurantTagsSource;
+  // Persist this session's visible option set (canonical suggestion + everything the user has
+  // added, whether currently selected or toggled off) so re-opening this candidate's editor
+  // keeps offering them, without ever reading the Trip-wide vocabulary.
+  const restaurantTagOptions = kind === "restaurant"
+    ? [...new Set([...(Array.isArray(draft.restaurantTagOptions) ? draft.restaurantTagOptions : []), ...(session.restaurantTagOptions || []), ...restaurantTags])]
+    : draft.restaurantTagOptions;
   const areaTags = session.dirty.has("areaTags") ? AreaTags.normalize(session.areaTags, session.areaTagComparison) : draft.areaTags;
+  const areaTagOptions = AreaTags.normalize(
+    [...(Array.isArray(draft.areaTagOptions) ? draft.areaTagOptions : []), ...session.areaTagAvailable, ...areaTags],
+    session.areaTagComparison);
   const submitButton = form.querySelector('button[type="submit"]');
   session.saving = true;
   submitButton.disabled = true;
@@ -7670,7 +7727,7 @@ async function submitCandidateDraftEditor(form) {
   }
   if (!customPhotoDataUrl) photoOrigin = "";
   if (!session.active()) return;
-  candidateDraftStore.set(identity, { ...draft, name, kind, category, restaurantTags, restaurantTagsSource, areaTags, customPhotoDataUrl, photoOrigin });
+  candidateDraftStore.set(identity, { ...draft, name, kind, category, restaurantTags, restaurantTagsSource, restaurantTagOptions, areaTags, areaTagOptions, customPhotoDataUrl, photoOrigin });
   closeSheet();
   reopenImportCandidateSheet(identity);
   return showToast("候選資料已更新");
@@ -9739,7 +9796,7 @@ document.addEventListener("submit", async (event) => {
     // this candidate's saved draft (if any), never the stale original and never a fresh search.
     const additions = submittablePlaceImports(parsed)
       .map((candidate) => finalizeCandidateForBatchAdd(candidate))
-      .map(({ importAddress, requiresAddressConfirmation, recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, ...place }) => withStoredTabelogLink({
+      .map(({ importAddress, requiresAddressConfirmation, recognition, isExisting, canImport, selected, isSocialCandidate, candidateGroupId, candidateLabel, candidateRank, candidateSearchQuery, candidateSearchClues, candidateAddress, candidateCity, candidateArea, candidateCountry, candidateCategory, candidateExcludedPlaceIds, candidateGroupSkipped, matchConfidence, sourceOriginalText, sourceOriginalImages, sourceImageIndexes, restaurantTagOptions, areaTagOptions, ...place }) => withStoredTabelogLink({
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
       }, state.destination));

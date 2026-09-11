@@ -11,6 +11,7 @@ import test from "node:test";
 // as tests/lodging-editor.test.mjs and tests/maps-text-import.test.mjs), never a reimplementation.
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const catalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8"));
 
 const functionSource = (name) => {
@@ -102,6 +103,7 @@ function makeContext({ pendingPlaceImports = [], candidateDraftStore = new Map()
     },
     document: { querySelector: () => null },
     sheetRoot: { innerHTML: "", querySelector: () => null, insertAdjacentHTML() {} },
+    formatOpeningHours: (value) => value,
   });
   vm.runInContext(
     section("function restaurantTagValues", "function placesScreen")
@@ -123,7 +125,12 @@ function makeContext({ pendingPlaceImports = [], candidateDraftStore = new Map()
     + functionSource("samePendingImportIdentity")
     + functionSource("submittablePlaceImports")
     + functionSource("endImportSession")
-    + functionSource("submitCandidateDraftEditor"),
+    + functionSource("submitCandidateDraftEditor")
+    + functionSource("closeImportSourceImagePreview")
+    + functionSource("closeImportSourcePreview")
+    + functionSource("closeImportCandidatePreview")
+    + functionSource("importCandidateGalleryMarkup")
+    + functionSource("openImportCandidatePreview"),
     context,
   );
   return { context, toasts, get persistCalls() { return persistCalls; } };
@@ -430,4 +437,183 @@ test("structured candidate defaults prioritize primary type, ignore generic type
     draft.restaurantTags = [];
     assert.deepEqual(Array.from(context.candidateDraft("structured", original).restaurantTags), []);
   }
+});
+
+// -----------------------------------------------------------------------------------------------
+// Candidate Tag display-source + Add-Tag UX unification round (2026-09-12).
+// Same real-function technique as the lettered tests above: production candidateDraft/
+// bindPlaceEditor/submitCandidateDraftEditor/openImportCandidatePreview, real AreaTags module,
+// real travel-area-boundaries.json containment catalog.
+// -----------------------------------------------------------------------------------------------
+
+const clickAreaTagEditor = (form, dataset) => form.querySelector("[data-area-tag-editor]")
+  .fire("click", { target: { closest: () => ({ dataset, hasAttribute: (name) => name in dataset }) } });
+
+test("U. candidate Area suggestion never merges the Trip-wide vocabulary (production editor render)", () => {
+  // The default candidate() fixture sits at real Ginza coordinates, so its own canonical
+  // suggestion via verified Travel Area containment is 銀座 (proven by test F above).
+  const original = candidate();
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  context.state.places = [
+    { kind: "attraction", areaTags: ["代代木"] },
+    { kind: "attraction", areaTags: ["淺草"] },
+  ];
+  const identity = context.importCandidateIdentity(original);
+  const { form } = openEditor(context, identity, original);
+  const options = form.querySelector("[data-area-tags-selected]").innerHTML;
+  assert.match(options, /data-area-tag-toggle="銀座" aria-pressed="true"/, "own canonical suggestion still renders, selected");
+  assert.doesNotMatch(options, /代代木/, "an unrelated place's area tag must not leak into a candidate suggestion");
+  assert.doesNotMatch(options, /淺草/, "Trip-wide vocabulary is filter-only, never a candidate suggestion source");
+});
+
+test("V. a custom Area tag toggled off stays an available re-selectable option across editor re-opens, and is excluded from the committed selection", async () => {
+  const original = candidate(); // canonical -> 銀座
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  const identity = context.importCandidateIdentity(original);
+
+  const first = openEditor(context, identity, original);
+  clickAreaTagEditor(first.form, { areaTagToggle: "原宿" }); // not yet selected -> adds it (chooseAreaTag)
+  assert.match(first.form.querySelector("[data-area-tags-selected]").innerHTML, /data-area-tag-toggle="原宿" aria-pressed="true"/);
+  await context.submitCandidateDraftEditor(first.form);
+  assert.deepEqual(Array.from(context.candidateDraftStore.get(identity).areaTags).sort(), ["原宿", "銀座"].sort());
+
+  const second = openEditor(context, identity, original);
+  clickAreaTagEditor(second.form, { areaTagToggle: "原宿" }); // already selected -> toggles off
+  await context.submitCandidateDraftEditor(second.form);
+  const committed = context.candidateDraftStore.get(identity);
+  assert.deepEqual(Array.from(committed.areaTags), ["銀座"], "toggling off excludes it from the committed selection");
+  assert.doesNotMatch(context.placeTagsDetail(committed), /原宿/, "candidate list/detail must never show an unselected suggestion");
+  assert.match(context.placeTagsDetail(committed), /銀座/);
+
+  const third = openEditor(context, identity, original);
+  const reopenedOptions = third.form.querySelector("[data-area-tags-selected]").innerHTML;
+  assert.match(reopenedOptions, /data-area-tag-toggle="原宿" aria-pressed="false"/, "the custom tag is still offered, unselected, for re-selection");
+  assert.match(reopenedOptions, /data-area-tag-toggle="銀座" aria-pressed="true"/);
+});
+
+test("W. candidate Restaurant suggestion never merges the Trip-wide vocabulary; multi-type structured evidence still converges to one canonical tag (production render)", () => {
+  const original = candidate({
+    placeId: "place-hotpot-1", kind: "attraction",
+    primaryType: "hot_pot_restaurant", types: ["hot_pot_restaurant", "restaurant", "food", "point_of_interest"],
+    category: "餐廳", description: "",
+  });
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  context.state.places = [
+    { kind: "restaurant", restaurantTags: ["牛排"] },
+    { kind: "restaurant", restaurantTags: ["拉麵"] },
+  ];
+  const identity = context.importCandidateIdentity(original);
+  const draft = context.candidateDraft(identity, original);
+  assert.equal(draft.kind, "restaurant", "trusted structured evidence classifies this candidate as a restaurant");
+  assert.deepEqual(Array.from(draft.restaurantTags), ["火鍋"], "the generic types never fan out into extra system suggestions");
+  const seed = context.candidateDraftEditorSeed(identity, draft);
+  const html = context.restaurantTagEditor(seed, "restaurant", true);
+  assert.match(html, /value="火鍋" checked/);
+  assert.doesNotMatch(html, /value="牛排"/, "Trip-wide vocabulary from an unrelated persisted place must not appear");
+  assert.doesNotMatch(html, /value="拉麵"/);
+});
+
+test("X. a custom Restaurant tag replaces a toggled-off canonical suggestion through Save -> candidate detail -> batch add", async () => {
+  const original = candidate({ placeId: "place-hotpot-2", kind: "restaurant", primaryType: "hot_pot_restaurant" });
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  context.state.places = [];
+  const identity = context.importCandidateIdentity(original);
+  const { form } = openEditor(context, identity, original);
+  assert.deepEqual(Array.from(context.candidateDraft(identity, original).restaurantTags), ["火鍋"]);
+  form.querySelector("[data-custom-restaurant-tag]").value = "麻辣鍋";
+  context.addCustomRestaurantTag(form);
+  form.checkedTags = ["麻辣鍋"]; // 火鍋's checkbox is now unchecked; only 麻辣鍋 is submitted
+  await context.submitCandidateDraftEditor(form);
+  const committed = context.candidateDraftStore.get(identity);
+  assert.deepEqual(Array.from(committed.restaurantTags), ["麻辣鍋"]);
+  assert.doesNotMatch(context.placeTagsDetail(committed), /火鍋/, "an unselected suggestion never reaches candidate detail");
+  assert.match(context.placeTagsDetail(committed), /麻辣鍋/);
+
+  context.selectImportCandidate(original.candidateGroupId, identity, true);
+  const finalPlace = context.finalizeCandidateForBatchAdd(original);
+  assert.deepEqual(Array.from(finalPlace.restaurantTags), ["麻辣鍋"], "a toggled-off suggestion never becomes part of the persisted place");
+});
+
+test("Y. custom tag options added during one import session never survive endImportSession (the existing close-import-sheet cleanup path)", async () => {
+  const original = candidate({ placeId: "place-hotpot-3", kind: "restaurant", primaryType: "hot_pot_restaurant" });
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  const identity = context.importCandidateIdentity(original);
+  const { form } = openEditor(context, identity, original);
+  form.querySelector("[data-custom-restaurant-tag]").value = "麻辣鍋";
+  context.addCustomRestaurantTag(form);
+  form.checkedTags = ["麻辣鍋"];
+  await context.submitCandidateDraftEditor(form);
+  assert.match(JSON.stringify(context.candidateDraftStore.get(identity).restaurantTagOptions), /麻辣鍋/);
+
+  context.endImportSession(); // the real cleanup already invoked on batch-add success and on closing/cancelling the import sheet
+  assert.equal(context.candidateDraftStore.size, 0);
+
+  const fresh = context.candidateDraft(identity, original);
+  assert.deepEqual(Array.from(fresh.restaurantTags), ["火鍋"], "a fresh import session recomputes the canonical suggestion only");
+  assert.doesNotMatch(JSON.stringify(fresh.restaurantTagOptions || []), /麻辣鍋/, "an abandoned custom tag never survives into the next import session");
+});
+
+test("J. a general Google Maps restaurant candidate never renders the lodging coordinate warning (production candidate preview render)", () => {
+  const original = candidate({
+    placeId: "place-coordinate-restaurant", kind: "restaurant", category: "地址座標",
+    coordinateLocation: true, coordinateFallback: false, addressProvider: "Google Maps",
+  });
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  let captured = "";
+  context.sheetRoot.insertAdjacentHTML = (_, html) => { captured = html; };
+  context.openImportCandidatePreview(context.importCandidateIdentity(original));
+  assert.doesNotMatch(captured, /這是地址座標，不是住宿名稱/);
+});
+
+test("K. a general attraction candidate never renders the lodging coordinate warning", () => {
+  const original = candidate({
+    placeId: "place-coordinate-attraction", kind: "attraction", category: "地址座標",
+    coordinateLocation: true, coordinateFallback: false, addressProvider: "Google Maps",
+  });
+  const { context } = makeContext({ pendingPlaceImports: [original] });
+  let captured = "";
+  context.sheetRoot.insertAdjacentHTML = (_, html) => { captured = html; };
+  context.openImportCandidatePreview(context.importCandidateIdentity(original));
+  assert.doesNotMatch(captured, /這是地址座標，不是住宿名稱/);
+});
+
+test("L. a genuine lodging candidate keeps its original coordinate-warning gating unaffected", () => {
+  const lodgingCoordinateOnly = candidate({
+    placeId: "place-lodging-coordinate", kind: "lodging", category: "自訂地址",
+    coordinateLocation: true, coordinateFallback: false, addressProvider: "Google Maps",
+  });
+  const { context: contextA } = makeContext({ pendingPlaceImports: [lodgingCoordinateOnly] });
+  let capturedA = "";
+  contextA.sheetRoot.insertAdjacentHTML = (_, html) => { capturedA = html; };
+  contextA.openImportCandidatePreview(contextA.importCandidateIdentity(lodgingCoordinateOnly));
+  assert.match(capturedA, /這是地址座標，不是住宿名稱/, "a true lodging candidate resolved only to a raw coordinate keeps its warning");
+
+  const lodgingAddressFallback = candidate({
+    placeId: "place-lodging-fallback", kind: "lodging", category: "住宿地址座標",
+    coordinateLocation: true, coordinateFallback: true,
+  });
+  const { context: contextB } = makeContext({ pendingPlaceImports: [lodgingAddressFallback] });
+  let capturedB = "";
+  contextB.sheetRoot.insertAdjacentHTML = (_, html) => { capturedB = html; };
+  contextB.openImportCandidatePreview(contextB.importCandidateIdentity(lodgingAddressFallback));
+  assert.match(capturedB, /這是住宿地址座標/, "the existing coordinateFallback lodging warning is unaffected");
+  assert.doesNotMatch(capturedB, /這是地址座標，不是住宿名稱/);
+});
+
+test("M. Area and Restaurant share one add-tag interaction pattern (button text, structure, CSS classes)", () => {
+  const { context } = makeContext();
+  const restaurantHtml = context.restaurantTagEditor({ kind: "restaurant", restaurantTags: ["火鍋"] }, "restaurant", true);
+  const areaHtml = context.areaTagEditor();
+  for (const html of [restaurantHtml, areaHtml]) {
+    assert.match(html, /class="tag-add-row"/);
+    assert.match(html, /class="tag-add-button"[^>]*>＋新增 TAG</);
+    assert.match(html, /class="tag-custom-entry" hidden/);
+    assert.match(html, /placeholder="輸入標籤"/);
+    assert.match(html, />加入</);
+    assert.match(html, />取消</);
+  }
+  // Shared CSS classes, not a per-editor duplicate: one generic rule set drives both rows.
+  assert.match(stylesSource, /\.tag-add-row \{[^}]*height: 44px/);
+  assert.match(stylesSource, /\.tag-add-row input, \.tag-add-row button \{[^}]*height: 44px/);
+  assert.doesNotMatch(stylesSource, /\.area-tag-input \{/, "the old area-only input wrapper class must be gone, not left as dead CSS");
 });
