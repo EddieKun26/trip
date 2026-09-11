@@ -2128,6 +2128,12 @@ function placeTagsDetail(place) {
   return chips.length ? `<section class="detail-area-tags"><div>${chips.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</div></section>` : "";
 }
 
+function placeTagsList(place) {
+  // Persisted arrays only: list rendering never infers or reads candidate session state.
+  const chips = [...AreaTags.values(place), ...restaurantTagValues({ ...place, restaurantTags: place.restaurantTags || [] })];
+  return chips.length ? `<span class="place-list-tags">${chips.map((tag) => `<span class="highlight-tag">${escapeHtml(tag)}</span>`).join("")}</span>` : "";
+}
+
 function areaTagEditor() {
   return `<section class="field full area-tag-editor" data-area-tag-editor aria-label="地區標籤">
     <strong>地區標籤 <small>選填，可多選或留空</small></strong>
@@ -2335,6 +2341,7 @@ function placesScreen() {
                 <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">${escapeHtml(place.mark)}</button>
                 <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">
                   <strong>${escapeHtml(place.name)}</strong>
+                  ${placeTagsList(place)}
                   <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
                   <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
                 </button>
@@ -6460,7 +6467,16 @@ function cloneCandidateForDraft(candidate) {
 }
 
 function candidateDraft(identity, original) {
-  return candidateDraftStore.get(identity) || cloneCandidateForDraft(original);
+  if (candidateDraftStore.has(identity)) return candidateDraftStore.get(identity);
+  const draft = cloneCandidateForDraft(original);
+  // The Map entry is the initialization marker, including a later manually cleared [].
+  // Import intake awaits the existing cached geometry before creating these session drafts.
+  const existingTags = AreaTags.values(draft);
+  draft.areaTags = existingTags.length ? existingTags
+    : AreaTags.suggestions(draft, state.places, [], areaGeometryCatalog).address.slice(0, 1);
+  if (draft.kind === "restaurant") draft.restaurantTags = restaurantTagValues(draft);
+  candidateDraftStore.set(identity, draft);
+  return draft;
 }
 
 // Builds the seed consumed by the existing place editor (openPlaceEditSheet). The editor reads
@@ -6638,6 +6654,8 @@ async function rematchImportCandidateGroup(groupId) {
       && !candidate.isExisting
       && (!lodgingGroup || candidate.recommended === true));
     if (preferred) preferred.selected = true;
+    await loadAreaGeometry();
+    replacements.forEach((place) => candidateDraft(importCandidateIdentity(place), place));
     const firstIndex = pendingPlaceImports.findIndex((place) => place.candidateGroupId === groupId);
     pendingPlaceImports = pendingPlaceImports.filter((place) => place.candidateGroupId !== groupId);
     pendingPlaceImports.splice(Math.max(0, firstIndex), 0, ...replacements);
@@ -6745,8 +6763,7 @@ function openImportCandidatePreview(identity) {
   closeImportCandidatePreview();
   // The confirmation page always reflects the candidate draft (if the user has edited and saved
   // one this session); identity/evidence fields are untouched by the draft so merging is safe.
-  const draft = candidateDraftStore.get(identity);
-  const place = draft ? { ...original, ...draft } : original;
+  const place = candidateDraft(identity, original);
   const rating = Number(place.rating) > 0
     ? `★ ${Number(place.rating).toFixed(1)}${Number(place.ratingCount) > 0 ? `（${Number(place.ratingCount).toLocaleString("zh-TW")} 則評價）` : ""}`
     : "尚無評分資料";
@@ -6767,6 +6784,7 @@ function openImportCandidatePreview(identity) {
           </div>
         </div>
         ${fullName}
+        ${placeTagsDetail(place)}
         ${place.locationApproximate ? `<p class="coordinate-fallback-notice"><strong>這是住宿大約位置，不是入住地址</strong><span>Airbnb 等平台可能在預訂前隱藏門牌；預訂後請用房東提供的完整地址更新。</span></p>` : place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是住宿地址座標</strong><span>Google Maps 沒有獨立住宿頁，請核對下方地址後再選擇。</span></p>` : ""}
         ${place.coordinateLocation && !place.coordinateFallback ? `<p class="coordinate-fallback-notice"><strong>這是地址座標，不是住宿名稱</strong><span>請核對地圖與完整地址；若要保留住宿名稱，請改貼 Booking、Agoda、Trip.com 或 Airbnb 原始連結。</span></p>` : ""}
         ${mapPreview}
@@ -7708,6 +7726,8 @@ async function analyzePlaceImportSheet(analyzePlaces) {
   } catch {
     notices.push("地點資料暫時無法辨識，請稍後再試。");
   } finally {
+    await loadAreaGeometry();
+    pendingPlaceImports.forEach((place) => candidateDraft(importCandidateIdentity(place), place));
     pendingPlaceImportNotice = [...new Set(notices)].join(" ");
     const hasResults = pendingPlaceImports.length > 0 || pendingLodgingDrafts.length > 0;
     setImportSheetState(hasResults ? "results" : "input-error");

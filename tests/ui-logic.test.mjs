@@ -916,7 +916,7 @@ test("social place rematch builds the contracted request and reaches fetch", asy
     "showToast",
     "fetch",
     "initialPending",
-    `let pendingPlaceImports = initialPending; ${section}; return { rematchImportCandidateGroup, pending: () => pendingPlaceImports };`,
+    `let pendingPlaceImports = initialPending; const loadAreaGeometry = async () => null; const candidateDraft = () => {}; const importCandidateIdentity = p => p.placeId; ${section}; return { rematchImportCandidateGroup, pending: () => pendingPlaceImports };`,
   )(
     sheetRoot,
     { tripId: "trip-123", profile: { nickname: "測試者" } },

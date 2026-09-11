@@ -10,6 +10,7 @@ function harness() {
   const root = { querySelector: (selector) => selector.includes("query") ? query : selector.includes("status") ? status : button };
   status.dataset = {};
   const context = vm.createContext({ console, URL, pendingLodgingDrafts: [], state: { tripId: "trip", profile: { nickname: "Tester" } },
+    loadAreaGeometry: async () => null, candidateDraft: () => {}, importCandidateIdentity: p => p.placeId,
     currentMemberId: () => "member", importAlreadyExists: () => false, importCanBeAdded: p => p.canImport && p.selected,
     importCandidateSelectionMode: p => p.candidateCategory === "lodging" ? "single" : "multiple",
     lodgingCandidateSource: c => c, lodgingDraftToEditorSeed: d => ({ ...d, kind: "lodging" }),

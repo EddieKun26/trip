@@ -223,7 +223,7 @@ test("F. candidate draft mode gets a verified containment areaTags suggestion (G
   assert.equal(context.state.places.length, 0);
   const identity = context.importCandidateIdentity(original);
   const { form } = openEditor(context, identity, original);
-  const suggestions = form.querySelector("[data-area-tag-address-suggestions]").innerHTML;
+  const suggestions = form.querySelector("[data-area-tags-selected]").innerHTML;
   assert.match(suggestions, /銀座/, "a Ginza-coordinate candidate must suggest 銀座 via verified Travel Area containment");
 });
 
@@ -237,7 +237,7 @@ test("G. no semantic guessing: an unverified candidate (Jingumae) falls back to 
   const { context } = makeContext({ pendingPlaceImports: [original] });
   const identity = context.importCandidateIdentity(original);
   const { form } = openEditor(context, identity, original);
-  const suggestions = form.querySelector("[data-area-tag-address-suggestions]").innerHTML;
+  const suggestions = form.querySelector("[data-area-tags-selected]").innerHTML;
   assert.match(suggestions, /神宮前/);
   assert.doesNotMatch(suggestions, /原宿/, "no verified polygon hit means no semantic alias to a coarser area");
 });
@@ -377,4 +377,32 @@ test("R. cancelling the whole import flow clears every candidate draft", async (
   assert.equal(context.candidateDraftStore.size, 2);
   context.endImportSession(); // whole import flow cancelled/closed
   assert.equal(context.candidateDraftStore.size, 0);
+});
+
+
+test("S. first initialization reuses cuisine evidence, ignores names, and freezes manual empties", () => {
+  for (const [extra, expected] of [
+    [{ kind: "restaurant", category: "燒肉店" }, ["燒肉"]],
+    [{ kind: "restaurant", category: "餐廳", name: "燒肉拉麵店", description: "" }, []],
+    [{ kind: "restaurant", category: "燒肉店", restaurantTags: [] }, []],
+  ]) {
+    const original = candidate(extra);
+    const { context } = makeContext({ pendingPlaceImports: [original] });
+    const identity = context.importCandidateIdentity(original);
+    const draft = context.candidateDraft(identity, original);
+    assert.deepEqual(Array.from(draft.areaTags), ["銀座"]);
+    assert.deepEqual(Array.from(draft.restaurantTags), expected);
+    draft.areaTags = []; draft.restaurantTags = [];
+    assert.equal(context.candidateDraft(identity, original), draft);
+    context.selectImportCandidate(original.candidateGroupId, identity, true);
+    context.selectImportCandidate(original.candidateGroupId, identity, false);
+    assert.deepEqual(Array.from(context.finalizeCandidateForBatchAdd(original).areaTags), []);
+    assert.deepEqual(Array.from(context.finalizeCandidateForBatchAdd(original).restaurantTags), []);
+  }
+});
+
+test("T. missing containment/address evidence stays empty without consulting legacy area or name", () => {
+  const original = candidate({ latitude: null, longitude: null, formattedAddress: "", addressComponents: [], addressComponentsOriginal: [], name: "銀座燒肉", travelAreaZh: "銀座", areaTags: [] });
+  const { context } = makeContext();
+  assert.deepEqual(Array.from(context.candidateDraft("unknown", original).areaTags), []);
 });

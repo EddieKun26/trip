@@ -485,6 +485,7 @@ test("lodging rematch keeps source provenance and photos while accepting only th
     customPhotoDataUrl: "source photo", photoOrigin: "lodging_source" };
   const status = { dataset: {} }, button = {}, root = { querySelector(selector) { return selector === "#import-rematch-query" ? { value: "New Google Stay" } : selector === "[data-run-import-rematch]" ? button : status; } };
   Object.assign(h.context, { pendingPlaceImports: [old], sheetRoot: { querySelector: () => root }, importAlreadyExists: () => false,
+    candidateDraft() {}, importCandidateIdentity: p => p.placeId,
     closeImportRematchSheet() {}, renderImportPreview() {}, updateImportConfirmState() {} });
   vm.runInContext(section("async function rematchImportCandidateGroup", "function closeImportCandidatePreview"), h.context);
   const rematch = h.context.rematchImportCandidateGroup("stay");
