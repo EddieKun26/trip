@@ -342,3 +342,8 @@
 - `buildTagBackfillManifest` (pure/read-only) -> `resolveTagBackfillLookups` (bounded Phase 2) -> `applyTagBackfillManifest` (re-checks a `tagBackfillFingerprint` of stable key + placeId + current tags right before writing; any mismatch aborts the whole apply with zero mutations) -> real `persist()`/`render()`. Idempotent by construction since only missing/empty fields are ever reconsidered.
 - Real production Trip data was not reachable this round (`api/trip.mjs` needs a genuine member session cookie; no admin bypass exists; `formal-trip-31.json` is a test fixture, not a live export) -- the mechanism is fully implemented and tested against fixtures/the real boundary catalog but has not yet run against real data. It will run automatically, once, the next time an authenticated session hydrates the trip after this ships.
 - Validation: new tests/tag-backfill.test.mjs 18/18; full regression once 475/476 (sole failure the pre-existing CRLF tests/area-tags.test.mjs artifact, re-confirmed against a pristine origin/main fetch). API functions remain 12. No production App opened.
+
+
+## Places list card vertical rhythm — 2026-09-12
+
+- `.place-row` (Places list card grid) now has `padding: 14px 0`, so content no longer touches the divider above/below. A `.place-row .place-copy`-scoped rhythm replaces the old flat spacing: name->tag/meta 4px, tag->meta 6px, meta->marker 7px; tagless places collapse cleanly (the tag element just isn't rendered, no reserved gap). Multi-row tag wrapping is no longer clipped and long names wrap instead of ellipsis-truncating, both scoped to this card only (itinerary timeline / import-candidate card unaffected). CSS-only; no markup, data, or JS behavior changed. API functions remain 12.

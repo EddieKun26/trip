@@ -932,6 +932,29 @@ h2 {
   gap: 12px;
   align-items: center;
   min-height: 82px;
+  padding: 14px 0;
+}
+
+/* Vertical rhythm inside the Places list card only (scoped via .place-row so the
+   itinerary timeline's unrelated .place-copy button keeps its own spacing).
+   name -> tag is tight (tag is a continuation of the name), tag -> meta is normal,
+   meta -> marker status is the most separated of the three, but still modest. */
+.place-row .place-copy strong {
+  margin-bottom: 4px;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.place-row .place-copy .place-list-tags {
+  margin: 0 0 6px;
+  max-height: none;
+  overflow: visible;
+}
+
+.place-row .place-copy > span:not(.place-list-tags):not(.vote-names) {
+  display: block;
+  margin: 0 0 7px;
 }
 
 .place-thumb,
@@ -994,6 +1017,10 @@ h2 {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.place-row .place-copy .vote-names {
+  margin-top: 0;
 }
 
 .reaction-button {
