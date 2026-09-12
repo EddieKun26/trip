@@ -43,3 +43,10 @@
 ## Sticky save footer and same-place navigation acceptance — 2026-09-11
 
 - [ ] User production check on a real iPhone/Android device during bulk areaTags editing: the Save/Cancel bar stays visible while scrolling the editor, is not obscured by or fighting the on-screen keyboard, and the last field (photo section) is never hidden behind it. Confirm Save and Cancel on an existing place both return to that same place's detail (not the list), Save shows the freshly saved data, Cancel shows the untouched original, and the underlying Places list's scroll position/filters are exactly as left when the editor is eventually closed.
+
+
+## Safe auto-tag backfill acceptance — 2026-09-12
+
+- [ ] Deploy this round's `app.js` change to production, then open the real trip in a normal authenticated browser session (this triggers `scheduleTagBackfillMigration()` automatically, once). Afterwards check a few previously-tagless restaurant Places now show a single sensible 類別 chip (and a single 地區 chip where containment/address evidence existed), and that every Place that already had either tag is completely unchanged.
+- [ ] Open the browser devtools console during that first load and report back the `[tag-backfill]` line it logs (mutation counts), and in particular whether it logs the "N restaurant place(s) need an exact Google Place Details lookup; skipping that batch this run (cap is 20)" warning -- if so, the real backlog is bigger than the safe auto-run threshold and needs an explicit follow-up round to design a multi-session batching/resume plan (this round intentionally does not guess at one, since the real count was unknown while building it).
+- [ ] Reload the trip a second time afterwards and confirm no further `[tag-backfill]` mutation log appears (idempotency holds in production, not just in the test suite).

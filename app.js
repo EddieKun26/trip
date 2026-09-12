@@ -1423,6 +1423,7 @@ function applySharedTrip(payload) {
   if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
   resetUndoBaseline({ clear: true });
   scheduleContainmentMigration();
+  scheduleTagBackfillMigration();
   return true;
 }
 
@@ -1442,6 +1443,131 @@ function scheduleContainmentMigration() {
     // leaves every persisted areaTag exactly as it is; there is no partial migration.
     if (blocked.length || !changes.length) return;
     for (const change of changes) change.place.areaTags = change.after;
+    persist();
+    render({ preserveScroll: true, filterOnly: true });
+  });
+}
+
+// One-shot backfill for already-persisted Places only: fills areaTags/restaurantTags that are
+// missing or explicitly []. Any place that already has a non-empty value for a field keeps it
+// untouched -- areaTags and restaurantTags are judged and written completely independently.
+// Area evidence reuses the same verified-containment-first, address-fallback precedence as the
+// live suggestion UI; restaurant evidence reuses the same structured-field precedence as new
+// candidates. Each field accepts at most one canonical result; anything else is left alone.
+let tagBackfillMigrationDone = "";
+
+function restaurantTagsMissingOrEmpty(place) {
+  return !Array.isArray(place.restaurantTags) || place.restaurantTags.length === 0;
+}
+
+function tagBackfillFingerprint(places) {
+  return JSON.stringify((Array.isArray(places) ? places : []).map((place) => [
+    placeDetailKey(place), place.placeId || "", AreaTags.values(place),
+    Array.isArray(place.restaurantTags) ? place.restaurantTags : null,
+  ]));
+}
+
+// Pure and read-only: never mutates a place, never calls the network. The caller applies the
+// returned manifest all-or-nothing after re-checking the fingerprint below.
+function buildTagBackfillManifest(places, catalog) {
+  return (Array.isArray(places) ? places : []).map((place) => {
+    const entry = { key: placeDetailKey(place), area: { status: "skip" }, restaurant: { status: "skip" } };
+    if (AreaTags.values(place).length === 0) {
+      const address = AreaTags.suggestions(place, places, [], catalog).address;
+      if (address.length === 1) entry.area = { status: "auto-safe", proposed: [...address] };
+      else if (address.length > 1) entry.area = { status: "ambiguous" };
+    }
+    if (place.kind === "restaurant" && restaurantTagsMissingOrEmpty(place)) {
+      const local = restaurantStructuredEvidenceTags(place);
+      if (local.length === 1) {
+        entry.restaurant = { status: "auto-safe", proposed: [...local], evidence: "local" };
+      } else {
+        const placeId = detailGooglePlaceId(place);
+        entry.restaurant = placeId ? { status: "needs-lookup", placeId } : { status: "skip" };
+      }
+    }
+    return entry;
+  });
+}
+
+// Exact placeId lookup only -- never a name or Nearby search. Safe up to 20 places per pass;
+// above that this intentionally does nothing so one hydration never bursts dozens of Place
+// Details requests. The caller reports lookupNeededCount so a larger backlog can be batched
+// manually instead.
+async function resolveTagBackfillLookups(manifest, places) {
+  const targets = manifest.filter((entry) => entry.restaurant.status === "needs-lookup");
+  if (!targets.length) return { lookupNeededCount: 0, attempted: 0, succeeded: 0 };
+  if (targets.length > 20) return { lookupNeededCount: targets.length, attempted: 0, succeeded: 0, skippedCapExceeded: true };
+  const sourceUrlByKey = new Map(places.map((place) => [placeDetailKey(place), place.sourceUrl || ""]));
+  let succeeded = 0;
+  for (let index = 0; index < targets.length; index += 10) {
+    const chunk = targets.slice(index, index + 10);
+    let results = [];
+    try {
+      const response = await fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ places: chunk.map((entry) => ({
+          placeId: entry.restaurant.placeId, resolveDetails: true, sourceUrl: sourceUrlByKey.get(entry.key) || "",
+        })) }),
+      });
+      results = response.ok ? (await response.json()).places || [] : [];
+    } catch { results = []; }
+    chunk.forEach((entry, chunkIndex) => {
+      const result = results[chunkIndex];
+      if (!result || result.error || result.placeId !== entry.restaurant.placeId) { entry.restaurant = { status: "skip" }; return; }
+      const classified = restaurantStructuredEvidenceTags(result);
+      entry.restaurant = classified.length === 1
+        ? { status: "auto-safe", proposed: [...classified], evidence: "exact-lookup" }
+        : { status: "skip" };
+      if (entry.restaurant.status === "auto-safe") succeeded += 1;
+    });
+  }
+  return { lookupNeededCount: targets.length, attempted: targets.length, succeeded };
+}
+
+// All-or-nothing against a re-checked fingerprint: if the trip changed since the manifest was
+// built (a place added/removed, or any relevant field edited in the meantime), the whole apply
+// aborts with zero mutations rather than writing a manifest that no longer matches reality.
+function applyTagBackfillManifest(manifest, beforeFingerprint) {
+  if (tagBackfillFingerprint(state.places) !== beforeFingerprint) return { aborted: true, areaCount: 0, restaurantCount: 0 };
+  const byKey = new Map(manifest.map((entry) => [entry.key, entry]));
+  let areaCount = 0, restaurantCount = 0;
+  for (const place of state.places) {
+    const entry = byKey.get(placeDetailKey(place));
+    if (!entry) continue;
+    if (entry.area.status === "auto-safe" && AreaTags.values(place).length === 0) {
+      place.areaTags = entry.area.proposed;
+      areaCount += 1;
+    }
+    if (entry.restaurant.status === "auto-safe" && place.kind === "restaurant" && restaurantTagsMissingOrEmpty(place)) {
+      place.restaurantTags = entry.restaurant.proposed;
+      restaurantCount += 1;
+    }
+  }
+  return { aborted: false, areaCount, restaurantCount };
+}
+
+function scheduleTagBackfillMigration() {
+  if (tagBackfillMigrationDone === state.tripId || !canEdit()) return;
+  const pending = state.places.some((place) => AreaTags.values(place).length === 0
+    || (place.kind === "restaurant" && restaurantTagsMissingOrEmpty(place)));
+  if (!pending) return;
+  tagBackfillMigrationDone = state.tripId;
+  const tripId = state.tripId;
+  loadAreaGeometry().then(async (catalog) => {
+    if (tripId !== state.tripId) return;
+    const beforeFingerprint = tagBackfillFingerprint(state.places);
+    const manifest = buildTagBackfillManifest(state.places, catalog);
+    const lookups = await resolveTagBackfillLookups(manifest, state.places);
+    if (lookups.skippedCapExceeded) {
+      console.warn(`[tag-backfill] ${lookups.lookupNeededCount} restaurant place(s) need an exact Google Place Details lookup; skipping that batch this run (cap is 20) so one hydration never bursts the Places API. Re-run after narrowing the backlog, or trigger a manual batch.`);
+    }
+    if (tripId !== state.tripId || !canEdit()) return;
+    const result = applyTagBackfillManifest(manifest, beforeFingerprint);
+    if (result.aborted) { console.warn("[tag-backfill] trip data changed during migration; aborted with zero mutations."); return; }
+    if (!result.areaCount && !result.restaurantCount) return;
+    console.info(`[tag-backfill] areaTags +${result.areaCount}, restaurantTags +${result.restaurantCount}`);
     persist();
     render({ preserveScroll: true, filterOnly: true });
   });
@@ -2104,10 +2230,11 @@ function restaurantTagsFromCategory(category) {
   return tag ? [tag] : [];
 }
 
-function initialCandidateRestaurantTags(place) {
-  if (Array.isArray(place.restaurantTags)) return restaurantTagValues({ ...place, kind: "restaurant" });
-  // Exact existing taxonomy first: primary type outranks secondary types and text evidence.
-  // Each structured-evidence tier yields at most one canonical system suggestion; a user adds more manually.
+// Exact existing taxonomy first: primary type outranks secondary types and Google's own
+// display-label text. Each tier yields at most one canonical system suggestion, and every
+// field read here is a structured Google/production field -- never the place's own name,
+// description or category free text, which stays a candidate-draft-only fallback below.
+function restaurantStructuredEvidenceTags(place) {
   const primary = restaurantTagsFromCategory(place.primaryType);
   if (primary.length) return primary.slice(0, 1);
   const secondary = [...new Set((Array.isArray(place.types) ? place.types : []).flatMap(restaurantTagsFromCategory))];
@@ -2116,8 +2243,13 @@ function initialCandidateRestaurantTags(place) {
     place.googleMapsTypeLabel?.text || place.googleMapsTypeLabel].filter(value => typeof value === "string");
   const labels = display.flatMap(restaurantTagsFromCategory);
   if (labels.length) return [...new Set(labels)].slice(0, 1);
-  const displayTags = inferredRestaurantTags({ kind: "restaurant", category: display.join("。") });
-  if (displayTags.length) return displayTags.slice(0, 1);
+  return inferredRestaurantTags({ kind: "restaurant", category: display.join("。") }).slice(0, 1);
+}
+
+function initialCandidateRestaurantTags(place) {
+  if (Array.isArray(place.restaurantTags)) return restaurantTagValues({ ...place, kind: "restaurant" });
+  const structured = restaurantStructuredEvidenceTags(place);
+  if (structured.length) return structured;
   return restaurantTagValues({ ...place, kind: "restaurant" });
 }
 
