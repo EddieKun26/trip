@@ -1,4 +1,5 @@
 import areaTags from "../lib/area-tags.js";
+import PlanningGeography from "../lib/planning-geography.js";
 import areaAudit from "../lib/travel-area-audit.js";
 import { readFileSync } from "node:fs";
 let areaCatalog = null;
@@ -248,10 +249,10 @@ export default async function tripHandler(request, response) {
       if (!isMember && !trip.publicRead) return sendJson(response, member ? 403 : 401, { error: "TRIP_ACCESS_REQUIRED" });
       if (!isMember) {
         const { inviteCode, ownerId, ...publicTrip } = trip;
-        publicTrip.places = (publicTrip.places || []).map(place => areaAudit.reclassify(place, areaCatalog));
+        publicTrip.places = (publicTrip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog));
         return sendJson(response, 200, publicTrip);
       }
-      return sendJson(response, 200, { ...trip, places: (trip.places || []).map(place => areaAudit.reclassify(place, areaCatalog)) });
+      return sendJson(response, 200, { ...trip, places: (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog)) });
     }
 
     if (request.method === "PUT") {
@@ -264,7 +265,10 @@ export default async function tripHandler(request, response) {
       if (conditional && expectedRevision !== current) {
         return sendJson(response, 409, { error: "REVISION_CONFLICT", revision: current });
       }
-      const updated = cleanTrip(request.body, trip, member);
+      // Validate the incoming geography before legacy/tag cleaning and any Redis write.
+      const input = { ...request.body, places: Array.isArray(request.body?.places)
+        ? request.body.places.slice(0, 250).map(place => PlanningGeography.normalizePlace(place)) : [] };
+      const updated = cleanTrip(input, trip, member);
       const key = `${TRIP_PREFIX}${trip.id}`;
       const payload = JSON.stringify(updated);
       if (!conditional) {
@@ -285,6 +289,6 @@ export default async function tripHandler(request, response) {
     return sendJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "SHARED_DATABASE_ERROR";
-    return sendJson(response, message === "SHARED_DATABASE_NOT_CONFIGURED" ? 503 : 500, { error: message });
+    return sendJson(response, message.startsWith("INVALID_CANONICAL_") || message === "INVALID_AUTO_SNAPSHOT" ? 400 : message === "SHARED_DATABASE_NOT_CONFIGURED" ? 503 : 500, { error: message });
   }
 }

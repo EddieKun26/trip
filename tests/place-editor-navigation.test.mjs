@@ -149,10 +149,9 @@ test("Save persists a rename under a stable identity and still reopens that same
     formattedAddress: "地址四", manualAddress: "地址四", latitude: 35.7, longitude: 139.7, placeId: "", sourceUrl: "", ...classified };
   const h = harness({ existing });
   h.form.elements.name.value = "新名字";
-  const saved = h.save();
-  await new Promise((resolve) => setImmediate(resolve));
-  h.reply(0, good);
-  await saved;
+  await h.save();
+  assert.equal(h.requests.length, 0, "unchanged current address reuses saved identity without geocoding");
+  assert.equal(h.state.places[0].formattedAddress, existing.formattedAddress);
   assert.equal(h.state.places[0].id, "p4", "renaming must preserve the stable P0 identity");
   assert.equal(h.state.places[0].name, "新名字");
   assert.match(h.sheetRoot.innerHTML, /新名字/, "detail must reopen under the saved record's new name");

@@ -601,13 +601,13 @@ export default async function placesHandler(request, response) {
           return await exactPlaceDetails({ apiKey, placeId, requestUrl });
         }
         if (shouldLocalizeArea) {
-          if (storedAddressComponents.length) {
+          if (storedAddressComponents.length || storedAddressComponentsOriginal.length) {
             const storedResolution = addressAndPlanningFields(
               storedAddressComponents,
               storedAddressComponentsOriginal,
               requestedCountryCode,
             );
-            if (storedResolution.travelAreaResolved) {
+            if (storedResolution.travelAreaResolved || storedResolution.travelAreaResolutionStatus === "ambiguous") {
               return {
                 requestUrl: originalUrl?.toString() || item.sourceUrl || "",
                 placeId,

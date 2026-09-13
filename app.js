@@ -545,6 +545,12 @@ function travelAreaKeyFromNames(countryCode, zh, local) {
 
 function ensureTravelAreaFields(place) {
   if (!place) return place;
+  if (globalThis.PlanningGeography) {
+    const normalized = PlanningGeography.normalizePlace(place);
+    if (!Object.hasOwn(normalized, "travelAreaCandidateKeys")) delete place.travelAreaCandidateKeys;
+    Object.assign(place, normalized);
+    if (PlanningGeography.isAmbiguous(place)) return place;
+  }
   if (globalThis.TravelAreaAudit) Object.assign(place, TravelAreaAudit.reclassify(place));
   if (place.travelAreaKey && place.travelAreaZh && place.travelAreaLocal) return place;
   const zh = String(place.planningRegion || place.area || "").trim();
@@ -572,6 +578,7 @@ function hasUsableTravelArea(place) {
 
 function isTravelAreaResolutionCurrent(place) {
   ensureTravelAreaFields(place);
+  if (globalThis.PlanningGeography?.isAmbiguous(place)) return true;
   // Unresolved split aliases use only the offline audit resolver, never a new Google lookup.
   if (globalThis.TravelAreaAudit?.isLegacy(place)) return true;
   if (place?.travelAreaSource === "manual" || place?.travelAreaManuallySet === true) return hasUsableTravelArea(place);
@@ -613,7 +620,7 @@ function travelAreaChineseName(place, fallback = "未分類") {
 
 function travelAreaGroupKey(place) {
   const geography = getPlacePlanningGeography(place);
-  if (geography) return geography.primaryAreaKey;
+  if (geography) return geography.primaryAreaKey || geography.sectionKey;
   ensureTravelAreaFields(place);
   return String(place.travelAreaKey);
 }
@@ -3819,12 +3826,25 @@ async function ensureMapCoordinates() {
 
 function applyPlanningRegionResolution(place, resolved) {
   if (!place || !resolved) return false;
+  if (globalThis.PlanningGeography) resolved = PlanningGeography.normalizePlace(resolved);
+  if (globalThis.PlanningGeography?.isAmbiguous(resolved)) {
+    const auto = PlanningGeography.automaticSnapshot(resolved);
+    if (place.travelAreaSource === "manual" || place.travelAreaManuallySet === true) place.autoTravelArea = auto;
+    else {
+      const next = PlanningGeography.mergeAreaFields(place, { ...auto, autoTravelArea: auto });
+      delete place.travelAreaResolutionError;
+      Object.assign(place, next);
+    }
+    return true;
+  }
   ensureTravelAreaFields(place);
+  // Completed ambiguity cannot be erased by a stale response or failed retry.
+  if (globalThis.PlanningGeography?.isAmbiguous(place)) return true;
+  if (place.travelAreaSource === "manual" || place.travelAreaManuallySet === true) return true;
   if (resolved.countryCode) place.countryCode = resolved.countryCode;
   if (Array.isArray(resolved.addressComponents)) place.addressComponents = resolved.addressComponents;
   if (Array.isArray(resolved.addressComponentsOriginal)) place.addressComponentsOriginal = resolved.addressComponentsOriginal;
   if (resolved.administrativeAreas) place.administrativeAreas = resolved.administrativeAreas;
-  if (place.travelAreaSource === "manual" || place.travelAreaManuallySet === true) return true;
   if (resolved.travelAreaResolved !== true || !resolved.travelAreaKey || !resolved.travelAreaZh || !resolved.travelAreaLocal
     || Number(resolved.travelAreaResolutionVersion) < TRAVEL_AREA_RESOLUTION_VERSION) {
     place.travelAreaResolved = false;
@@ -3832,6 +3852,7 @@ function applyPlanningRegionResolution(place, resolved) {
     place.travelAreaResolutionError = resolved.travelAreaResolutionError || resolved.error || "TRAVEL_AREA_NOT_RESOLVED";
     return false;
   }
+  delete place.travelAreaCandidateKeys;
   place.travelAreaKey = resolved.travelAreaKey;
   place.travelAreaZh = resolved.travelAreaZh;
   place.travelAreaLocal = resolved.travelAreaLocal;
@@ -3921,6 +3942,8 @@ async function resolveStoredPlacePlanningRegions() {
         updated = true;
         return;
       }
+      if (globalThis.PlanningGeography?.isAmbiguous(current) || resolved.travelAreaResolutionStatus === "ambiguous"
+        || current.travelAreaManuallySet === true || current.travelAreaSource === "manual") { updated = true; return; }
       current.area = resolved.area || current.area;
       current.areaOriginal = resolved.areaOriginal || resolved.area;
       current.areaResolvedByGoogle = resolved.areaResolvedByGoogle === true;
@@ -6632,7 +6655,7 @@ async function enrichPlaceImportsFromApi(entries) {
         placeId: resolved.placeId,
         sourceUrl: resolved.googleMapsUrl || place.sourceUrl,
       });
-      return {
+      const enriched = {
         ...place,
         placeId: resolved.placeId || place.placeId,
         name: resolved.name,
@@ -6644,6 +6667,7 @@ async function enrichPlaceImportsFromApi(entries) {
         travelAreaZh: resolved.travelAreaZh || place.travelAreaZh || "",
         travelAreaLocal: resolved.travelAreaLocal || place.travelAreaLocal || "",
         travelAreaResolved: resolved.travelAreaResolved === true,
+        travelAreaResolutionStatus: resolved.travelAreaResolutionStatus || (resolved.travelAreaResolved ? "resolved" : "failed"),
         travelAreaSource: resolved.travelAreaSource || place.travelAreaSource || "automatic",
         travelAreaResolver: resolved.travelAreaResolver || place.travelAreaResolver || "",
         travelAreaResolutionVersion: Number(resolved.travelAreaResolutionVersion) || 0,
@@ -6672,6 +6696,11 @@ async function enrichPlaceImportsFromApi(entries) {
         isExisting,
         canImport: true,
       };
+      if (!globalThis.PlanningGeography) return enriched;
+      const auto = editorAutoTravelArea(resolved);
+      const manual = place.travelAreaSource === "manual" || place.travelAreaManuallySet === true;
+      const active = manual ? Object.fromEntries(Object.entries(place).filter(([key]) => key.startsWith("travelArea"))) : auto;
+      return PlanningGeography.mergeAreaFields(enriched, { ...active, autoTravelArea: auto });
     });
   } catch {
     return entries;
@@ -7486,6 +7515,8 @@ function placeEditorAddress(form) {
 }
 
 function editorAutoTravelArea(resolved) {
+  if (globalThis.PlanningGeography) resolved = PlanningGeography.normalizePlace(resolved);
+  if (globalThis.PlanningGeography?.isAmbiguous(resolved)) return PlanningGeography.automaticSnapshot(resolved);
   const success = resolved?.travelAreaResolved === true;
   return {
     travelAreaKey: success ? resolved.travelAreaKey : "unclassified:address",
@@ -7502,7 +7533,7 @@ function editorAutoTravelArea(resolved) {
 
 function placeEditorTravelArea(resolved, existing, selectedKey, restoreAuto = false, selected = false) {
   const auto = editorAutoTravelArea(resolved);
-  if (restoreAuto) return { ...auto, autoTravelArea: auto };
+  if (restoreAuto) return PlanningGeography.restoreAutomaticFields(existing?.autoTravelArea);
   const manual = existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true;
   if (!selected && manual && (!selectedKey || selectedKey === existing.travelAreaKey)) {
     const fields = Object.fromEntries(Object.entries(existing).filter(([key]) => key.startsWith("travelArea") || key === "autoTravelArea"));
@@ -7515,23 +7546,34 @@ function placeEditorTravelArea(resolved, existing, selectedKey, restoreAuto = fa
     const fields = PlanningGeography.manualAreaFields(selectedKey);
     // Preserve Phase A automatic evidence verbatim, including an absent R01 snapshot.
     return { ...fields, ...(existing?.autoTravelArea ? { autoTravelArea: existing.autoTravelArea }
-      : !existing && resolved?.travelAreaResolved ? { autoTravelArea: auto } : {}) };
+      : globalThis.PlanningGeography?.isAmbiguous(existing) ? { autoTravelArea: editorAutoTravelArea(existing) }
+      : !existing && (resolved?.travelAreaResolved || globalThis.PlanningGeography?.isAmbiguous(resolved)) ? { autoTravelArea: auto } : {}) };
   }
   return { ...auto, autoTravelArea: auto };
 }
 
 function saveCanonicalAreaOnly(form) {
   const session = form.placeEditorSession;
-  if (!session?.dirty.has("travelAreaKey") || session.restoreAuto || session.saving
+  if (!(session?.dirty.has("travelAreaKey") || session?.restoreAuto
+      || globalThis.PlanningGeography?.isAmbiguous(session?.result)) || session.saving
     || session.dirty.has("areaTags") || session.dirty.has("restaurantTags")
     || pendingPlacePhoto || removePendingPlacePhoto || session.sourcePhotoPreparing || session.loadingUrl
     || !Object.entries(session.tagEditBaseline).every(([key, value]) => key === "travelAreaKey" || (form.elements[key]?.value || "") === value)) return false;
   const existing = state.places.find(place => place.name === form.dataset.originalPlaceName);
   if (!existing) return false;
   const key = form.elements.travelAreaKey.value;
-  if (!PlanningGeography.canonicalArea(key)) { showToast("請選擇旅遊分區"); return true; }
+  if (!session.restoreAuto && (session.dirty.has("travelAreaKey") || !PlanningGeography.isAmbiguous(existing)) && !PlanningGeography.canonicalArea(key)) { showToast("請選擇旅遊分區"); return true; }
+  if (session.restoreAuto && !existing.autoTravelArea) { showToast("沒有可還原的自動分區"); return true; }
+  let next;
+  try {
+    const fields = placeEditorTravelArea(existing, existing, key, session.restoreAuto, session.dirty.has("travelAreaKey"));
+    next = PlanningGeography.mergeAreaFields(existing, fields);
+  } catch { showToast("自動分區資料無效，尚未儲存"); return true; }
   session.saving = true;
-  Object.assign(existing, PlanningGeography.manualAreaFields(key));
+  clearTimeout(session.timer);
+  if (!Object.hasOwn(next, "travelAreaCandidateKeys")) delete existing.travelAreaCandidateKeys;
+  if (!Object.hasOwn(next, "travelAreaResolutionError")) delete existing.travelAreaResolutionError;
+  Object.assign(existing, next);
   persist();
   closeSheet();
   render({ preserveScroll: true });
@@ -7580,9 +7622,12 @@ function bindPlaceEditor(form, existing, seed) {
     if (session.active()) form.querySelector("[data-place-address-status]").textContent = message;
   };
   session.showLocation = (candidate) => {
-    const area = placeEditorTravelArea(candidate, existing, form.elements.travelAreaKey?.value || "",
+    if (!session.restoreAuto && session.dirty.has("travelAreaKey") && !PlanningGeography.canonicalArea(form.elements.travelAreaKey?.value)) {
+      session.status("請選擇有效的旅遊分區"); return;
+    }
+    const area = placeEditorTravelArea(candidate, existing || (seed.editorMode === "candidate-draft" ? seed : null), form.elements.travelAreaKey?.value || "",
       session.restoreAuto, session.dirty.has("travelAreaKey"));
-    session.status(area.travelAreaResolved
+    session.status(area.travelAreaResolved || globalThis.PlanningGeography?.isAmbiguous(area)
       ? `✓ 地址已定位 · ${globalThis.TravelAreaAudit?.isLegacy(area) ? "地區待確認" : travelAreaDisplayName(area)}${area.travelAreaManuallySet ? " · 手動分區" : ""}`
       : "✓ 地址已定位 · 分區待辨識");
   };
@@ -7692,9 +7737,16 @@ function bindPlaceEditor(form, existing, seed) {
   form.querySelector("[data-retry-place-address]").addEventListener("click", () => session.resolve(true));
   form.querySelector("[data-restore-auto-area]").addEventListener("click", () => {
     if (session.saving) return;
+    const snapshot = (existing || seed)?.autoTravelArea;
+    try { PlanningGeography.restoreAutomaticFields(snapshot); }
+    catch { session.status("沒有可還原的有效自動分區"); return; }
     session.restoreAuto = true;
     form.elements.travelAreaKey.value = "";
-    session.resolve();
+    clearTimeout(session.timer);
+    session.sequence += 1;
+    session.request = null;
+    session.result = { ...(existing || seed) };
+    session.showLocation(snapshot);
   });
   form.elements.referenceUrl.addEventListener("blur", () => {
     clearTimeout(session.metadataTimer);
@@ -7704,7 +7756,21 @@ function bindPlaceEditor(form, existing, seed) {
     if (!session.saving) form.querySelector("[data-place-photo-input]").click();
   });
   const cachedAuto = existing?.autoTravelArea || existing;
-  if (Number(cachedAuto?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION
+  const geographyPlace = existing || (seed.editorMode === "candidate-draft" ? seed : null);
+  let restorableAuto = false;
+  if (geographyPlace?.autoTravelArea && globalThis.PlanningGeography) {
+    try { PlanningGeography.restoreAutomaticFields(geographyPlace.autoTravelArea); restorableAuto = true; } catch { /* Preserve invalid evidence for explicit rejection. */ }
+  }
+  const storedAddressMatches = [geographyPlace?.formattedAddress, ...(geographyPlace?.manualLocation ? [geographyPlace.manualAddress] : [])]
+    .some(address => address && session.address === String(address).normalize("NFKC").trim().slice(0, 300));
+  if (geographyPlace && (restorableAuto || globalThis.PlanningGeography?.isAmbiguous(geographyPlace)
+    || (storedAddressMatches && globalThis.PlanningGeography?.getPlacePlanningGeography(geographyPlace)
+      && geographyPlace.travelAreaResolved === true && Number(geographyPlace.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION))) {
+    // Geography edits start from saved identity and evidence. Only a changed address
+    // or an explicit address retry invalidates this cache and geocodes again.
+    session.result = { ...geographyPlace };
+    session.showLocation(session.result);
+  } else if (Number(cachedAuto?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION
     && existing?.manualLocation && existing.manualAddress && existing.formattedAddress && session.address === String(existing.manualAddress).normalize("NFKC").trim().slice(0, 300)
     && (!(existing.travelAreaSource === "manual" || existing.travelAreaManuallySet) || existing.autoTravelArea)
     && Number.isFinite(existing.latitude) && Number.isFinite(existing.longitude) && validMapCoordinates(existing.latitude, existing.longitude)) {
@@ -8049,7 +8115,15 @@ async function submitCandidateDraftEditor(form) {
   }
   if (!customPhotoDataUrl) photoOrigin = "";
   if (!session.active()) return;
-  candidateDraftStore.set(identity, { ...draft, name, kind, category, restaurantTags, restaurantTagsSource, restaurantTagOptions, areaTags, areaTagOptions, customPhotoDataUrl, photoOrigin });
+  const selectedKey = String(formData.get("travelAreaKey") || "");
+  const areaChanged = session.restoreAuto || session.dirty.has("travelAreaKey");
+  if (areaChanged && !session.restoreAuto && !PlanningGeography.canonicalArea(selectedKey)) {
+    session.saving = false; submitButton.disabled = false;
+    return showToast("請選擇有效的旅遊分區");
+  }
+  const geographyDraft = areaChanged ? PlanningGeography.mergeAreaFields(draft,
+    placeEditorTravelArea(draft.autoTravelArea || draft, draft, selectedKey, session.restoreAuto, true)) : draft;
+  candidateDraftStore.set(identity, { ...geographyDraft, name, kind, category, restaurantTags, restaurantTagsSource, restaurantTagOptions, areaTags, areaTagOptions, customPhotoDataUrl, photoOrigin });
   closeSheet();
   reopenImportCandidateSheet(identity);
   return showToast("候選資料已更新");
@@ -8936,6 +9010,7 @@ document.addEventListener("click", async (event) => {
     if (!canEdit()) return guestOnlyMessage();
     const regionKey = retryTravelArea.dataset.retryTravelArea;
     state.places.filter((place) => planningSectionKey(place) === regionKey).forEach((place) => {
+      if (globalThis.PlanningGeography?.isAmbiguous(place)) return;
       planningRegionResolutionAttempts.delete(planningRegionResolutionKey(place));
       place.travelAreaResolutionStatus = "retry-required";
     });
@@ -9662,6 +9737,11 @@ document.addEventListener("submit", async (event) => {
       detailsLocked: true,
       photosLoaded: true,
     };
+    if (globalThis.PlanningGeography) {
+      if (nextPlace.travelAreaResolutionStatus !== "ambiguous") delete nextPlace.travelAreaCandidateKeys;
+      else delete nextPlace.travelAreaResolutionError;
+      Object.assign(nextPlace, PlanningGeography.normalizePlace(nextPlace));
+    }
     if (existing) {
       const index = state.places.indexOf(existing);
       state.places[index] = nextPlace;
