@@ -208,7 +208,7 @@ test("detail promotes manual areaTags, demotes only legacy area, and retains ind
  const header=html.slice(html.indexOf('class="section-row"'),html.indexOf('class="detail-area-tags"'));
  assert.match(header,/id="place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
  assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag">芝<\/span><\/div><\/section>/);
- assert.match(html,/<p class="detail-legacy-area">舊分區：港（港）<\/p>/);
+ assert.match(html,/<p class="detail-legacy-area">旅遊分區：港（港）<\/p>/);
  assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-legacy-area"'));
  assert.match(html,/class="place-byline"[^>]*>[^<]*地區歷史景點/);
  assert.match(html,/class="place-description">芝的歷史描述/);
@@ -216,7 +216,7 @@ test("detail promotes manual areaTags, demotes only legacy area, and retains ind
  assert.deepEqual(place,before);
  place.areaTags=[];context.openPlaceSheet(place.name);
  assert.doesNotMatch(context.sheetRoot.innerHTML,/class="detail-area-tags"/);
- assert.match(context.sheetRoot.innerHTML,/class="detail-legacy-area">舊分區：港（港）/);
+ assert.match(context.sheetRoot.innerHTML,/class="detail-legacy-area">旅遊分區：港（港）/);
 });
 
 test("detail merges areaTags and restaurant category chips into one wrapping row, areaTags first, without inventing a missing category", () => {

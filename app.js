@@ -578,19 +578,42 @@ function isTravelAreaResolutionCurrent(place) {
   return Boolean(place?.travelAreaResolved === true && Number(place?.travelAreaResolutionVersion) >= TRAVEL_AREA_RESOLUTION_VERSION && hasUsableTravelArea(place));
 }
 
+function getPlacePlanningGeography(place) {
+  return globalThis.PlanningGeography?.getPlacePlanningGeography(place) || null;
+}
+
+function planningSectionKey(place) {
+  return getPlacePlanningGeography(place)?.sectionKey || `area:${travelAreaGroupKey(place)}`;
+}
+
+function planningSectionLabel(place) {
+  return getPlacePlanningGeography(place)?.sectionLabel || travelAreaDisplayName(place);
+}
+
+function canonicalAreaChip(place) {
+  const geography = getPlacePlanningGeography(place);
+  return geography ? `<span class="place-list-tags canonical-area-chips">${geography.areaDisplayLabels.map(label => `<span class="highlight-tag" data-canonical-area-chip>${escapeHtml(label)}</span>`).join("")}</span>` : "";
+}
+
 function travelAreaDisplayName(place) {
+  const geography = getPlacePlanningGeography(place);
+  if (geography) return geography.areaDisplayLabels.join("、");
   ensureTravelAreaFields(place);
   if (globalThis.TravelAreaAudit?.isLegacy(place)) return "地區待確認";
   return `${String(place.travelAreaZh).trim()}（${String(place.travelAreaLocal).trim()}）`;
 }
 
 function travelAreaChineseName(place, fallback = "未分類") {
+  const geography = getPlacePlanningGeography(place);
+  if (geography) return geography.areaDisplayLabels.join("、");
   ensureTravelAreaFields(place);
   if (globalThis.TravelAreaAudit?.isLegacy(place)) return "地區待確認";
   return String(place?.travelAreaZh || fallback).trim();
 }
 
 function travelAreaGroupKey(place) {
+  const geography = getPlacePlanningGeography(place);
+  if (geography) return geography.primaryAreaKey;
   ensureTravelAreaFields(place);
   return String(place.travelAreaKey);
 }
@@ -2636,17 +2659,32 @@ function saveAreaTagsOnly(form) {
   return true;
 }
 
+function canonicalFilterGeography(place) {
+  return globalThis.PlanningGeography?.getPlacePlanningGeography(place) || null;
+}
+
+function matchesCanonicalAreaFilter(place, key) {
+  if (!key) return true;
+  const geography = canonicalFilterGeography(place);
+  return geography ? geography.areaKeys.includes(key) : place.travelAreaKey === key;
+}
+
 function placesFilterModel(places, selection) {
-  const areas = [...new Map(places.filter((place) => place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")).map((place) => [place.travelAreaKey, globalThis.TravelAreaAudit?.isLegacy(place) ? "地區待確認" : place.travelAreaZh])).entries()];
+  const areas = [...new Map(places.flatMap((place) => {
+    const geography = canonicalFilterGeography(place);
+    if (geography) return geography.areaKeys.map((key, index) => [key, geography.areaDisplayLabels[index]]);
+    return place.travelAreaKey && place.travelAreaZh && !String(place.travelAreaKey).startsWith("unclassified:")
+      ? [[place.travelAreaKey, globalThis.TravelAreaAudit?.isLegacy(place) ? "地區待確認" : place.travelAreaZh]] : [];
+  })).entries()];
   if (!areas.some(([key]) => key === selection.placeAreaFilter)) selection.placeAreaFilter = "";
   selection.areaTagComparison = AreaTags.comparison(places);
   const areaTags = AreaTags.tripTags(places, selection.areaTagComparison);
   selection.areaTagFilter = areaTags.find((tag) => AreaTags.key(tag, selection.areaTagComparison) === AreaTags.key(selection.areaTagFilter, selection.areaTagComparison)) || "";
-  const areaPlaces = places.filter((place) => !selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter);
+  const areaPlaces = places.filter((place) => matchesCanonicalAreaFilter(place, selection.placeAreaFilter));
   const tags = [...new Set(areaPlaces.flatMap(persistedRestaurantTagValues))];
   if (!tags.includes(selection.restaurantTagFilter)) selection.restaurantTagFilter = "";
   const visible = places.filter((place) => (selection.placeKind === "all" || place.kind === selection.placeKind)
-    && (!selection.placeAreaFilter || place.travelAreaKey === selection.placeAreaFilter)
+    && (matchesCanonicalAreaFilter(place, selection.placeAreaFilter))
     && AreaTags.matches(place, selection.areaTagFilter, selection.areaTagComparison)
     && (!selection.restaurantTagFilter || persistedRestaurantTagValues(place).includes(selection.restaurantTagFilter)));
   return { areas, tags, areaTags, visible };
@@ -2662,11 +2700,11 @@ function placesScreen() {
 
   const filters = placesFilterModel(state.places, state);
   const visiblePlaces = filters.visible.filter(matchesMapFilters);
-  const travelAreaKeys = [...new Set(visiblePlaces.map(travelAreaGroupKey))];
+  const travelAreaKeys = [...new Set(visiblePlaces.map(planningSectionKey))];
   const groups = travelAreaKeys
     .map((regionKey) => {
       const rows = visiblePlaces
-        .filter((place) => travelAreaGroupKey(place) === regionKey)
+        .filter((place) => planningSectionKey(place) === regionKey)
         .map((place) => {
           const voters = placeVoters(place.name);
           const active = voters.includes(currentMemberId());
@@ -2677,6 +2715,7 @@ function placesScreen() {
                 <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">${escapeHtml(place.mark)}</button>
                 <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">
                   <strong>${escapeHtml(place.name)}</strong>
+                  ${canonicalAreaChip(place)}
                   ${placeTagsList(place)}
                   <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
                   <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
@@ -2689,9 +2728,9 @@ function placesScreen() {
             </div>`;
         })
         .join("");
-      const representative = visiblePlaces.find((place) => travelAreaGroupKey(place) === regionKey);
-      const areaLabel = travelAreaDisplayName(representative);
-      const retryAction = canEdit() && visiblePlaces.some((place) => travelAreaGroupKey(place) === regionKey && !isTravelAreaResolutionCurrent(place))
+      const representative = visiblePlaces.find((place) => planningSectionKey(place) === regionKey);
+      const areaLabel = planningSectionLabel(representative);
+      const retryAction = canEdit() && visiblePlaces.some((place) => planningSectionKey(place) === regionKey && !isTravelAreaResolutionCurrent(place))
         ? `<button class="travel-area-retry" type="button" data-retry-travel-area="${escapeHtml(regionKey)}">重新辨識</button>`
         : "";
       return `
@@ -2873,7 +2912,7 @@ function placeMapStatus(place) {
 
 function matchesMapFilters(place) {
   if (!AreaTags.matches(place, state.areaTagFilter, state.areaTagComparison || undefined)) return false;
-  if (state.placeAreaFilter && place.travelAreaKey !== state.placeAreaFilter) return false;
+  if (state.placeAreaFilter && !(globalThis.PlanningGeography?.getPlacePlanningGeography(place)?.areaKeys || [place.travelAreaKey]).includes(state.placeAreaFilter)) return false;
   if (state.restaurantTagFilter && !persistedRestaurantTagValues(place).includes(state.restaurantTagFilter)) return false;
   if (state.placeKind !== "all" && place.kind !== state.placeKind) return false;
   if (state.mapCategory !== "all" && place.category !== state.mapCategory) return false;
@@ -5380,7 +5419,7 @@ function bindDetailGallery(gallery, place, allowRefresh = true) {
   if (identitySafePhotos(place).length < (place.customPhotoDataUrl ? 2 : 3)) refresh();
 }
 
-function openPlaceSheet(name) {
+function openPlaceSheet(name, { refreshDetails = true } = {}) {
   const place = resolveDetailPlace(name);
   if (!place) return;
   const reference = placeReferenceMeta(place);
@@ -5425,7 +5464,7 @@ function openPlaceSheet(name) {
           </div>
         </div>
         ${placeTagsDetail(place)}
-        <p class="detail-legacy-area">舊分區：${escapeHtml(travelAreaDisplayName(place))}</p>
+        <p class="detail-legacy-area">旅遊分區：${escapeHtml(travelAreaDisplayName(place))}</p>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
@@ -5485,7 +5524,7 @@ function openPlaceSheet(name) {
       </section>
     </div>`;
   bindDetailGallery(sheetRoot.querySelector?.(".detail-gallery"), place);
-  ensurePlaceDetails(place);
+  if (refreshDetails) ensurePlaceDetails(place);
 }
 
 async function ensurePlaceDetails(place) {
@@ -7461,17 +7500,44 @@ function editorAutoTravelArea(resolved) {
   };
 }
 
-function placeEditorTravelArea(resolved, existing, zh, local, restoreAuto = false) {
+function placeEditorTravelArea(resolved, existing, selectedKey, restoreAuto = false, selected = false) {
   const auto = editorAutoTravelArea(resolved);
-  const manual = !restoreAuto && (existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true);
-  if (!zh && !local && manual) return placeEditorTravelArea(resolved, existing, existing.travelAreaZh, existing.travelAreaLocal);
-  if (zh && local) return { ...auto, autoTravelArea: auto,
-    travelAreaKey: manual && zh === existing.travelAreaZh && local === existing.travelAreaLocal
-      ? existing.travelAreaKey : travelAreaKeyFromNames(resolved?.countryCode || existing?.countryCode, zh, local),
-    travelAreaZh: zh, travelAreaLocal: local, travelAreaSource: "manual", travelAreaManuallySet: true,
-    travelAreaResolved: true, travelAreaResolver: "MANUAL", travelAreaResolutionVersion: TRAVEL_AREA_RESOLUTION_VERSION,
-    travelAreaResolutionStatus: "resolved", travelAreaResolutionError: "" };
+  if (restoreAuto) return { ...auto, autoTravelArea: auto };
+  const manual = existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true;
+  if (!selected && manual && (!selectedKey || selectedKey === existing.travelAreaKey)) {
+    const fields = Object.fromEntries(Object.entries(existing).filter(([key]) => key.startsWith("travelArea") || key === "autoTravelArea"));
+    // Existing noncatalog overrides retain the previous compatibility save behavior.
+    if (!globalThis.PlanningGeography?.canonicalArea(existing.travelAreaKey)) fields.autoTravelArea = auto;
+    return fields;
+  }
+  if (selectedKey && (selected || selectedKey !== existing?.travelAreaKey
+    || existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true)) {
+    const fields = PlanningGeography.manualAreaFields(selectedKey);
+    // Preserve Phase A automatic evidence verbatim, including an absent R01 snapshot.
+    return { ...fields, ...(existing?.autoTravelArea ? { autoTravelArea: existing.autoTravelArea }
+      : !existing && resolved?.travelAreaResolved ? { autoTravelArea: auto } : {}) };
+  }
   return { ...auto, autoTravelArea: auto };
+}
+
+function saveCanonicalAreaOnly(form) {
+  const session = form.placeEditorSession;
+  if (!session?.dirty.has("travelAreaKey") || session.restoreAuto || session.saving
+    || session.dirty.has("areaTags") || session.dirty.has("restaurantTags")
+    || pendingPlacePhoto || removePendingPlacePhoto || session.sourcePhotoPreparing || session.loadingUrl
+    || !Object.entries(session.tagEditBaseline).every(([key, value]) => key === "travelAreaKey" || (form.elements[key]?.value || "") === value)) return false;
+  const existing = state.places.find(place => place.name === form.dataset.originalPlaceName);
+  if (!existing) return false;
+  const key = form.elements.travelAreaKey.value;
+  if (!PlanningGeography.canonicalArea(key)) { showToast("請選擇旅遊分區"); return true; }
+  session.saving = true;
+  Object.assign(existing, PlanningGeography.manualAreaFields(key));
+  persist();
+  closeSheet();
+  render({ preserveScroll: true });
+  if (session.detailReturnKey) openPlaceSheet(placeDetailKey(existing), { refreshDetails: false });
+  showToast("旅遊分區已儲存");
+  return true;
 }
 
 function bindPlaceEditor(form, existing, seed) {
@@ -7481,7 +7547,7 @@ function bindPlaceEditor(form, existing, seed) {
   // Editing an existing place always opens from its detail sheet (data-edit-place). Save and
   // Cancel both return there via this stable identity, never a name/filtered-list re-lookup.
   session.detailReturnKey = existing ? placeDetailKey(existing) : "";
-  session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
+  session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaKey", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
   bindAreaTagEditor(form, existing || seed);
   // Mirrors session.areaTagAvailable: the running set of restaurant-tag chips this editor
   // should keep showing (canonical suggestion + anything the user adds), even after one is
@@ -7514,10 +7580,10 @@ function bindPlaceEditor(form, existing, seed) {
     if (session.active()) form.querySelector("[data-place-address-status]").textContent = message;
   };
   session.showLocation = (candidate) => {
-    const area = placeEditorTravelArea(candidate, existing, form.elements.travelAreaZh.value.trim(),
-      form.elements.travelAreaLocal.value.trim(), session.restoreAuto);
+    const area = placeEditorTravelArea(candidate, existing, form.elements.travelAreaKey?.value || "",
+      session.restoreAuto, session.dirty.has("travelAreaKey"));
     session.status(area.travelAreaResolved
-      ? `✓ 地址已定位 · ${globalThis.TravelAreaAudit?.isLegacy(area) ? "地區待確認" : `${area.travelAreaZh}（${area.travelAreaLocal}）`}${area.travelAreaManuallySet ? " · 手動分區" : ""}`
+      ? `✓ 地址已定位 · ${globalThis.TravelAreaAudit?.isLegacy(area) ? "地區待確認" : travelAreaDisplayName(area)}${area.travelAreaManuallySet ? " · 手動分區" : ""}`
       : "✓ 地址已定位 · 分區待辨識");
   };
   session.resolve = (retry = false) => {
@@ -7590,6 +7656,10 @@ function bindPlaceEditor(form, existing, seed) {
   };
   form.addEventListener("input", (event) => {
     session.dirty.add(event.target.name);
+    if (event.target.name === "travelAreaKey") {
+      session.restoreAuto = false;
+      if (session.result) session.showLocation(session.result);
+    }
     if (event.target.name === "kind") {
       const tagEditor = form.querySelector("[data-restaurant-tag-editor]");
       if (tagEditor) tagEditor.hidden = event.target.value !== "restaurant";
@@ -7623,8 +7693,7 @@ function bindPlaceEditor(form, existing, seed) {
   form.querySelector("[data-restore-auto-area]").addEventListener("click", () => {
     if (session.saving) return;
     session.restoreAuto = true;
-    form.elements.travelAreaZh.value = "";
-    form.elements.travelAreaLocal.value = "";
+    form.elements.travelAreaKey.value = "";
     session.resolve();
   });
   form.elements.referenceUrl.addEventListener("blur", () => {
@@ -7891,9 +7960,8 @@ function openPlaceEditSheet(name = "", seed = {}) {
   const sourceReference = placeReferenceMeta({ referenceUrl });
   const editorPhoto = pendingPlacePhoto || existing?.customPhotoDataUrl || "";
   if (existing) ensureTravelAreaFields(existing);
-  const manualTravelArea = existing?.travelAreaSource === "manual" || existing?.travelAreaManuallySet === true;
-  const travelAreaZh = manualTravelArea && !globalThis.TravelAreaAudit?.isLegacy(existing) ? existing.travelAreaZh : "";
-  const travelAreaLocal = manualTravelArea && !globalThis.TravelAreaAudit?.isLegacy(existing) ? existing.travelAreaLocal : "";
+  const editorGeography = getPlacePlanningGeography(existing);
+  const travelAreaKey = editorGeography?.primaryAreaKey || "";
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
       <form class="modal-sheet place-editor-sheet" id="place-editor-form" data-editor-mode="${isCandidateDraftMode ? "candidate-draft" : "persisted-place"}" data-candidate-identity="${escapeHtml(isCandidateDraftMode ? seed.candidateIdentity : "")}" data-original-place-name="${escapeHtml(existing?.name || "")}" data-original-address="${escapeHtml(existing?.formattedAddress || "")}">
@@ -7917,9 +7985,8 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field full"><label for="place-editor-address">完整地址</label><textarea id="place-editor-address" name="address" maxlength="300" rows="3" placeholder="${kind === "lodging" ? "請貼上房東提供的完整門牌地址" : "請輸入地點完整門牌地址"}" required>${escapeHtml(address)}</textarea><div class="place-address-feedback"><small data-place-address-status aria-live="polite"></small><button type="button" data-retry-place-address>重新解析</button></div><small class="field-error" data-place-address-error hidden></small></div>
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
-          <div class="field"><label for="place-editor-travel-area-zh">旅遊分區（繁中，選填）</label><input id="place-editor-travel-area-zh" name="travelAreaZh" maxlength="60" value="${escapeHtml(travelAreaZh)}" placeholder="例如：淺草" /></div>
-          <div class="field"><label for="place-editor-travel-area-local">旅遊分區（當地語言）</label><input id="place-editor-travel-area-local" name="travelAreaLocal" maxlength="60" value="${escapeHtml(travelAreaLocal)}" placeholder="例如：浅草" /></div>
-          <div class="field full"><small>${existing ? `目前顯示：${escapeHtml(travelAreaDisplayName(existing))}。` : "留空時會依完整地址自動辨識。"} 兩欄都填寫即視為手動指定，之後不會被自動辨識覆蓋。</small></div>
+          <div class="field full"><label for="place-editor-travel-area-key">旅遊分區</label><select id="place-editor-travel-area-key" name="travelAreaKey"><option value="">未手動指定</option>${Object.values(globalThis.CanonicalTravelCatalog?.catalog || {}).map(area => `<option value="${escapeHtml(area.travelAreaKey)}" ${travelAreaKey === area.travelAreaKey ? "selected" : ""}>${escapeHtml(PlanningGeography.formatCanonicalArea(area))}</option>`).join("")}</select></div>
+          <div class="field full"><small>${existing ? `目前顯示：${escapeHtml(travelAreaDisplayName(existing))}。` : "未選擇時會依完整地址自動辨識。"} 手動選擇後，分區會保留至再次修改。</small></div>
           <button type="button" class="secondary-button" data-restore-auto-area>恢復自動分區</button></details>
         </div>
         <section class="place-photo-editor">
@@ -8868,7 +8935,7 @@ document.addEventListener("click", async (event) => {
   if (retryTravelArea) {
     if (!canEdit()) return guestOnlyMessage();
     const regionKey = retryTravelArea.dataset.retryTravelArea;
-    state.places.filter((place) => travelAreaGroupKey(place) === regionKey).forEach((place) => {
+    state.places.filter((place) => planningSectionKey(place) === regionKey).forEach((place) => {
       planningRegionResolutionAttempts.delete(planningRegionResolutionKey(place));
       place.travelAreaResolutionStatus = "retry-required";
     });
@@ -9477,6 +9544,7 @@ document.addEventListener("submit", async (event) => {
     if (event.target.dataset.editorMode === "candidate-draft") return submitCandidateDraftEditor(event.target);
     const tagSession = event.target.placeEditorSession;
     addAreaTagInput(event.target);
+    if (saveCanonicalAreaOnly(event.target)) return;
     if (canSaveAreaTagsOnly(event.target) && saveAreaTagsOnly(event.target)) return;
     if (!tagSession.dirty.has("areaTags") && tagSession.dirty.has("restaurantTags") && tagSession.tagEditBaseline
       && Object.entries(tagSession.tagEditBaseline).every(([key, value]) => (event.target.elements[key]?.value || "") === value) && !tagSession.saving
@@ -9493,13 +9561,11 @@ document.addEventListener("submit", async (event) => {
     const sourceLodgingName = String(form.get("sourceLodgingName") || "").normalize("NFKC").trim().slice(0, 160);
     const sourceListingId = String(form.get("sourceListingId") || "").normalize("NFKC").trim().slice(0, 80);
     let photoOrigin = String(form.get("photoOrigin") || existing?.photoOrigin || "").trim();
-    const manualTravelAreaZh = String(form.get("travelAreaZh") || "").normalize("NFKC").trim().slice(0, 60);
-    const manualTravelAreaLocal = String(form.get("travelAreaLocal") || "").normalize("NFKC").trim().slice(0, 60);
-    const hasManualTravelArea = Boolean(manualTravelAreaZh || manualTravelAreaLocal);
+    const selectedTravelAreaKey = String(form.get("travelAreaKey") || "");
     if (!name) return showToast("請輸入地點名稱");
     if (!address) return showToast("請輸入房東或訂單提供的完整地址");
     if (sourceUrl && !isGoogleMapsUrl(sourceUrl)) return showToast("請貼上有效的 Google Maps 連結");
-    if (hasManualTravelArea && (!manualTravelAreaZh || !manualTravelAreaLocal)) return showToast("手動旅遊分區需同時填寫繁中與當地語言");
+    if ((selectedTravelAreaKey || (tagSession.dirty.has("travelAreaKey") && !tagSession.restoreAuto)) && !PlanningGeography.canonicalArea(selectedTravelAreaKey)) return showToast("請選擇有效的旅遊分區");
     if (state.places.some((place) => place !== existing && place.name === name)) return showToast("已有同名地點，請換一個顯示名稱");
     const customPhotoCount = state.places.filter((place) => place.customPhotoDataUrl).length;
     if (pendingPlacePhoto && !existing?.customPhotoDataUrl && customPhotoCount >= 12) return showToast("每趟旅程最多保存 12 張自訂地點照片");
@@ -9565,7 +9631,7 @@ document.addEventListener("submit", async (event) => {
       areaOriginal: resolved?.areaOriginal || (addressUnchanged ? existing?.areaOriginal : "") || "",
       areaResolvedByGoogle: Boolean(resolved?.areaResolvedByGoogle || (addressUnchanged && existing?.areaResolvedByGoogle)),
       areaManuallySet: false,
-      ...placeEditorTravelArea(resolved, existing, manualTravelAreaZh, manualTravelAreaLocal, session.restoreAuto),
+      ...placeEditorTravelArea(resolved, existing, selectedTravelAreaKey, session.restoreAuto, session.dirty.has("travelAreaKey")),
       countryCode: locationSource?.countryCode || existing?.countryCode || "",
       addressComponents: Array.isArray(locationSource?.addressComponents) ? locationSource.addressComponents : [],
       addressComponentsOriginal: Array.isArray(locationSource?.addressComponentsOriginal) ? locationSource.addressComponentsOriginal : [],

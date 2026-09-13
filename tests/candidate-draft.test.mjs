@@ -1,6 +1,7 @@
 import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import "../lib/travel-area-audit.js";
 import AreaTags from "../lib/area-tags.js";
+import PlanningGeography from "../lib/planning-geography.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -44,7 +45,7 @@ function makeForm(seed = {}) {
   form.isConnected = true;
   form.dataset = { originalPlaceName: "", originalAddress: "" };
   form.elements = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName",
-    "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, node()]));
+    "sourceListingId", "photoOrigin", "travelAreaKey", "kind", "category"].map((key) => [key, node()]));
   Object.assign(form.elements.name, { value: seed.name || "" });
   form.elements.address.value = seed.address || seed.formattedAddress || "";
   form.elements.kind.value = seed.kind || "attraction";
@@ -79,7 +80,7 @@ function makeContext({ pendingPlaceImports = [], candidateDraftStore = new Map()
   const toasts = [];
   let persistCalls = 0;
   const context = vm.createContext({
-    AreaTags, escapeHtml: String, URL, console,
+    PlanningGeography, AreaTags, escapeHtml: String, URL, console,
     pendingPlaceImports, pendingLodgingDrafts: [], pendingPlacePhoto: "", removePendingPlacePhoto: false,
     candidateDraftStore, importSheetReturnState: null, CANDIDATE_DRAFT_IDENTITY_FIELDS,
     state: { tripId: "trip", destination: "東京", places: [], votes: {}, itinerary: {}, transports: [] },

@@ -30,7 +30,7 @@ test("withdrawn rules propose zero writes with the complete shipped dependency o
   const context = vm.createContext({});
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const scripts = [...html.matchAll(/src="\.\/(lib\/[^"?]+)(?:\?[^" ]+)?"/g)].map(match => match[1]);
-  assert.deepEqual(scripts, ["lib/travel-area-audit.js", "lib/area-tags.js", "lib/canonical-travel-catalog.js",
+  assert.deepEqual(scripts, ["lib/travel-area-audit.js", "lib/area-tags.js", "lib/canonical-travel-catalog.js", "lib/planning-geography.js",
     "lib/canonical-travel-manifest.js", "lib/canonical-travel-migration.js"]);
   for (const script of scripts) vm.runInContext(readFileSync(new URL("../" + script, import.meta.url), "utf8"), context);
   assert.equal(typeof context.TravelAreaAudit.contains, "function");

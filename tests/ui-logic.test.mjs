@@ -49,8 +49,8 @@ test("places group only by stable travelAreaKey and retain usable labels while r
   assert.match(appSource, /const TRAVEL_AREA_RESOLUTION_VERSION = 5/);
   assert.match(appSource, /function shouldUpgradePlanningRegionResolution/);
   assert.match(appSource, /!isTravelAreaResolutionCurrent\(place\) && hasPlanningRegionResolutionEvidence\(place\)/);
-  assert.match(appSource, /visiblePlaces\.map\(travelAreaGroupKey\)/);
-  assert.match(appSource, /filter\(\(place\) => travelAreaGroupKey\(place\) === regionKey\)/);
+  assert.match(appSource, /visiblePlaces\.map\(planningSectionKey\)/);
+  assert.match(appSource, /filter\(\(place\) => planningSectionKey\(place\) === regionKey\)/);
   assert.doesNotMatch(appSource, /visiblePlaces\.map\(\(place\) => place\.area\)/);
   assert.doesNotMatch(appSource, /"正在辨識地區"/);
 });
@@ -85,8 +85,8 @@ test("places can be manually added and later edited with an exact address and pe
   const submit = sourceSection('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
   assert.match(appSource, /data-manual-place/);
   assert.match(editor, /id="place-editor-form"/);
-  assert.match(editor, /name="travelAreaZh"/);
-  assert.match(editor, /name="travelAreaLocal"/);
+  assert.match(editor, /name="travelAreaKey"/);
+  assert.doesNotMatch(editor, /name="travelAreaZh"|name="travelAreaLocal"/);
   assert.match(editor, /data-place-photo-input/);
   assert.match(editor, /<input type="hidden" name="category"/);
   assert.doesNotMatch(editor, /<label for="place-editor-category">分類<\/label>/);

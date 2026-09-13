@@ -1,5 +1,6 @@
 import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import AreaTags from "../lib/area-tags.js";
+import PlanningGeography from "../lib/planning-geography.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -59,7 +60,7 @@ function harness({ existing = null, extraState = {} } = {}) {
   form.id = "place-editor-form";
   form.isConnected = true;
   form.dataset = { originalPlaceName: existing?.name || "", originalAddress: existing?.formattedAddress || "" };
-  form.elements = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, node()]));
+  form.elements = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaKey", "kind", "category"].map((key) => [key, node()]));
   Object.assign(form.elements.name, { value: existing?.name || "私人住宿" });
   form.elements.address.value = existing?.manualAddress || existing?.formattedAddress || "";
   form.elements.kind.value = existing?.kind || "lodging";
@@ -71,7 +72,7 @@ function harness({ existing = null, extraState = {} } = {}) {
   form.querySelectorAll = () => Object.values(form.elements);
 
   const context = vm.createContext({
-    AreaTags, escapeHtml: (s) => String(s ?? ""), URL, console,
+    PlanningGeography, AreaTags, escapeHtml: (s) => String(s ?? ""), URL, console,
     pendingLodgingDrafts: [], pendingPlacePhoto: "", removePendingPlacePhoto: false,
     state,
     setTimeout, clearTimeout,

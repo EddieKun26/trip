@@ -1,5 +1,6 @@
 import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import AreaTags from "../lib/area-tags.js";
+import PlanningGeography from "../lib/planning-geography.js";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
@@ -34,7 +35,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
   form.id = "place-editor-form";
   form.isConnected = true;
   form.dataset = { originalPlaceName: existing?.name || "", originalAddress: existing?.formattedAddress || "" };
-  form.elements = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaZh", "travelAreaLocal", "kind", "category"].map((key) => [key, node()]));
+  form.elements = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaKey", "kind", "category"].map((key) => [key, node()]));
   Object.assign(form.elements.name, { value: formName ?? (seed.name || existing?.name || "私人住宿") });
   form.elements.address.value = address;
   form.elements.kind.value = seed.kind || existing?.kind || "lodging";
@@ -48,7 +49,7 @@ function harness({ existing = null, drafts = [], address = "", seed = {}, formNa
     return nodes.get(selector);
   };
   form.querySelectorAll = () => Object.values(form.elements);
-  const context = vm.createContext({ AreaTags, escapeHtml: String, URL, console, pendingLodgingDrafts: drafts, pendingPlacePhoto: seed.customPhotoDataUrl || "", removePendingPlacePhoto: false,
+  const context = vm.createContext({ PlanningGeography, AreaTags, escapeHtml: String, URL, console, pendingLodgingDrafts: drafts, pendingPlacePhoto: seed.customPhotoDataUrl || "", removePendingPlacePhoto: false,
     state: { tripId: "trip", destination: "東京", places: existing ? [existing] : [], votes: {}, itinerary: {}, transports: [] },
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { at: time + delay, fn }); return id; },
     clearTimeout(id) { timers.delete(id); },
