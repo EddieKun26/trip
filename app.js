@@ -1422,9 +1422,131 @@ function applySharedTrip(payload) {
   syncFlightItineraryItems();
   if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
   resetUndoBaseline({ clear: true });
+  scheduleCanonicalAreaMigration();
+  return true;
+}
+
+/* The Place-writing schedulers require a certified terminal result. Readiness is a
+ * lifecycle state, not a synonym for canEdit(). This registry lives only in this page. */
+const canonicalAreaSessions = new Map();
+const CANONICAL_MIGRATION_TRIP = "tokyo-family-2026";
+const CANONICAL_MIGRATION_VERSION = 1;
+const canonicalReleaseOutcomes = new Set(["migrated", "marker-noop", "marker-recovered"]);
+
+function canonicalAreaReadiness() {
+  if (!tripIsHydrated()) return "HYDRATION_NOT_READY";
+  return canEdit() ? "READY_EDITOR" : "READY_READ_ONLY";
+}
+
+function releaseCanonicalAreaSchedulers(tripId, result) {
+  if (tripId !== state.tripId || canonicalAreaReadiness() !== "READY_EDITOR"
+    || !canonicalReleaseOutcomes.has(result?.outcome) || result?.schedulersReleased !== true) return;
   scheduleContainmentMigration();
   scheduleTagBackfillMigration();
-  return true;
+}
+
+function canonicalAreaHydrationReady(tripId, context) {
+  if (!tripId || tripId !== state.tripId || context !== tripContextVersion) return Promise.resolve(null);
+  return scheduleCanonicalAreaMigration();
+}
+
+function presentCanonicalAreaResult(entry, tripId) {
+  if (entry.notified || tripId !== state.tripId || !tripIsHydrated()) return;
+  entry.notified = true;
+  const migration = globalThis.CanonicalTravelMigration;
+  const result = entry.result;
+  const message = migration?.terminalMessage ? migration.terminalMessage(result)
+    : result.outcome === "read-only" ? "目前帳號無 migration 寫入權限"
+      : result.outcome === "marker-noop" ? "此旅程無需 migration，no-op" : "Migration aborted（gate）";
+  showToast(message);
+}
+
+function scheduleCanonicalAreaMigration() {
+  const tripId = state.tripId;
+  if (typeof tripId !== "string" || !tripId.trim()) return Promise.resolve(null);
+  const key = `${tripId}:${CANONICAL_MIGRATION_VERSION}`;
+  const previous = canonicalAreaSessions.get(key);
+  if (previous?.status === "in-progress") return previous.promise;
+  const readiness = canonicalAreaReadiness();
+  if (readiness === "HYDRATION_NOT_READY") {
+    if (!previous) canonicalAreaSessions.set(key, { status: "waiting-hydration" });
+    return Promise.resolve({ outcome: "WAITING_HYDRATION", schedulersReleased: false });
+  }
+  if (previous?.result) {
+    if (!previous.applying) presentCanonicalAreaResult(previous, tripId);
+    if (!previous.applying) releaseCanonicalAreaSchedulers(tripId, previous.result);
+    return previous.promise;
+  }
+  const entry = { status: "in-progress", promise: null, result: null, notified: false, applying: false };
+  canonicalAreaSessions.set(key, entry);
+  entry.promise = Promise.resolve().then(async () => {
+    if (readiness === "READY_READ_ONLY") return { outcome: "read-only", stage: "permission", schedulersReleased: false };
+    // The fixed manifest does not apply to other trips; this is an explicit certified no-op.
+    if (tripId !== CANONICAL_MIGRATION_TRIP) return { outcome: "marker-noop", stage: "gate", schedulersReleased: true };
+    const migration = globalThis.CanonicalTravelMigration;
+    if (!migration || !globalThis.CanonicalTravelManifest || !globalThis.CanonicalTravelCatalog
+      || !globalThis.TravelAreaAudit || !globalThis.AreaTags) throw new Error("MISSING_HELPER");
+    return runCanonicalAreaMigration(tripId, migration);
+  }).catch(() => ({ outcome: "abort", stage: "gate", reason: "MIGRATION_FAILED", schedulersReleased: false }))
+    .then((value) => {
+      const statuses = { migrated: "success", "marker-noop": "marker-noop", "marker-recovered": "recovery-success",
+        "read-only": "read-only", abort: "aborted" };
+      const valid = value && Object.hasOwn(statuses, value.outcome)
+        && (!canonicalReleaseOutcomes.has(value.outcome) || value.schedulersReleased === true);
+      const result = valid ? value : { outcome: "abort", stage: "gate", reason: "UNRECOGNIZED_RESULT" };
+      result.schedulersReleased = canonicalReleaseOutcomes.has(result.outcome);
+      entry.status = statuses[result.outcome];
+      entry.result = result;
+      const migration = globalThis.CanonicalTravelMigration;
+      const lines = migration?.diagnosticLines ? migration.diagnosticLines(result).join("\n  ")
+        : `stage=gate\noutcome=${result.outcome}\nschedulers=${result.schedulersReleased ? "released" : "suspended"}`;
+      if (result.outcome === "abort") console.warn(`[canonical-area]\n  ${lines}`);
+      else console.info(`[canonical-area]\n  ${lines}`);
+      presentCanonicalAreaResult(entry, tripId);
+      if (tripId === state.tripId && tripIsHydrated() && result.trip && result.trip.id === tripId
+        && ["migrated", "marker-recovered"].includes(result.outcome)) {
+        entry.applying = true;
+        try { applySharedTrip(result.trip); render({ preserveScroll: true, filterOnly: true }); }
+        catch {
+          entry.status = "aborted";
+          entry.result = { outcome: "abort", stage: "gate", writes: result.writes || 0, schedulersReleased: false };
+          console.warn("[canonical-area] stage=gate outcome=abort schedulers=suspended");
+          showToast("Migration aborted（gate）");
+          return entry.result;
+        } finally { entry.applying = false; }
+      }
+      releaseCanonicalAreaSchedulers(tripId, result);
+      return result;
+    });
+  return entry.promise;
+}
+
+async function runCanonicalAreaMigration(tripId, migration) {
+  const manifest = globalThis.CanonicalTravelManifest;
+  const catalog = globalThis.CanonicalTravelCatalog.catalog;
+  const endpoint = `/api/trip?id=${encodeURIComponent(tripId)}`;
+  const geometry = await loadAreaGeometry();
+  if (!geometry?.areas) return { outcome: "abort", stage: "replay", reason: "GEOMETRY_UNAVAILABLE", schedulersReleased: false };
+  const read = async () => {
+    const response = await readAppJson(endpoint);
+    if (!response.ok) throw new Error("READ_FAILED");
+    return response.payload;
+  };
+  const write = async (payload, expectedRevision) => {
+    const response = await readAppJson(endpoint, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, expectedRevision }),
+    });
+    const body = response.payload || {};
+    if (response.status === 409) return { ok: false, conflict: true, status: 409, writeMode: body.writeMode || null };
+    if (!response.ok) return { ok: false, status: response.status, reason: "WRITE_FAILED", writeMode: body.writeMode || null };
+    return { ok: true, writeMode: body.writeMode || null, trip: body };
+  };
+  const replay = async trip => ({ ...trip,
+    places: (trip.places || []).map(place => AreaTags.cleanPlace(TravelAreaAudit.reclassify(place, geometry), trip.places || [])),
+  });
+  // Notifications are emitted once by the session owner, including exceptional terminals.
+  return migration.run({ manifest, catalog, read, write, replay });
 }
 
 // A whitelisted tag string only decides whether the boundary file is worth fetching at all.
@@ -1982,6 +2104,7 @@ async function loadSharedTrip({ quiet = false, force = false, hydrating = false 
         state.hydrationStatus = "ready";
         state.hydratedMemberId = memberId;
         state.hydratedTripId = tripId;
+        void canonicalAreaHydrationReady(tripId, context);
       }
       persist({ sync: false, resetUndo: true });
       render({ preserveScroll: true });

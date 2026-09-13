@@ -160,9 +160,63 @@ async function readTrip(id) {
   return readJson(`${TRIP_PREFIX}${id}`);
 }
 
+// Compare-and-set the whole Trip inside one Redis command, so no member write can land
+// between the revision check and the store.
+const REVISION_CAS_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 'MISSING' end
+local current = cjson.decode(raw)
+local revision = tonumber(current['revision']) or 0
+if revision ~= tonumber(ARGV[1]) then return 'CONFLICT:' .. tostring(revision) end
+redis.call('SET', KEYS[1], ARGV[2])
+return 'OK'
+`;
+
+let scriptingSupport = null;
+
+// Read-only probe; never touches Trip data. Cached for the life of the function instance.
+async function supportsScripting() {
+  if (scriptingSupport !== null) return scriptingSupport;
+  try {
+    await redisCommand(["EVAL", "return 1", "0"]);
+    scriptingSupport = true;
+  } catch {
+    scriptingSupport = false;
+  }
+  return scriptingSupport;
+}
+
+/* Optimistic concurrency for the migration write. With server-side scripting the compare and
+ * the store are one atomic command. Without it the handler re-reads, compares and writes:
+ * that narrows the race window but is NOT atomic, and reports itself as `cas-window` so the
+ * weaker guarantee is visible rather than assumed. */
+async function conditionalSetTrip(key, payload, expectedRevision) {
+  if (await supportsScripting()) {
+    const result = String(await redisCommand(["EVAL", REVISION_CAS_SCRIPT, "1", key, String(expectedRevision), payload]));
+    if (result === "OK") return { ok: true, writeMode: "atomic" };
+    if (result.startsWith("CONFLICT:")) {
+      return { ok: false, conflict: true, writeMode: "atomic", revision: Number(result.slice("CONFLICT:".length)) || 0 };
+    }
+    return { ok: false, writeMode: "atomic", reason: result === "MISSING" ? "TRIP_NOT_FOUND" : "WRITE_FAILED" };
+  }
+  const current = await readJson(key);
+  const revision = Number(current?.revision) || 0;
+  if (revision !== expectedRevision) return { ok: false, conflict: true, writeMode: "cas-window", revision };
+  await redisCommand(["SET", key, payload]);
+  return { ok: true, writeMode: "cas-window" };
+}
+
 function cleanTrip(input, previous, member) {
+  // `canonicalAreaMigrationVersion` records that the one-shot Canonical Travel Area data
+  // migration completed; it is not a feature-rollout version. It is the one client-supplied
+  // top-level field allowed through, and only upwards, so a stale payload can never roll a
+  // completed migration back. A trip that never migrated gains no marker at all.
+  const storedMarker = Number(previous?.canonicalAreaMigrationVersion) || 0;
+  const incomingMarker = Number(input?.canonicalAreaMigrationVersion);
+  const marker = Number.isFinite(incomingMarker) && incomingMarker > storedMarker ? incomingMarker : storedMarker;
   return {
     ...previous,
+    ...(marker > 0 ? { canonicalAreaMigrationVersion: marker } : {}),
     title: String(input?.title || previous.title).trim().slice(0, 40),
     destination: String(input?.destination || previous.destination).trim().slice(0, 40),
     startDate: String(input?.startDate || previous.startDate),
@@ -202,9 +256,29 @@ export default async function tripHandler(request, response) {
 
     if (request.method === "PUT") {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
+      // `expectedRevision` is a request precondition only; it is never stored on the Trip.
+      // Omitting it keeps the existing last-write-wins behaviour for ordinary saves.
+      const expectedRevision = Number(request.body?.expectedRevision);
+      const conditional = Number.isFinite(expectedRevision);
+      const current = Number(trip.revision) || 0;
+      if (conditional && expectedRevision !== current) {
+        return sendJson(response, 409, { error: "REVISION_CONFLICT", revision: current });
+      }
       const updated = cleanTrip(request.body, trip, member);
-      await redisCommand(["SET", `${TRIP_PREFIX}${trip.id}`, JSON.stringify(updated)]);
-      return sendJson(response, 200, updated);
+      const key = `${TRIP_PREFIX}${trip.id}`;
+      const payload = JSON.stringify(updated);
+      if (!conditional) {
+        await redisCommand(["SET", key, payload]);
+        return sendJson(response, 200, updated);
+      }
+      const result = await conditionalSetTrip(key, payload, expectedRevision);
+      if (result.conflict) {
+        return sendJson(response, 409, { error: "REVISION_CONFLICT", revision: result.revision, writeMode: result.writeMode });
+      }
+      if (!result.ok) {
+        return sendJson(response, result.reason === "TRIP_NOT_FOUND" ? 404 : 500, { error: result.reason, writeMode: result.writeMode });
+      }
+      return sendJson(response, 200, { ...updated, writeMode: result.writeMode });
     }
 
     response.setHeader("Allow", "GET, PUT");

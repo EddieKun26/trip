@@ -3,6 +3,7 @@ import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 const catalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8"));
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
@@ -24,6 +25,22 @@ const SHIBUYA = place("JOURNAL STANDARD", 35.6584466, 139.7021636, "渋谷", ["�
 const JINGUMAE = place("BEAMS 原宿", 35.6711722, 139.7076413, "神宮前", ["神宮前"]);
 const OKUBO = place("自由之家", 35.7005251, 139.7031715, "大久保", ["大久保"]);
 const KAMIMEGURO = place("Ramen Jazzy Beats", 35.6428156, 139.6972423, "上目黒", ["上目黒"]);
+
+test("withdrawn rules propose zero writes with the complete shipped dependency order", () => {
+  const context = vm.createContext({});
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const scripts = [...html.matchAll(/src="\.\/(lib\/[^"?]+)(?:\?[^" ]+)?"/g)].map(match => match[1]);
+  assert.deepEqual(scripts, ["lib/travel-area-audit.js", "lib/area-tags.js", "lib/canonical-travel-catalog.js",
+    "lib/canonical-travel-manifest.js", "lib/canonical-travel-migration.js"]);
+  for (const script of scripts) vm.runInContext(readFileSync(new URL("../" + script, import.meta.url), "utf8"), context);
+  assert.equal(typeof context.TravelAreaAudit.contains, "function");
+  const places = json([HANAKAWADO, KAMINARIMON, JINNAN]);
+  const before = json(places);
+  const result = context.AreaTags.containmentMigration(places, catalog);
+  assert.equal(result.changes.length, 0);
+  assert.deepEqual(places, before);
+  assert.deepEqual(places.map(p => p.areaTags), [["花川戸"], ["雷門"], ["神南"]]);
+});
 
 test("A. verified containment outranks the 町名 address token", () => {
   assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [], []).address, ["花川戸"], "without geometry the address fallback is the only source");
@@ -104,11 +121,7 @@ test("F+I. migration is whitelist + per-place containment, all-or-nothing, and n
   const before = json(trip);
   const { changes, blocked } = AreaTags.containmentMigration(trip, catalog);
   assert.deepEqual(blocked, []);
-  assert.deepEqual(changes.map((c) => [c.place.name, c.tag, c.label, c.travelAreaKey]), [
-    ["淺草牛光", "花川戸", "浅草", "asakusa"],
-    ["PANGA Asakusa", "雷門", "浅草", "asakusa"],
-    ["FREAK'S STORE Shibuya", "神南", "渋谷", "shibuya"],
-  ]);
+  assert.deepEqual(changes, [], "withdrawn raw-locality rewrites must never propose a write");
   assert.deepEqual(trip, before, "computing the manifest must not mutate anything");
   // Only whitelisted, containment-proven places appear; the ambiguous ones are absent.
   for (const name of ["今半別館", "JOURNAL STANDARD", "BEAMS 原宿", "自由之家"]) {
@@ -122,7 +135,7 @@ test("F+I. migration is whitelist + per-place containment, all-or-nothing, and n
   ];
   const strict = AreaTags.containmentMigration(impostors, catalog);
   assert.deepEqual(strict.changes, []);
-  assert.deepEqual(strict.blocked.map((b) => b.reason), ["containment-failed", "containment-failed"]);
+  assert.deepEqual(strict.blocked, [], "withdrawn intent must not be kept merely to produce blocked counts");
   // Without geometry nothing can be proved, so nothing is proposed.
   assert.deepEqual(AreaTags.containmentMigration(trip, null).changes, []);
 });
@@ -131,8 +144,8 @@ test("E+I. other and manual areaTags survive migration; the applier is all-or-no
   const multi = { ...json(HANAKAWADO), areaTags: ["花川戸", "我的自訂區", "淺草"] };
   const { changes, blocked } = AreaTags.containmentMigration([multi], catalog);
   assert.deepEqual(blocked, []);
-  assert.equal(changes.length, 1);
-  assert.deepEqual(changes[0].after, ["淺草", "我的自訂區"], "manual tag kept; replacement deduped against the existing canonical tag");
+  assert.equal(changes.length, 0);
+  assert.deepEqual(multi.areaTags, ["花川戸", "我的自訂區", "淺草"]);
   assert.equal(multi.areaTags.length, 3, "the manifest never writes to the place itself");
 
   // The shipped applier refuses partial writes and only runs for editable trips.

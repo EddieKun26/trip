@@ -1,4 +1,8 @@
 import AreaTags from "../lib/area-tags.js";
+import audit from "../lib/travel-area-audit.js";
+import migration from "../lib/canonical-travel-migration.js";
+import manifest from "../lib/canonical-travel-manifest.js";
+import canonicalCatalog from "../lib/canonical-travel-catalog.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -16,7 +20,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 // Execute the complete shipped script, including its actual startApp() call and DOM
 // renderers. Only browser primitives/network/storage are fakes; no startup, auth,
 // persistence, preference, trip, or shopping helper is replaced.
-function browser({ profile = member(), stored = {}, href = "https://trip.test/" } = {}) {
+function browser({ profile = member(), stored = {}, href = "https://trip.test/", canonical = false } = {}) {
   const storage = new Map(Object.entries({ "tokyo-clean-test-data-v4": "done",
     "tokyo-profile-v1": JSON.stringify(profile), ...stored }));
   const writes = [], requests = [], frames = [], listeners = {}, timers = new Map();
@@ -45,7 +49,8 @@ function browser({ profile = member(), stored = {}, href = "https://trip.test/" 
     removeItem(key) { writes.push({ key, removed: true }); storage.delete(key); },
   };
   const setTimeout = (fn, ms = 0) => { const id = ++timerId; timers.set(id, { fn, ms, at: now + ms }); return id; };
-  context = vm.createContext({ AreaTags, console, URL, URLSearchParams, AbortController,
+  context = vm.createContext({ AreaTags, console, URL, URLSearchParams, AbortController, AbortSignal,
+    ...(canonical ? { TravelAreaAudit:audit, CanonicalTravelMigration:migration, CanonicalTravelManifest:manifest, CanonicalTravelCatalog:canonicalCatalog } : {}),
     FormData: class {
       constructor(form) { this.values = form.values || {}; }
       get(key) { return this.values[key] ?? null; }
@@ -417,4 +422,23 @@ test("tag-only render does not schedule a legacy split; normal render still does
  b.run('globalThis.splitCalls=0; scheduleLegacyTravelAreaSplit=()=>{globalThis.splitCalls++;}; render({filterOnly:true});');
  assert.equal(b.context.splitCalls,0);
  b.run('render();');assert.equal(b.context.splitCalls,1);
+});
+
+test("Phase A full cold startup retries the gate after ready without a newer revision", async () => {
+  const id=manifest.tripId;
+  const b=browser({canonical:true,stored:{[activeKey()]:JSON.stringify(id)}});
+  await b.list([id]);
+  assert.equal(b.state.hydrationStatus,'loading');
+  const payload={...trip(id),revision:261,[migration.MARKER]:migration.VERSION};
+  await b.ready(id,payload);
+  assert.equal(b.state.hydrationStatus,'ready');assert.equal(b.run('canEdit()'),true);
+  const geometry=b.requests.find(r=>String(r.url).includes('travel-area-boundaries')&&!r.replied);
+  assert.ok(geometry,'gate must advance after readiness');await b.reply(geometry,{areas:{}});
+  const markerRead=b.requests.filter(r=>r.url==='/api/trip?id='+id&&!r.replied);
+  assert.equal(markerRead.length,1);await b.reply(markerRead[0],payload);
+  const result=await b.run('scheduleCanonicalAreaMigration()');
+  assert.equal(result.outcome,migration.MARKER_NOOP);
+  assert.equal(b.requests.filter(r=>r.url==='/api/trip?id='+id).length,2,'initial hydration plus exactly one marker read');
+  assert.equal(b.requests.filter(r=>r.options.method==='PUT').length,0);
+  assert.match(b.toast.innerHTML,/no-op/);
 });
