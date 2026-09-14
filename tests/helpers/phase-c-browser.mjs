@@ -43,6 +43,7 @@ async function boot(payload) {
 
 function editorForm(existing) {
   const node = (value = '') => ({ value, dataset: {}, disabled: false, hidden: false, listeners: {}, ...tagOptionsNode(),
+    closest() { return this; }, focus() {}, blur() {},
     setAttribute() {}, removeAttribute() {}, addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
     fire(type, event) { for (const fn of this.listeners[type] || []) fn(event); } });
   const form = node();

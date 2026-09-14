@@ -8,7 +8,7 @@ import PlanningGeography from '../lib/planning-geography.js';
 import tripHandler from '../api/trip.mjs';
 import { boot, trip, place, editorForm, bindFullEditor, edit, submitFull, json, source } from './helpers/phase-c-browser.mjs';
 
-// Planning Geography UX refinement: 大地區 → 地區標籤 dropdown cascade, no Canonical Area in normal
+// Planning Geography UX refinement: 主要地區 → 地區標籤 dropdown cascade, no Canonical Area in normal
 // UI, locality-only area-tag suggestions, and editable AI / content tags in `contentTags` with a
 // read-only legacy `highlights` adapter.
 const { getPlacePlanningGeography: geo } = PlanningGeography;
@@ -66,7 +66,12 @@ function contentEditor(form) {
   return {
     remove: index => editor.fire('click', { target: { closest: wanted => wanted === '[data-remove-content-tag]' ? { dataset: { removeContentTag: String(index) } } : null } }),
     add: () => editor.fire('click', { target: { closest: wanted => wanted === '[data-add-content-tag]' ? { dataset: {} } : null } }),
-    type: (index, value) => editor.fire('input', { target: { dataset: { contentTagIndex: String(index) }, value } }),
+    type: (index, value) => {
+      if (form.placeEditorSession.nestedTag === 'content') {
+        form.querySelector('[data-custom-content-tag]').value = value;
+        form.fire('click', { target: { closest: selector => selector === '[data-confirm-nested-tag]' ? {} : null } });
+      } else editor.fire('input', { target: { dataset: { contentTagIndex: String(index) }, value } });
+    },
   };
 }
 async function roundTrip(b, stored) {
@@ -101,10 +106,10 @@ async function roundTrip(b, stored) {
   }
 }
 
-test('UX dropdowns: the list renders 地點類別, 大地區, 地區標籤 and 餐廳類別 as labelled single-select dropdowns without chip filters', async () => {
+test('UX dropdowns: the list renders 地點類別, 主要地區, 地區標籤 and 餐廳類別 as labelled single-select dropdowns without chip filters', async () => {
   const b = await bootPlaces();
   const html = b.app.innerHTML;
-  for (const [filter, label] of [['kind', '地點類別'], ['section', '大地區'], ['areaTag', '地區標籤'], ['restaurantTag', '餐廳類別']]) {
+  for (const [filter, label] of [['kind', '地點類別'], ['section', '主要地區'], ['areaTag', '地區標籤'], ['restaurantTag', '餐廳類別']]) {
     assert.match(html, new RegExp(`<label for="places-filter-${filter}">${label}</label><select id="places-filter-${filter}" data-places-filter="${filter}">`), filter);
   }
   assert.deepEqual(dropdown(b, 'kind').values, ['all', 'attraction', 'restaurant', 'lodging', 'shopping']);
@@ -125,12 +130,12 @@ test('UX dropdowns: one client state per filter drives the list and both map lay
   assert.equal(dropdown(b, 'section', 'map').selected, GROUP_A);
   b.run('mapFullscreen = true; render({ filterOnly: true })');
   assert.equal(dropdown(b, 'section', 'map-drawer').selected, GROUP_A);
-  assert.doesNotMatch(b.app.innerHTML, /惠比壽（恵比寿）/, 'map sidebar shows 大地區, never the Canonical Area');
+  assert.doesNotMatch(b.app.innerHTML, /惠比壽（恵比寿）/, 'map sidebar shows 主要地區, never the Canonical Area');
   b.run('mapFullscreen = false; state.placesMode = "list"; render({ filterOnly: true })');
   assert.equal(dropdown(b, 'section').selected, GROUP_A);
 });
 
-test('大地區 options use sectionKey identity and sectionLabel in list order, never grouped Canonical Areas', async () => {
+test('主要地區 options use sectionKey identity and sectionLabel in list order, never grouped Canonical Areas', async () => {
   const b = await bootPlaces();
   const section = dropdown(b, 'section');
   const titles = [...b.app.innerHTML.matchAll(/group-title">⌖ ([^<]+)<\/h2>/g)].map(match => match[1]);
@@ -142,7 +147,7 @@ test('大地區 options use sectionKey identity and sectionLabel in list order, 
   for (const value of section.values.slice(1)) assert.match(value, /^(?:group|area):/);
 });
 
-test('Canonical Area still drives the 大地區 section and list grouping is unchanged', async () => {
+test('Canonical Area still drives the 主要地區 section and list grouping is unchanged', async () => {
   const b = await bootPlaces();
   assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), '澀谷・原宿・惠比壽');
   assert.equal(sectionOf(b.app.innerHTML, 'Gyutan Lemon'), '新宿');
@@ -169,13 +174,13 @@ test('Rukuma final card: ⌖ locality, category and real content tags only; no C
   assert.doesNotMatch(stay, /自訂地點|地址已自行確認|data-place-tag-type="content"/);
 });
 
-test('Place detail shows 大地區 as its geography summary, typed tags, and never Canonical Area or source metadata', async () => {
+test('Place detail shows 主要地區 as its geography summary, typed tags, and never Canonical Area or source metadata', async () => {
   const b = await bootPlaces();
   b.run('openPlaceSheet(placeDetailKey(state.places[0]), { refreshDetails: false })');
   const html = b.sheet.innerHTML, start = html.indexOf('class="detail-area-tags"');
   const row = html.slice(start, html.indexOf('</section>', start));
   assert.match(row, tagChip('area', '惠比壽西')); assert.match(row, tagChip('category', '燒肉')); assert.match(row, tagChip('content', '晚餐候選'));
-  assert.match(html, /<p class="detail-geography-summary">大地區：澀谷・原宿・惠比壽<\/p>/);
+  assert.match(html, /<p class="detail-geography-summary">主要地區：澀谷・原宿・惠比壽<\/p>/);
   assert.doesNotMatch(html, /旅遊分區|惠比壽（恵比寿）|detail-legacy-area|Google Maps 匯入|class="highlight-list"|data-canonical-area-chip/);
   assert.equal(b.requests.filter(persistenceOrLookup).length, 0);
 });
@@ -206,7 +211,7 @@ test('Filter A: Group A 地區標籤 options come only from matched Places; the 
   assert.deepEqual(visibleNames(b), ['Ginza Museum']);
 });
 
-test('changing 大地區 clears an incompatible 地區標籤 and preserves a compatible one', async () => {
+test('changing 主要地區 clears an incompatible 地區標籤 and preserves a compatible one', async () => {
   const b = await bootPlaces();
   await choose(b, 'section', GROUP_A); await choose(b, 'areaTag', '代々木');
   assert.deepEqual(visibleNames(b), ['Yoyogi Picnic']);
@@ -218,7 +223,7 @@ test('changing 大地區 clears an incompatible 地區標籤 and preserves a com
   assert.deepEqual(visibleNames(b), ['Ginza Museum']);
 });
 
-test('地點類別 is an upstream condition for 大地區 and 地區標籤 options', async () => {
+test('地點類別 is an upstream condition for 主要地區 and 地區標籤 options', async () => {
   const b = await bootPlaces();
   await choose(b, 'kind', 'attraction');
   assert.deepEqual(dropdown(b, 'section').values, ['', GROUP_A, GINZA]);
@@ -374,7 +379,7 @@ test('content-tag Save writes only contentTags, keeps highlights, areaTags, rest
   assert.equal(sectionOf(reload.app.innerHTML, 'Rukuma Tokyo'), '澀谷・原宿・惠比壽');
 });
 
-test('Phase C same-parent ambiguity matches its shared 大地區 without treating a candidate as identity', async () => {
+test('Phase C same-parent ambiguity matches its shared 主要地區 without treating a candidate as identity', async () => {
   const ambiguous = PlanningGeography.mergeAreaFields(rukuma(), PlanningGeography.ambiguousAreaFields(['ebisu', 'daikanyama']));
   const b = await bootPlaces([ambiguous, ...fixtures().slice(1)]);
   const values = dropdown(b, 'section').values;
@@ -388,7 +393,7 @@ test('Phase C same-parent ambiguity matches its shared 大地區 without treatin
   assert.equal(saved.travelAreaResolutionStatus, 'ambiguous'); assert.deepEqual(json(saved.travelAreaCandidateKeys), ['ebisu', 'daikanyama']);
 });
 
-test('Phase C cross-parent ambiguity keeps its runtime candidates section and never joins a wrong 大地區', async () => {
+test('Phase C cross-parent ambiguity keeps its runtime candidates section and never joins a wrong 主要地區', async () => {
   const cross = PlanningGeography.mergeAreaFields(rukuma({ id: 'synthetic-cross', name: 'Cross Parent' }), PlanningGeography.ambiguousAreaFields(['shinjuku', 'ebisu']));
   const key = geo(cross).sectionKey;
   assert.equal(key, 'candidates:ebisu|shinjuku');

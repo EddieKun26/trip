@@ -8050,4 +8050,6 @@ body.transport-sheet-open .app {
 .tag-add-row:has(.tag-custom-entry:not([hidden])) > .tag-add-button { visibility: hidden; }
 .tag-add-row .tag-custom-entry { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; height: 44px; }
 .tag-add-row .tag-custom-entry:not([hidden]) { display: grid; }
+.place-editor-sheet > .modal-actions[hidden] { display: none; }
+.place-editor-sheet .tag-add-row .tag-custom-entry { grid-template-columns: minmax(0, 1fr); }
 .tag-add-row input, .tag-add-row button { height: 44px; min-height: 44px; margin: 0; }

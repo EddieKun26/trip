@@ -30,6 +30,7 @@ const CANDIDATE_DRAFT_IDENTITY_FIELDS = ["placeId", "latitude", "longitude", "ph
 
 function node(value = "") {
   return {
+    closest() { return this; },
     value, disabled: false, hidden: false, textContent: "", placeholder: "", dataset: {}, attributes: {},
     listeners: {}, formNoValidate: false, innerHTML: "",
     ...tagOptionsNode(),
@@ -618,8 +619,8 @@ test("M. Area and Restaurant share one add-tag interaction pattern (button text,
     assert.match(html, /class="tag-add-button"[^>]*>＋新增 TAG</);
     assert.match(html, /class="tag-custom-entry" hidden/);
     assert.match(html, /placeholder="輸入標籤"/);
-    assert.match(html, />加入</);
-    assert.match(html, />取消</);
+    assert.doesNotMatch(html, />加入</);
+    assert.doesNotMatch(html, />取消</);
   }
   // Shared CSS classes, not a per-editor duplicate: one generic rule set drives both rows.
   assert.match(stylesSource, /\.tag-add-row \{[^}]*height: 44px/);

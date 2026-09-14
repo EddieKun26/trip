@@ -720,6 +720,7 @@ test("custom area tags use Enter/add/save, trim and dedupe; cancelling never cha
  h.context.closeSheet();assert.deepEqual(existing.areaTags,[]);
  const saved=harness({existing,address:""});
  saved.form.querySelector("[data-area-tag-input]").value="  自訂旅遊周邊 ";
+ saved.context.addAreaTagInput(saved.form);
  await saved.save();assert.deepEqual(Array.from(existing.areaTags),["自訂旅遊周邊"]);
  assert.equal(saved.requests.length,0);
 });
@@ -745,6 +746,7 @@ test("editing area and restaurant tags together saves both without changing any 
  const before=structuredClone(existing);const h=harness({existing,address:""});
  h.form.checkedTags=["牛排"];h.session.dirty.add("restaurantTags");
  h.form.querySelector("[data-area-tag-input]").value="表參道";
+ h.context.addAreaTagInput(h.form);
  await h.save();
  assert.deepEqual(JSON.parse(JSON.stringify(existing)),{...before,restaurantTags:["牛排"],restaurantTagsSource:"manual",areaTags:["原宿","表參道"]});
  assert.equal(h.requests.length,0);

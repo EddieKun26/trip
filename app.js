@@ -630,15 +630,70 @@ function voterSummary(name) {
   return voters.map(memberName).join("、");
 }
 
+const pendingPlaceVotes = new Map();
+
 function toggleMyVote(name) {
   if (!canEdit()) return false;
   const memberId = currentMemberId();
   const voters = new Set(placeVoters(name));
   if (voters.has(memberId)) voters.delete(memberId);
   else voters.add(memberId);
+  const key = JSON.stringify([tripContextVersion, state.tripId, memberId, name]);
+  const previous = pendingPlaceVotes.get(key);
+  pendingPlaceVotes.set(key, { key, name, memberId, context: tripContextVersion,
+    before: previous ? previous.before : placeVoters(name).includes(memberId), active: voters.has(memberId) });
   state.votes[name] = [...voters];
+  updatePlaceVoteControls(name);
   persist();
   return voters.has(memberId);
+}
+
+function updatePlaceVoteControls(name) {
+  const voters = placeVoters(name);
+  const active = voters.includes(currentMemberId());
+  for (const button of document.querySelectorAll("[data-vote]")) {
+    if (button.dataset.vote !== name) continue;
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-label", active ? "取消我的最想去" : "標記我最想去");
+    if (button.closest(".place-detail-sheet")) {
+      button.classList.toggle("voted", active);
+      button.textContent = active ? "★ 已標記最想去" : "☆ 我也最想去";
+      const detail = button.closest(".place-detail-sheet");
+      detail.querySelector(".vote-panel .section-row span").textContent = `${voters.length} 人標記`;
+      detail.querySelector(".vote-panel .avatar-stack").innerHTML = voters.map(id => avatarMarkup(id, true)).join("");
+      detail.querySelector(".voter-list").innerHTML = voters.length
+        ? voters.map(id => `<span class="voter-chip">${avatarMarkup(id, true)}${escapeHtml(memberName(id))}</span>`).join("")
+        : '<span class="meta">還沒有人標記，成為第一個吧</span>';
+    } else {
+      button.classList.toggle("active", active);
+      button.querySelector("span").textContent = active ? "★" : "☆";
+      button.querySelector("b").textContent = String(voters.length);
+      const summary = button.closest("article")?.querySelector(".vote-names");
+      if (summary) summary.textContent = voterSummary(name);
+    }
+  }
+}
+
+function settlePlaceVotes(batch, success) {
+  for (const entry of batch) {
+    const pending = pendingPlaceVotes.get(entry.key);
+    if (!pending) continue;
+    if (entry.context !== tripContextVersion) { pendingPlaceVotes.delete(entry.key); continue; }
+    if (pending !== entry) {
+      // A second click arrived during PUT. Rebase rollback onto the acknowledged vote.
+      pending.before = success ? entry.active : entry.before;
+      continue;
+    }
+    pendingPlaceVotes.delete(entry.key);
+    if (success) continue;
+    const voters = new Set(placeVoters(entry.name));
+    if (entry.before) voters.add(entry.memberId); else voters.delete(entry.memberId);
+    state.votes[entry.name] = [...voters];
+    updatePlaceVoteControls(entry.name);
+    // Undo must not resurrect an optimistic vote that the server rejected.
+    if (undoSnapshot) undoSnapshot.votes[entry.name] = [...voters];
+    persist({ sync: false, recordUndo: false });
+  }
 }
 
 function avatarMarkup(memberId, compact = false) {
@@ -1724,6 +1779,8 @@ function scheduleTagBackfillMigration() {
 async function saveSharedTrip() {
   if (!canEdit() || sharedSyncBusy) return;
   sharedSyncBusy = true;
+  const voteBatch = [...pendingPlaceVotes.values()];
+  let voteSaveSucceeded = false;
   const memberId = currentMemberId();
   const tripId = state.tripId;
   const context = tripContextVersion;
@@ -1746,10 +1803,16 @@ async function saveSharedTrip() {
     const payload = await response.json();
     if (!current()) return;
     state.sharedRevision = Number(payload.revision) || state.sharedRevision;
+    voteSaveSucceeded = true;
   } catch {
     if (current()) showToast("共用資料暫時無法同步，稍後會再試");
   } finally {
+    settlePlaceVotes(voteBatch, voteSaveSucceeded);
     sharedSyncBusy = false;
+    if (canEdit() && pendingPlaceVotes.size) {
+      window.clearTimeout(sharedSaveTimer);
+      sharedSaveTimer = window.setTimeout(() => { sharedSaveTimer = 0; saveSharedTrip(); }, 120);
+    }
   }
 }
 
@@ -2410,7 +2473,100 @@ function restaurantTagEditor(place, kind, isCandidateDraftMode = false) {
   const available = isCandidateDraftMode
     ? [...new Set([...(Array.isArray(place.restaurantTagOptions) ? place.restaurantTagOptions : []), ...selected])]
     : [...new Set([...selected, ...(state.places || []).flatMap(persistedRestaurantTagValues)])];
-  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options" aria-label="可用類別">${available.map(tag => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><div class="tag-add-row"><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增 TAG</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="新增自訂類別" placeholder="輸入標籤"><button type="button" data-confirm-restaurant-tag>加入</button><button type="button" data-cancel-restaurant-tag>取消</button></div></div><small>點選類別切換是否使用，修改後按儲存。</small></fieldset>`;
+  return `<fieldset class="field full restaurant-tag-editor" data-restaurant-tag-editor ${kind === "restaurant" ? "" : "hidden"}><legend>類別</legend><div class="restaurant-tag-options" aria-label="可用類別">${available.map(tag => restaurantTagChip(tag, selected.includes(tag))).join("")}</div><div class="tag-add-row"><button type="button" class="tag-add-button" data-add-restaurant-tag>＋新增 TAG</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-restaurant-tag aria-label="新增自訂類別" placeholder="輸入標籤"></div></div><small>點選類別切換是否使用，修改後按儲存。</small></fieldset>`;
+}
+
+const nestedTagInputs = {
+  restaurant: "[data-custom-restaurant-tag]",
+  area: "[data-area-tag-input]",
+  content: "[data-custom-content-tag]",
+};
+
+function syncNestedTagFooter(form) {
+  const mode = form.placeEditorSession.nestedTag;
+  const normal = form.querySelector("[data-place-normal-actions]");
+  const nested = form.querySelector("[data-place-tag-actions]");
+  if (!normal || !nested) return;
+  normal.hidden = Boolean(mode);
+  nested.hidden = !mode;
+  form.querySelector("[data-confirm-nested-tag]").disabled = !mode
+    || !form.querySelector(nestedTagInputs[mode]).value.trim();
+}
+
+function finishNestedTagInput(form) {
+  const session = form.placeEditorSession;
+  if (!session.nestedTag) return;
+  const input = form.querySelector(nestedTagInputs[session.nestedTag]);
+  input.value = "";
+  input.closest(".tag-custom-entry").hidden = true;
+  input.blur();
+  session.nestedTag = null;
+  session.areaTagAutocompleteOpen = false;
+  renderAreaTagAutocomplete(form);
+  syncNestedTagFooter(form);
+}
+
+function beginNestedTagInput(form, mode) {
+  const session = form.placeEditorSession;
+  if (session.saving || session.nestedTag) return;
+  session.nestedTag = mode;
+  const input = form.querySelector(nestedTagInputs[mode]);
+  input.closest(".tag-custom-entry").hidden = false;
+  syncNestedTagFooter(form);
+  input.focus();
+  syncPlaceEditorViewport();
+}
+
+function confirmNestedTagInput(form) {
+  const session = form.placeEditorSession;
+  if (!session.nestedTag || session.saving) return;
+  const value = form.querySelector(nestedTagInputs[session.nestedTag]).value.trim();
+  if (!value) return;
+  if (session.nestedTag === "restaurant") addCustomRestaurantTag(form);
+  else if (session.nestedTag === "area") addAreaTagInput(form);
+  else {
+    session.contentTags = contentTagValues([...session.contentTags, value]);
+    session.dirty.add("contentTags");
+    renderContentTagDraft(form);
+    finishNestedTagInput(form);
+  }
+}
+
+function bindNestedTagEditor(form) {
+  form.addEventListener("click", event => {
+    if (event.target.closest("[data-cancel-nested-tag]")) finishNestedTagInput(form);
+    if (event.target.closest("[data-confirm-nested-tag]")) confirmNestedTagInput(form);
+  });
+  form.addEventListener("input", () => syncNestedTagFooter(form));
+  form.addEventListener("keydown", event => {
+    if (!form.placeEditorSession.nestedTag || event.key !== "Enter") return;
+    event.preventDefault(); // Never submit the parent form, including IME confirmation.
+    if (!event.isComposing && event.keyCode !== 229 && form.placeEditorSession.nestedTag !== "area") confirmNestedTagInput(form);
+  });
+  syncNestedTagFooter(form);
+  syncPlaceEditorViewport();
+}
+
+function syncPlaceEditorViewport() {
+  const viewport = globalThis.window?.visualViewport;
+  if (!viewport) return;
+  const form = sheetRoot.querySelector("#place-editor-form");
+  if (!form) return;
+  const backdrop = form.closest(".modal-backdrop");
+  backdrop.style.top = `${viewport.offsetTop}px`;
+  backdrop.style.height = `${viewport.height}px`;
+  backdrop.style.bottom = "auto";
+  form.style.maxHeight = `min(90dvh, ${Math.max(120, viewport.height - 40)}px)`;
+  window.requestAnimationFrame(() => {
+    const input = document.activeElement;
+    if (!form.isConnected || !form.placeEditorSession?.nestedTag || !form.contains(input)) return;
+    const field = input.getBoundingClientRect();
+    const sheet = form.getBoundingClientRect();
+    const footer = form.querySelector("[data-place-tag-actions]").getBoundingClientRect();
+    // Keep the active field above the sticky actions when the keyboard shrinks the viewport.
+    if (field.bottom > footer.top - 8) form.scrollTop += field.bottom - footer.top + 8;
+    else if (field.top < sheet.top + 8) form.scrollTop -= sheet.top + 8 - field.top;
+  });
 }
 
 function restaurantTagChip(tag, selected) {
@@ -2434,7 +2590,8 @@ function addCustomRestaurantTag(form) {
   session.restaurantTagOptions = [...new Set([...(session.restaurantTagOptions || []), tag])];
   syncRestaurantTagEditor(form);
   input.value = "";
-  form.querySelector(".tag-custom-entry").hidden = true;
+  input.closest(".tag-custom-entry").hidden = true;
+  finishNestedTagInput(form);
 }
 
 // One wrapping row of three visually distinct tag types: fine-grained locality (areaTags),
@@ -2516,7 +2673,7 @@ function areaTagEditor() {
     <strong>地區標籤 <small>選填，可多選或留空</small></strong>
     <div class="area-tag-chips" data-area-tags-selected data-area-tags-options aria-label="可用地區標籤" hidden></div>
     <div class="area-tag-autocomplete">
-      <div class="tag-add-row"><button type="button" class="tag-add-button" data-open-area-tag>＋新增 TAG</button><div class="tag-custom-entry" hidden><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入標籤" /><button type="button" data-area-tag-add>加入</button><button type="button" data-cancel-area-tag>取消</button></div></div>
+      <div class="tag-add-row"><button type="button" class="tag-add-button" data-open-area-tag>＋新增 TAG</button><div class="tag-custom-entry" hidden><input data-area-tag-input role="combobox" aria-label="新增自訂地區標籤" aria-autocomplete="list" aria-controls="area-tag-options" aria-expanded="false" autocomplete="off" placeholder="輸入標籤" /></div></div>
       <div id="area-tag-options" data-area-tags-suggestions role="listbox" aria-label="地區標籤建議" hidden></div>
     </div>
   </section>`;
@@ -2607,7 +2764,7 @@ function chooseAreaTag(form, tag) {
   session.areaTagActiveIndex = -1;
   form.querySelector("[data-area-tag-input]").value = "";
   // Same collapse-after-add behavior as the restaurant tag editor's custom-entry row.
-  form.querySelector(".area-tag-editor .tag-custom-entry").hidden = true;
+  finishNestedTagInput(form);
   renderAreaTagDraft(form);
 }
 
@@ -2642,20 +2799,7 @@ function bindAreaTagEditor(form, source) {
     const target = event.target.closest(
       "[data-area-tag-choose], [data-area-tag-toggle], [data-area-tag-add], [data-open-area-tag], [data-cancel-area-tag]");
     if (!target) return;
-    // Same reveal/cancel interaction as the restaurant tag editor's own add-tag row.
-    if (target.hasAttribute("data-open-area-tag")) {
-      form.querySelector(".area-tag-editor .tag-custom-entry").hidden = false;
-      form.querySelector("[data-area-tag-input]").focus();
-      return;
-    }
-    if (target.hasAttribute("data-cancel-area-tag")) {
-      form.querySelector(".area-tag-editor .tag-custom-entry").hidden = true;
-      form.querySelector("[data-area-tag-input]").value = "";
-      session.areaTagAutocompleteOpen = false;
-      renderAreaTagAutocomplete(form);
-      return;
-    }
-    if (target.hasAttribute("data-area-tag-add")) { addAreaTagInput(form); return; }
+    if (target.hasAttribute("data-open-area-tag")) { beginNestedTagInput(form, "area"); return; }
     if (target.dataset.areaTagChoose !== undefined) { chooseAreaTag(form, target.dataset.areaTagChoose); return; }
     const key = AreaTags.key(target.dataset.areaTagToggle, session.areaTagComparison);
     if (!session.areaTags.some(tag => AreaTags.key(tag, session.areaTagComparison) === key)) {
@@ -2689,7 +2833,7 @@ function bindAreaTagEditor(form, source) {
     }
   });
   // Capture ensures validation is restored when another field changes. A pending custom
-  // value is added by explicit Save as well as the add button/Enter.
+  // value is added only to the nested draft by the footer action or Enter.
   form.addEventListener("input", () => {
     const pending = Boolean(AreaTags.normalize([form.querySelector("[data-area-tag-input]").value]).length);
     const submit = form.querySelector('button[type="submit"]');
@@ -2738,7 +2882,7 @@ function contentTagEditor() {
   return `<section class="field full content-tag-editor" data-content-tag-editor aria-label="AI / 內容標籤">
     <strong>AI / 內容標籤 <small>可修改、刪除或新增，按儲存後才會套用</small></strong>
     <div class="content-tag-list" data-content-tag-list></div>
-    <button type="button" class="tag-add-button" data-add-content-tag>＋新增內容標籤</button>
+    <div class="tag-add-row"><button type="button" class="tag-add-button" data-add-content-tag>＋新增內容標籤</button><div class="tag-custom-entry" hidden><input type="text" maxlength="40" data-custom-content-tag aria-label="新增內容標籤" placeholder="輸入標籤" /></div></div>
   </section>`;
 }
 
@@ -2765,10 +2909,7 @@ function bindContentTagEditor(form, source) {
       return;
     }
     if (!event.target.closest("[data-add-content-tag]")) return;
-    session.contentTags.push("");
-    session.dirty.add("contentTags");
-    renderContentTagDraft(form);
-    form.querySelector(`[data-content-tag-index="${session.contentTags.length - 1}"]`)?.focus();
+    beginNestedTagInput(form, "content");
   });
   editor.addEventListener("input", (event) => {
     const index = Number(event.target.dataset?.contentTagIndex);
@@ -2835,7 +2976,7 @@ function placesFilterModel(places, selection) {
 function placesFilterDropdowns(model, { idPrefix = "places" } = {}) {
   const field = (filter, label, selected, options) => `<div class="places-filter-field"><label for="${idPrefix}-filter-${filter}">${label}</label><select id="${idPrefix}-filter-${filter}" data-places-filter="${filter}">${options.map(([value, name]) => `<option value="${escapeHtml(value)}"${value === selected ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
   const withAll = (options) => [["", "全部"], ...options];
-  return `<div class="places-filter-bar" role="group" aria-label="地點篩選">${field("kind", "地點類別", state.placeKind, model.kinds)}${field("section", "大地區", state.placeSectionFilter || "", withAll(model.sections))}${field("areaTag", "地區標籤", state.areaTagFilter || "", withAll(model.areaTags.map((tag) => [tag, tag])))}${model.cuisineVisible ? field("restaurantTag", "餐廳類別", state.restaurantTagFilter || "", withAll(model.tags.map((tag) => [tag, tag]))) : ""}</div>`;
+  return `<div class="places-filter-bar" role="group" aria-label="地點篩選">${field("kind", "地點類別", state.placeKind, model.kinds)}${field("section", "主要地區", state.placeSectionFilter || "", withAll(model.sections))}${field("areaTag", "地區標籤", state.areaTagFilter || "", withAll(model.areaTags.map((tag) => [tag, tag])))}${model.cuisineVisible ? field("restaurantTag", "餐廳類別", state.restaurantTagFilter || "", withAll(model.tags.map((tag) => [tag, tag]))) : ""}</div>`;
 }
 
 function applyPlacesFilterChange(filter, value) {
@@ -2878,7 +3019,7 @@ function placesScreen() {
                   <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
                   <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
                 </button>
-                <button class="reaction-button ${active ? "active" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"} aria-label="${canEdit() ? (active ? "取消我的最想去" : "標記我最想去") : "訪客無法投票"}">
+                <button class="reaction-button ${active ? "active" : ""}" type="button" aria-pressed="${active}" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"} aria-label="${canEdit() ? (active ? "取消我的最想去" : "標記我最想去") : "訪客無法投票"}">
                   <span aria-hidden="true">${active ? "★" : "☆"}</span>
                   <b>${voters.length}</b>
                 </button>
@@ -5618,7 +5759,7 @@ function openPlaceSheet(name, { refreshDetails = true } = {}) {
           </div>
         </div>
         ${placeTagsDetail(place)}
-        <p class="detail-geography-summary">大地區：${escapeHtml(planningSectionLabel(place))}</p>
+        <p class="detail-geography-summary">主要地區：${escapeHtml(planningSectionLabel(place))}</p>
         <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
         <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
         <div class="gallery-caption">
@@ -5670,7 +5811,7 @@ function openPlaceSheet(name, { refreshDetails = true } = {}) {
             : `<p class="meta">此自訂地點尚未取得座標</p>`
         }
         <div class="modal-actions">
-          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
+          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" aria-pressed="${hasMyVote}" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapPlaceUrl)}">開啟 Google Maps</button>
         </div>
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
@@ -7723,6 +7864,7 @@ function bindPlaceEditor(form, existing, seed) {
   session.tagEditBaseline = Object.fromEntries(["name", "address", "sourceUrl", "referenceUrl", "sourcePlatform", "sourceLodgingName", "sourceListingId", "photoOrigin", "travelAreaKey", "kind", "category"].map((key) => [key, form.elements[key]?.value || ""]));
   bindAreaTagEditor(form, existing || seed);
   bindContentTagEditor(form, existing || seed);
+  bindNestedTagEditor(form);
   // Mirrors session.areaTagAvailable: the running set of restaurant-tag chips this editor
   // should keep showing (canonical suggestion + anything the user adds), even after one is
   // toggled off. Seeded from the candidate draft's own restaurantTagOptions where present.
@@ -7850,12 +7992,6 @@ function bindPlaceEditor(form, existing, seed) {
     if (event.target.name === "referenceUrl") {
       session.syncSource();
       session.metadataTimer = setTimeout(() => fillPlaceEditorFromUrl(form), 700);
-    }
-  });
-  form.querySelector("[data-custom-restaurant-tag]")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.isComposing) {
-      event.preventDefault();
-      addCustomRestaurantTag(form);
     }
   });
   const addressInput = form.elements.address;
@@ -8185,7 +8321,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="field full"><label for="place-editor-url">Google Maps 連結（選填）</label><input id="place-editor-url" name="sourceUrl" inputmode="url" maxlength="500" value="${escapeHtml(sourceUrl)}" placeholder="https://maps.app.goo.gl/…" /></div>
           <details class="place-area-advanced field full"><summary>進階：手動修正分區</summary>
           <div class="field full"><label for="place-editor-travel-area-key">旅遊分區</label><select id="place-editor-travel-area-key" name="travelAreaKey"><option value="">未手動指定</option>${Object.values(globalThis.CanonicalTravelCatalog?.catalog || {}).map(area => `<option value="${escapeHtml(area.travelAreaKey)}" ${travelAreaKey === area.travelAreaKey ? "selected" : ""}>${escapeHtml(PlanningGeography.formatCanonicalArea(area))}</option>`).join("")}</select></div>
-          <div class="field full"><small>${existing ? `目前顯示：${escapeHtml(travelAreaDisplayName(existing))}。` : "未選擇時會依完整地址自動辨識。"} 手動選擇後，分區會保留至再次修改。旅遊分區決定地點歸在哪個大地區，不會改動地區標籤。</small></div>
+          <div class="field full"><small>${existing ? `目前顯示：${escapeHtml(travelAreaDisplayName(existing))}。` : "未選擇時會依完整地址自動辨識。"} 手動選擇後，分區會保留至再次修改。旅遊分區決定地點歸在哪個主要地區，不會改動地區標籤。</small></div>
           <button type="button" class="secondary-button" data-restore-auto-area>恢復自動分區</button></details>
         </div>
         <section class="place-photo-editor">
@@ -8194,7 +8330,7 @@ function openPlaceEditSheet(name = "", seed = {}) {
           <div class="place-photo-actions"><label class="secondary-button" for="place-photo-input" data-replace-place-photo ${editorPhoto ? "" : "hidden"}>更換照片</label><input class="visually-hidden" id="place-photo-input" type="file" accept="image/*" data-place-photo-input /><button type="button" data-remove-place-photo ${editorPhoto ? "" : "hidden"}>移除照片</button></div>
           <small data-place-photo-status>${editorPhoto ? (photoOrigin === "lodging_source" ? "已帶入原住宿頁的照片，儲存時會壓縮保留" : "這張照片會顯示在地點詳情與地圖預覽") : "照片會壓縮後與旅伴共用"}</small>
         </section>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : isCandidateDraftMode ? "儲存候選" : "確認新增"}</button></div>
+        <div class="modal-actions" data-place-normal-actions><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">${existing ? "儲存變更" : isCandidateDraftMode ? "儲存候選" : "確認新增"}</button></div><div class="modal-actions" data-place-tag-actions hidden><button class="secondary-button" type="button" data-cancel-nested-tag>取消新增</button><button class="primary-button" type="button" data-confirm-nested-tag disabled>加入標籤</button></div>
       </form>
     </div>`;
   bindPlaceEditor(sheetRoot.querySelector("#place-editor-form"), existing, seed);
@@ -8972,11 +9108,8 @@ document.addEventListener("click", async (event) => {
   if (vote) {
     if (!canEdit()) return guestOnlyMessage();
     const name = vote.dataset.vote;
-    const detailIdentity = event.target.closest(".place-detail-sheet")?.dataset.detailPlace;
-    const active = toggleMyVote(name);
-    render({ preserveScroll: true });
-    if (detailIdentity) openPlaceSheet(detailIdentity);
-    return showToast(active ? `你也想去「${name}」` : `已取消你的「最想去」`);
+    toggleMyVote(name);
+    return;
   }
 
   if (event.target.closest("[data-edit-profile]")) return openProfileSheet(false);
@@ -9171,18 +9304,8 @@ document.addEventListener("click", async (event) => {
     return openPlaceEditSheet("", lodgingDraftToEditorSeed(draft));
   }
 
-  const tagAction = event.target.closest("[data-add-restaurant-tag], [data-confirm-restaurant-tag], [data-cancel-restaurant-tag]");
-  if (tagAction) {
-    const form = tagAction.closest("form");
-    const entry = form.querySelector(".tag-custom-entry");
-    if (tagAction.hasAttribute("data-confirm-restaurant-tag")) addCustomRestaurantTag(form);
-    else {
-      entry.hidden = !tagAction.hasAttribute("data-add-restaurant-tag");
-      if (!entry.hidden) entry.querySelector("input").focus();
-      else entry.querySelector("input").value = "";
-    }
-    return;
-  }
+  const tagAction = event.target.closest("[data-add-restaurant-tag]");
+  if (tagAction) return beginNestedTagInput(tagAction.closest("form"), "restaurant");
   const editPlace = event.target.closest("[data-edit-place]");
   if (editPlace) return canEdit() ? openPlaceEditSheet(editPlace.dataset.editPlace) : guestOnlyMessage();
 
@@ -9722,9 +9845,9 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "place-editor-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
+    if (event.target.placeEditorSession?.nestedTag) return confirmNestedTagInput(event.target);
     if (event.target.dataset.editorMode === "candidate-draft") return submitCandidateDraftEditor(event.target);
     const tagSession = event.target.placeEditorSession;
-    addAreaTagInput(event.target);
     if (saveCanonicalAreaOnly(event.target)) return;
     if (canSaveAreaTagsOnly(event.target) && saveAreaTagsOnly(event.target)) return;
     if (!tagSession.dirty.has("areaTags") && tagSession.dirty.has("restaurantTags") && tagSession.tagEditBaseline
@@ -10401,3 +10524,5 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) checkForAppUpdate({ reloadOnChange: true });
 });
 window.addEventListener("pagehide", () => stopLiveLocation());
+window.visualViewport?.addEventListener("resize", syncPlaceEditorViewport);
+window.visualViewport?.addEventListener("scroll", syncPlaceEditorViewport);

@@ -200,7 +200,7 @@ test("detail photos link to place page while photo fetch remains bound to matchi
 });
 
 
-test("detail promotes manual areaTags, shows the 大地區 summary instead of Canonical Area, and shows content tags as typed chips with independent category/description", () => {
+test("detail promotes manual areaTags, shows the 主要地區 summary instead of Canonical Area, and shows content tags as typed chips with independent category/description", () => {
  const place=savedPlace({kind:"attraction",areaTags:["芝"],category:"地區歷史景點",description:"芝的歷史描述",highlights:["芝","歷史"],detailsLocked:true});
  const before=structuredClone(place);const {context}=frontend([place],null);
  context.travelAreaDisplayName=()=>"港（港）";context.planningSectionLabel=()=>"六本木・赤坂・麻布";
@@ -208,7 +208,7 @@ test("detail promotes manual areaTags, shows the 大地區 summary instead of Ca
  const header=html.slice(html.indexOf('class="section-row"'),html.indexOf('class="detail-area-tags"'));
  assert.match(header,/id="place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
  assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag place-tag place-tag-area" data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>芝<\/span><span class="highlight-tag place-tag place-tag-content" data-place-tag-type="content"><span class="visually-hidden">內容標籤：<\/span>歷史<\/span><\/div><\/section>/);
- assert.match(html,/<p class="detail-geography-summary">大地區：六本木・赤坂・麻布<\/p>/);assert.doesNotMatch(html,/旅遊分區|港（港）/);
+ assert.match(html,/<p class="detail-geography-summary">主要地區：六本木・赤坂・麻布<\/p>/);assert.doesNotMatch(html,/旅遊分區|港（港）/);
  assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-geography-summary"'));
  assert.match(html,/class="place-byline"[^>]*>[^<]*地區歷史景點/);
  assert.match(html,/class="place-description">芝的歷史描述/);
@@ -217,7 +217,7 @@ test("detail promotes manual areaTags, shows the 大地區 summary instead of Ca
  place.areaTags=[];context.openPlaceSheet(place.name);
  assert.doesNotMatch(context.sheetRoot.innerHTML,/data-place-tag-type="area"/);
  assert.match(context.sheetRoot.innerHTML,/data-place-tag-type="content"><span class="visually-hidden">內容標籤：<\/span>芝<\/span>/);
- assert.match(context.sheetRoot.innerHTML,/class="detail-geography-summary">大地區：六本木・赤坂・麻布/);
+ assert.match(context.sheetRoot.innerHTML,/class="detail-geography-summary">主要地區：六本木・赤坂・麻布/);
 });
 
 test("detail merges areaTags and restaurant category chips into one wrapping row, areaTags first, without inventing a missing category", () => {
@@ -227,7 +227,7 @@ test("detail merges areaTags and restaurant category chips into one wrapping row
  context.openPlaceSheet(restaurant.name);
  const html=context.sheetRoot.innerHTML;
  assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag place-tag place-tag-area" data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>銀座<\/span><span class="highlight-tag place-tag place-tag-category" data-place-tag-type="category"><span class="visually-hidden">餐廳類別：<\/span>燒肉<\/span><\/div><\/section>/);
- assert.doesNotMatch(html,/detail-restaurant-tags|尚未設定|(?<!大)地區：|<span>類別/);
+ assert.doesNotMatch(html,/detail-restaurant-tags|尚未設定|(?<!主要)地區：|<span>類別/);
  assert.deepEqual(restaurant,before);
 
  restaurant.areaTags=["原宿","表參道"];restaurant.restaurantTags=["咖啡甜點","早午餐"];

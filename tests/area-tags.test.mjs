@@ -119,7 +119,7 @@ test('detail omits empty tags, escapes custom display, renders typed locality/ca
   const content=c.placeTagsDetail({kind:'restaurant',areaTags:['銀座'],restaurantTags:['燒肉'],highlights:['燒肉',' 晚餐候選 ','',3,'銀座']});
   assert.equal(content,`<section class="detail-area-tags"><div>${chip('area','地區標籤','銀座')}${chip('category','餐廳類別','燒肉')}${chip('content','內容標籤','晚餐候選')}</div></section>`);
   const detail=section('function openPlaceSheet','async function ensurePlaceDetails');
-  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/大地區：\$\{escapeHtml\(planningSectionLabel\(place\)\)\}/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
+  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/主要地區：\$\{escapeHtml\(planningSectionLabel\(place\)\)\}/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
   assert.doesNotMatch(detail,/旅遊分區|travelAreaDisplayName|travelAreaChineseName/);
   assert.doesNotMatch(detail,/detail-restaurant-tags|highlight-list|data-canonical-area-chip/);
 });
@@ -206,7 +206,7 @@ test('localization uses unique saved component counterparts, not ordering, legac
 });
 
 
-test('selected chip styling is shared with categories; detail has primary tags and a secondary 大地區 summary',()=>{
+test('selected chip styling is shared with categories; detail has primary tags and a secondary 主要地區 summary',()=>{
  const css=readFileSync(new URL('../styles.css',import.meta.url),'utf8');
  const shared=css.match(/\.restaurant-tag-options label:has\(input:checked\),\s*\[data-area-tags-selected\] button \{([^}]+)\}/);
  assert.ok(shared);assert.match(shared[1],/background: #315c50/);assert.match(shared[1],/color: white/);assert.match(shared[1],/border-color: #315c50/);

@@ -23,20 +23,20 @@ const places = [
  area("ueno", { name: "e", kind: "restaurant", restaurantTags: ["燒肉"] }),
 ];
 const names = (model) => Array.from(model.visible, (p) => p.name);
-test("大地區 choices use Planning Geography sections with stable sectionKey identity and include unresolved sections under all", () => {
+test("主要地區 choices use Planning Geography sections with stable sectionKey identity and include unresolved sections under all", () => {
  const selection = { placeKind: "all" };
  const model = c.placesFilterModel(places, selection);
  assert.deepEqual(Array.from(model.sections, ([key]) => key), [UENO, "area:shinjuku", "area:unclassified:d"]);
  assert.deepEqual(Array.from(model.sections.slice(0, 2), ([, label]) => label), ["上野・淺草・秋葉原", "新宿"]);
- assert.ok(!model.sections.some(([key, label]) => key === "ueno" || label === "上野"), "grouped Canonical Areas are not 大地區 options");
+ assert.ok(!model.sections.some(([key, label]) => key === "ueno" || label === "上野"), "grouped Canonical Areas are not 主要地區 options");
  assert.deepEqual(names(model), ["a", "b", "c", "d", "e"]);
  selection.placeSectionFilter = UENO;
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a", "c", "e"]);
  selection.placeSectionFilter = "ueno";
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a", "b", "c", "d", "e"]);
- assert.equal(selection.placeSectionFilter, "", "a Canonical Area key is not a 大地區 identity");
+ assert.equal(selection.placeSectionFilter, "", "a Canonical Area key is not a 主要地區 identity");
 });
-test("地點類別 → 大地區 → 餐廳類別 cascade: hidden category resets, stale selections reset and nothing is resurrected", () => {
+test("地點類別 → 主要地區 → 餐廳類別 cascade: hidden category resets, stale selections reset and nothing is resurrected", () => {
  const selection = { placeKind: "restaurant", placeSectionFilter: UENO, restaurantTagFilter: "燒肉" };
  assert.deepEqual(names(c.placesFilterModel(places, selection)), ["a", "e"]);
  selection.placeSectionFilter = "area:shinjuku"; selection.restaurantTagFilter = "壽喜燒";
@@ -84,7 +84,7 @@ test("shared sanitizer and JSON reload retain optional tags and explicit empty a
 test("filters render as four labelled dropdowns, category only for all/restaurant, and never invoke resolver", () => {
  c.state = { placeKind: "restaurant", placeSectionFilter: "", areaTagFilter: "", restaurantTagFilter: "" };
  const html = c.placesFilterDropdowns(c.placesFilterModel(places, c.state));
- for (const [filter, label] of [["kind", "地點類別"], ["section", "大地區"], ["areaTag", "地區標籤"], ["restaurantTag", "餐廳類別"]]) {
+ for (const [filter, label] of [["kind", "地點類別"], ["section", "主要地區"], ["areaTag", "地區標籤"], ["restaurantTag", "餐廳類別"]]) {
   assert.match(html, new RegExp(`<label for="places-filter-${filter}">${label}</label><select id="places-filter-${filter}" data-places-filter="${filter}">`), filter);
  }
  assert.match(html, /<option value="restaurant" selected>餐廳<\/option>/);
@@ -147,7 +147,7 @@ test("map dropdowns and adjacent location/fullscreen controls exist in both layo
 });
 
 
-test("category options derive from the selected 大地區 only and reset unavailable selection", () => {
+test("category options derive from the selected 主要地區 only and reset unavailable selection", () => {
  const selection = { placeKind: "all", placeSectionFilter: UENO, restaurantTagFilter: "" };
  assert.deepEqual(Array.from(c.placesFilterModel(places, selection).tags), ["燒肉", "日式"]);
  selection.restaurantTagFilter = "燒肉"; selection.placeSectionFilter = "area:shinjuku";
@@ -172,7 +172,7 @@ test("editor choices are actual trip tags plus current values; unused and name-o
 });
 
 test("custom input trims, deduplicates exact values and does not persist before Save", () => {
- const input={value:"  和牛  "}, existing={value:"和牛",checked:false,setAttribute(){},closest(){return this;}}, dirty=new Set(), entry={hidden:false};
+ const input={value:"  和牛  ",closest(){return entry;}}, existing={value:"和牛",checked:false,setAttribute(){},closest(){return this;}}, dirty=new Set(), entry={hidden:false};
  let inserted="";
  const form={querySelector(selector){ return selector.includes("data-custom") ? input : selector === ".tag-custom-entry" ? entry : {querySelector:()=>({append(){},querySelector:()=>null}),querySelectorAll:()=>[existing],insertAdjacentHTML:(_,html)=>inserted+=html}; },placeEditorSession:{dirty}};
  c.addCustomRestaurantTag(form);
