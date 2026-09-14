@@ -47,11 +47,12 @@ function makeContext(overrides = {}) {
   return c;
 }
 
-test("area backfill: verified containment wins, fills at most one canonical tag, never touches an existing value", () => {
+test("area backfill: polygon containment never writes a Canonical Area; the address locality fills at most one tag, never touching an existing value", () => {
   const c = makeContext();
+  assert.deepEqual(AreaTags.travelAreaHits(HANAKAWADO, catalog).map((hit) => hit.travelAreaKey), ["asakusa"], "premise: inside the asakusa polygon");
   const tagged = { ...json(HANAKAWADO), areaTags: ["原宿"] }; // already has a value -> must stay untouched
   const manifest = c.buildTagBackfillManifest([json(HANAKAWADO), tagged], catalog);
-  eq(manifest[0].area, { status: "auto-safe", proposed: ["淺草"] });
+  eq(manifest[0].area, { status: "auto-safe", proposed: ["花川戸"] });
   eq(manifest[1].area, { status: "skip" });
 });
 
@@ -190,7 +191,7 @@ test("apply: writes only the manifest's auto-safe fields, nothing else, and only
   const manifest = c.buildTagBackfillManifest(places, catalog);
   const result = c.applyTagBackfillManifest(manifest, before);
   eq(result, { aborted: false, areaCount: 1, restaurantCount: 1 });
-  eq(places[0].areaTags, ["淺草"]);
+  eq(places[0].areaTags, ["花川戸"]);
   eq(restaurant.restaurantTags, ["拉麵"]);
   assert.equal(restaurant.placeId, "keep-me");
   assert.equal(restaurant.name, "keep-me");
@@ -218,7 +219,7 @@ test("scheduleTagBackfillMigration: one-shot per trip, no-op when nothing is pen
   });
   c.scheduleTagBackfillMigration();
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-  eq(c.state.places[0].areaTags, ["淺草"]);
+  eq(c.state.places[0].areaTags, ["花川戸"]);
   eq(c.state.places[1].restaurantTags, ["拉麵"]);
   assert.equal(persistCalls, 1);
   assert.equal(renderCalls, 1);

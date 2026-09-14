@@ -1,5 +1,11 @@
 # Project state
 
+## Planning Geography UX Refinement — 2026-09-14
+
+- Local, uncommitted work on `feat/planning-geography-ux-refinement` above released `e274e135` (Planning Geography Phase A+B+C). Not committed, pushed or deployed; awaiting review. Production Phase A migration was completed and verified earlier; this refinement changes no production data and needs no migration.
+- Implements the Planning Geography UX contract in `decisions.md`: dropdown filter cascade, 大地區-only normal UI, locality-only areaTags suggestions (including tag backfill) and the `contentTags` field with the read-only legacy `highlights` adapter.
+- Validation at gate: full regression 39 files 672/672; Phase A safety 118/118; Phase A PRE/POST fingerprints unchanged; API functions 12; syntax and diff checks pass.
+
 ## Threads Shopping MVP — 2026-09-08
 
 - Continues isolated `shopping-social-s2a` above local S2-A checkpoint `450ea56` (not deployed separately). User authorizes final commit, fast-forward main push and existing Vercel Git production deployment after validation. Other worktrees and canonical copies are intentionally untouched for this release.

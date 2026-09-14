@@ -42,16 +42,20 @@ test("withdrawn rules propose zero writes with the complete shipped dependency o
   assert.deepEqual(places.map(p => p.areaTags), [["花川戸"], ["雷門"], ["神南"]]);
 });
 
-test("A. verified containment outranks the 町名 address token", () => {
-  assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [], []).address, ["花川戸"], "without geometry the address fallback is the only source");
-  assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [], [], catalog).address, ["淺草"]);
-  assert.deepEqual(AreaTags.suggestions(KAMINARIMON, [], [], catalog).address, ["淺草"]);
-  assert.deepEqual(AreaTags.addressSuggestions(HANAKAWADO, catalog), ["淺草"]);
+test("A. polygon containment never produces a Canonical Area areaTag suggestion; the 町名 address token remains", () => {
+  assert.deepEqual(AreaTags.travelAreaHits(HANAKAWADO, catalog).map((hit) => hit.travelAreaKey), ["asakusa"], "containment still works as Canonical Area evidence");
+  assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [], []).address, ["花川戸"]);
+  assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [], [], catalog).address, ["花川戸"]);
+  assert.deepEqual(AreaTags.suggestions(KAMINARIMON, [], [], catalog).address, ["雷門"]);
+  assert.deepEqual(AreaTags.addressSuggestions(HANAKAWADO, catalog), ["花川戸"]);
+  assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [ASAKUSA], [], catalog).address, ["花川戸"], "a trip spelling of the Canonical Area is never offered either");
 });
 
-test("B. a second verified containment resolves to its canonical travel area", () => {
+test("B. a second contained point keeps its own locality (神南), never its Canonical Area (澀谷)", () => {
+  assert.deepEqual(AreaTags.travelAreaHits(JINNAN, catalog).map((hit) => hit.travelAreaKey), ["shibuya"]);
   assert.deepEqual(AreaTags.suggestions(JINNAN, [], []).address, ["神南"]);
-  assert.deepEqual(AreaTags.suggestions(JINNAN, [], [], catalog).address, ["澀谷"]);
+  assert.deepEqual(AreaTags.suggestions(JINNAN, [], [], catalog).address, ["神南"]);
+  assert.deepEqual(AreaTags.suggestions(JINNAN, [SHIBUYA], [], catalog).address, ["神南"]);
 });
 
 test("C. no verified polygon keeps the existing address fallback working", () => {
@@ -98,13 +102,11 @@ test("ward and municipality fallback boundaries are never suggested as a filter"
   }
 });
 
-test("G. canonical dedupe: an area already tagged never suggests itself again", () => {
-  const tagged = { ...HANAKAWADO, areaTags: ["淺草"] };
-  assert.deepEqual(AreaTags.suggestions(tagged, [tagged], ["淺草"], catalog).address, []);
-  // and the trip's own spelling of the same catalog identity wins over the other form
-  assert.deepEqual(AreaTags.suggestions(HANAKAWADO, [ASAKUSA], [], catalog).address, ["浅草"],
-    "浅草 and 淺草 are the same catalog area; the persisted spelling keeps one filter identity");
-  assert.deepEqual(AreaTags.suggestions(JINNAN, [SHIBUYA], [], catalog).address, ["渋谷"]);
+test("G. a locality already tagged never suggests itself again, and a contained Canonical Area is never offered", () => {
+  const tagged = { ...HANAKAWADO, areaTags: ["花川戸"] };
+  assert.deepEqual(AreaTags.suggestions(tagged, [tagged], ["花川戸"], catalog).address, []);
+  const canonicalTagged = { ...HANAKAWADO, areaTags: ["淺草"] };
+  assert.deepEqual(AreaTags.suggestions(canonicalTagged, [ASAKUSA], ["淺草"], catalog).address, ["花川戸"]);
 });
 
 test("H. the Booking formatted-address parser is untouched when nothing is contained", () => {
@@ -156,6 +158,7 @@ test("E+I. other and manual areaTags survive migration; the applier is all-or-no
   assert.match(runner, /AreaTags\.containmentMigration\(state\.places, catalog\)/);
   // Suggestions must never write to persisted tags on their own.
   const draft = appSource.slice(appSource.indexOf("function renderAreaTagDraft"), appSource.indexOf("function renderAreaTagAutocomplete"));
-  assert.match(draft, /AreaTags\.suggestions\(source, state\.places, \[\], areaGeometryCatalog\)/);
+  assert.match(draft, /AreaTags\.suggestions\(source, state\.places, \[\]\)/);
+  assert.doesNotMatch(draft, /areaGeometryCatalog/);
   assert.doesNotMatch(draft, /\.areaTags\s*=|persist\(/);
 });

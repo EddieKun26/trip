@@ -134,17 +134,21 @@ test('Phase C invalid hydration fails closed before fallback without mutating Pl
   assert.deepEqual(json(b.context.invalid), before); noPlaceRequests(b);
 });
 
-test('Phase C same-parent renders one card two candidate chips and both canonical filters match', async () => {
+test('Phase C same-parent renders one card in its shared 大地區 and that section filter matches without a candidate identity', async () => {
   const b = await boot(trip([asAmbiguous()]));
-  for (const key of ['', ...pair]) {
-    b.context.filterKey = key; b.run('state.placeAreaFilter = filterKey; render()');
+  for (const key of ['', 'group:shibuya-harajuku-ebisu']) {
+    b.context.filterKey = key; b.run('state.placeSectionFilter = filterKey; render()');
+    assert.equal(b.state.placeSectionFilter, key);
     assert.equal((b.app.innerHTML.match(/<strong>Rukuma Tokyo<\/strong>/g) || []).length, 1);
-    assert.equal((b.app.innerHTML.match(/data-canonical-area-chip/g) || []).length, 2);
-    assert.match(b.app.innerHTML, /data-canonical-area-chip>惠比壽（恵比寿）</);
-    assert.match(b.app.innerHTML, /data-canonical-area-chip>代官山</);
+    assert.match(b.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+    assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip|惠比壽（恵比寿）<\/span>|代官山<\/span>/);
     assert.equal(b.run('matchesMapFilters(state.places[0])'), true);
   }
-  b.context.other = place('ginza'); b.run('state.places.push(other); state.placeAreaFilter = "ginza"; render()');
+  for (const key of pair) {
+    b.context.filterKey = key; b.run('state.placeSectionFilter = filterKey; render()');
+    assert.equal(b.state.placeSectionFilter, '', 'a candidate key is never a 大地區 identity');
+  }
+  b.context.other = place('ginza'); b.run('state.places.push(other); state.placeSectionFilter = "group:ginza-tsukiji-tokyo-station"; render()');
   assert.equal(b.run('matchesMapFilters(state.places[0])'), false);
   assert.doesNotMatch(b.app.innerHTML, /<strong>Rukuma Tokyo<\/strong>/);
 });
@@ -178,7 +182,7 @@ test('Phase C manual resolve uses singular selection clears active candidates an
   for (const [key, value] of Object.entries(PlanningGeography.manualAreaFields('daikanyama'))) assert.equal(saved[key], value, key);
   assert.equal(Object.hasOwn(saved, 'travelAreaCandidateKeys'), false);
   assertAmbiguous(saved.autoTravelArea); assert.deepEqual(identity(saved), before);
-  assert.equal((b.app.innerHTML.match(/data-canonical-area-chip/g) || []).length, 1);
+  assert.equal((b.app.innerHTML.match(/data-canonical-area-chip/g) || []).length, 0);
   noResolve(); noPlaceRequests(b);
 });
 
@@ -191,7 +195,7 @@ test('Phase C Restore Automatic is one persisted transition with zero resolver g
   await submitFull(b, form);
   assertAmbiguous(b.state.places[0]); assert.deepEqual(identity(b.state.places[0]), before);
   assert.equal(b.run('phaseCSaves.length'), 1); assertAmbiguous(b.run('phaseCSaves[0]'));
-  assert.equal((b.app.innerHTML.match(/data-canonical-area-chip/g) || []).length, 2);
+  assert.equal((b.app.innerHTML.match(/data-canonical-area-chip/g) || []).length, 0);
   assert.equal(geo(b.state.places[0]).sectionKey, 'group:shibuya-harajuku-ebisu');
   noResolve(); noPlaceRequests(b);
 });

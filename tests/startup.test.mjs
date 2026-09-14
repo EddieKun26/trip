@@ -400,7 +400,7 @@ test("areaTags survive real startup hydration, legacy normalization, tab switche
  const tags=()=>JSON.parse(JSON.stringify(b.state.places.map(p=>p.areaTags??null)));
  assert.deepEqual(tags(),[["原宿","表參道"],[],null]);
  b.run('state.activeTab="places"; render(); state.areaTagFilter="表參道"; render();');
- assert.match(b.app.innerHTML,/data-area-tag-filter="表參道"/);
+ assert.match(b.app.innerHTML,/<option value="表參道" selected>表參道<\/option>/);
  b.run('state.activeTab="overview"; render(); state.activeTab="places"; render(); state.places.forEach(ensureTravelAreaFields);');
  assert.deepEqual(tags(),[["原宿","表參道"],[],null]);
  b.run('persist(); saveSharedTrip();');

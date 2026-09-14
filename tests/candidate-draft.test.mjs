@@ -227,14 +227,22 @@ test("E. stable identity survives reordering pendingPlaceImports (never uses arr
   assert.equal(draft.name, "候選 A(已編輯)", "draft must still resolve to A after reordering, not to whatever now sits at A's old index");
 });
 
-test("F. candidate draft mode gets a verified containment areaTags suggestion (Ginza) without being in state.places", () => {
+test("F. candidate draft areaTags suggestion is its own address locality, never a Canonical Area from polygon containment", () => {
   const original = candidate();
   const { context } = makeContext({ pendingPlaceImports: [original] });
   assert.equal(context.state.places.length, 0);
+  assert.deepEqual(AreaTags.travelAreaHits(original, catalog).map((hit) => hit.travelAreaKey), ["ginza"], "premise: inside the ginza polygon");
   const identity = context.importCandidateIdentity(original);
   const { form } = openEditor(context, identity, original);
   const suggestions = form.querySelector("[data-area-tags-selected]").innerHTML;
-  assert.match(suggestions, /銀座/, "a Ginza-coordinate candidate must suggest 銀座 via verified Travel Area containment");
+  assert.match(suggestions, /data-area-tag-toggle="銀座"/, "銀座 is this candidate's own address locality");
+  const tsukiji = candidate({ placeId: "place-tsukiji-1", name: "築地候選", fullName: "築地候選", formattedAddress: "東京都中央区築地4丁目",
+    addressComponents: [{ longText: "築地", types: ["sublocality_level_2", "sublocality", "political"] }],
+    addressComponentsOriginal: [{ longText: "築地", types: ["sublocality_level_2", "sublocality", "political"] }] });
+  const second = makeContext({ pendingPlaceImports: [tsukiji] }).context;
+  const tsukijiOptions = openEditor(second, second.importCandidateIdentity(tsukiji), tsukiji).form.querySelector("[data-area-tags-selected]").innerHTML;
+  assert.match(tsukijiOptions, /data-area-tag-toggle="築地"/);
+  assert.doesNotMatch(tsukijiOptions, /data-area-tag-toggle="銀座"/, "coordinates inside the ginza polygon never become an areaTag");
 });
 
 test("G. no semantic guessing: an unverified candidate (Jingumae) falls back to itself, never becomes Harajuku", () => {

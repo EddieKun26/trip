@@ -110,7 +110,7 @@ async function boot(payload) {
   return b;
 }
 
-test('Phase B split-brain actual Places sections, card chips and canonical filters ignore legacy and raw locality', async () => {
+test('Phase B split-brain actual Places sections, card tags and 大地區 filters ignore legacy and raw locality', async () => {
   const harajuku = place('harajuku', { planningRegion: '澀谷', areaTags: ['神宮前'], travelAreaZh: '錯誤舊名稱' });
   const nakameguro = place('nakameguro', { planningRegion: '目黑', areaTags: ['上目黒'] });
   const b = await boot(trip([harajuku, place('shibuya'), nakameguro]));
@@ -118,18 +118,19 @@ test('Phase B split-brain actual Places sections, card chips and canonical filte
   assert.equal((html.match(/class="place-group"/g) || []).length, 2);
   assert.match(html, /group-title">⌖ 澀谷・原宿・惠比壽/);
   assert.match(html, /group-title">⌖ 中目黑（中目黒）/);
-  assert.match(html, /data-canonical-area-chip>原宿</);
-  assert.match(html, /data-canonical-area-chip>中目黑（中目黒）</);
-  assert.doesNotMatch(html, /錯誤舊名稱|data-canonical-area-chip>澀谷・原宿・惠比壽/);
-  b.run('state.placeAreaFilter = "shibuya"; render()');
+  assert.doesNotMatch(html, /data-canonical-area-chip|canonical-area-chips/);
+  assert.match(html, /data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>神宮前</);
+  assert.doesNotMatch(html, /錯誤舊名稱/);
+  b.run('state.placeSectionFilter = "area:nakameguro"; render()');
   assert.doesNotMatch(b.app.innerHTML, /<strong>Place harajuku</);
-  assert.match(b.app.innerHTML, /<strong>Place shibuya</);
-  b.run('state.placeAreaFilter = "harajuku"; render()');
+  assert.match(b.app.innerHTML, /<strong>Place nakameguro</);
+  b.run('state.placeSectionFilter = "group:shibuya-harajuku-ebisu"; render()');
   assert.match(b.app.innerHTML, /<strong>Place harajuku</);
-  assert.doesNotMatch(b.app.innerHTML, /<strong>Place shibuya</);
+  assert.match(b.app.innerHTML, /<strong>Place shibuya</);
+  assert.doesNotMatch(b.app.innerHTML, /<strong>Place nakameguro</);
   assert.equal(b.run('matchesMapFilters(state.places[0])'), true);
-  assert.equal(b.run('matchesMapFilters(state.places[1])'), false);
-  b.run('state.placeAreaFilter = ""; state.areaTagFilter = "上目黒"; render()');
+  assert.equal(b.run('matchesMapFilters(state.places[2])'), false);
+  b.run('state.placeSectionFilter = ""; state.areaTagFilter = "上目黒"; render()');
   assert.match(b.app.innerHTML, /<strong>Place nakameguro</);
   assert.doesNotMatch(b.app.innerHTML, /<strong>Place harajuku</);
   assert.deepEqual(json(b.state.places[0].areaTags), ['神宮前']);
@@ -203,7 +204,8 @@ test('Phase B editor Save -> regroup -> actual Trip PUT/GET -> hydration -> cold
   assert.deepEqual(json(saved.areaTags), original.areaTags);
   assert.equal(saved.planningRegion, original.planningRegion);
   assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, 1);
-  assert.match(b.app.innerHTML, /data-canonical-area-chip>原宿</);
+  assert.match(b.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+  assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
   assert.ok(!b.requests.some(request => request.url === '/api/places' && JSON.parse(request.options.body).places?.some(p => p.manualAddress)), 'canonical-only Save must not geocode');
   const requestDone = b.run('saveSharedTrip()');
   await new Promise(resolve => setImmediate(resolve));
@@ -243,7 +245,8 @@ test('Phase B editor Save -> regroup -> actual Trip PUT/GET -> hydration -> cold
     assert.equal(final.travelAreaKey, 'harajuku');
     assert.equal(final.latitude, original.latitude); assert.equal(final.longitude, original.longitude);
     assert.deepEqual(json(final.autoTravelArea), original.autoTravelArea);
-    assert.match(reload.app.innerHTML, /data-canonical-area-chip>原宿</);
+    assert.match(reload.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+    assert.doesNotMatch(reload.app.innerHTML, /data-canonical-area-chip/);
   } finally {
     globalThis.fetch = oldFetch;
     names.forEach((key, index) => oldEnv[index] === undefined ? delete process.env[key] : process.env[key] = oldEnv[index]);
@@ -275,7 +278,7 @@ test('Phase B unique resolved candidate survives real candidate draft finalizati
   assert.equal(imported.name, 'Edited candidate'); assert.equal(geo(imported).primaryAreaKey, 'ginza');
   assert.equal(geo(imported).planningGroupKey, B);
   assert.deepEqual(json(imported.areaTags), ['Raw evidence']); assert.deepEqual(json(imported.restaurantTags), ['拉麵']);
-  assert.match(b.app.innerHTML, /data-canonical-area-chip>銀座</);
+  assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
   assert.match(b.app.innerHTML, /group-title">⌖ 銀座・築地・東京車站/);
 });
 
@@ -348,7 +351,8 @@ test('Phase B legacy manual changed with name through general Save persists only
   await submitFull(b, form);
   assert.equal(b.state.places[0].name, 'Catalog corrected');
   for (const [key, value] of Object.entries(PlanningGeography.manualAreaFields('ebisu'))) assert.equal(b.state.places[0][key], value, key);
-  assert.match(b.app.innerHTML, /data-canonical-area-chip>惠比壽（恵比寿）</);
+  assert.match(b.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+  assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
 });
 
 test('Phase B general Save rejects explicit empty, guessed, arbitrary and unknown area selection before geocoding', async () => {
@@ -386,7 +390,8 @@ test('Phase B four approved Shinjuku results ignore Nishi-Shinjuku, Okubo and Yo
   assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, 1);
   assert.match(b.app.innerHTML, /group-title">⌖ 新宿</);
   assert.doesNotMatch(b.app.innerHTML, /group-title">⌖ (?:西新宿|大久保|代々木|新宿・大久保)/);
-  assert.equal((b.app.innerHTML.match(/data-canonical-area-chip>新宿</g) || []).length, 4);
+  assert.equal((b.app.innerHTML.match(/<article class="place-row/g) || []).length, 4);
+  assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
 });
 
 test('Phase B every declared group child normalizes to its actual parent without synthesizing catalog identities', () => {

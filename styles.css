@@ -3603,13 +3603,6 @@ body.transport-sheet-open .app {
   line-height: 1.65;
 }
 
-.highlight-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
 .highlight-tag {
   padding: 6px 9px;
   border-radius: 9px;
@@ -5310,30 +5303,6 @@ body.transport-sheet-open .app {
 .trip-context span { font-weight: 800; }
 .trip-context small { color: var(--muted); }
 .guest-trip-context { cursor: default; }
-
-.place-kind-tabs {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 5px;
-  margin: 10px 0 12px;
-}
-
-.place-kind-tabs button {
-  min-height: 36px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.place-kind-tabs button.active {
-  border-color: var(--mineral);
-  background: var(--mineral);
-  color: white;
-}
 
 @media (max-width: 700px) {
   .map-screen.is-fullscreen,
@@ -7860,15 +7829,6 @@ body.transport-sheet-open .app {
     font-size: 12px;
   }
 
-  .map-screen .place-kind-tabs {
-    margin: 4px 0;
-  }
-
-  .map-screen .place-kind-tabs button {
-    min-height: 30px;
-    font-size: 10px;
-  }
-
   .map-screen .map-toolbar .meta {
     display: none;
   }
@@ -7980,16 +7940,29 @@ body.transport-sheet-open .app {
   }
 }
 
-/* Compact, independently scrolling Places filters on iPhone. */
-.places-filters { display: grid; gap: 4px; margin: 8px 0 14px; min-width: 0; }
-.places-filter-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.places-filter-row > span { flex: 0 0 auto; font-size: 13px; color: var(--muted); }
-.places-filter-chips { display: flex; flex: 1 1 0%; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; min-width: 0; max-width: 100%; padding: 2px 4px 2px 0; scrollbar-width: none; touch-action: pan-x pan-y; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
-.places-filter-chips::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.places-filter-chips button { position: relative; flex: 0 0 auto; min-height: 44px; padding: 10px 11px; border: 0; border-radius: 24px; background: transparent; color: inherit; white-space: nowrap; font-size: 12px; isolation: isolate; }
-.places-filter-chips button::before { content: ""; position: absolute; inset: 6px 0; border: 1px solid #d8ddd8; border-radius: 24px; z-index: -1; }
-.places-filter-chips button.active { background: transparent; color: white; }
-.places-filter-chips button.active::before { background: #315c50; border-color: #315c50; }
+/* Places filters: four labelled dropdowns over one client-side state, two per row. */
+.places-filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; width: 100%; max-width: 100%; margin: 10px 0 14px; min-width: 0; }
+.places-filter-field { display: grid; gap: 4px; min-width: 0; }
+.places-filter-field label { font-size: 12px; font-weight: 700; color: var(--muted); }
+.places-filter-field select { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2); color: var(--ink); font-size: 16px; text-overflow: ellipsis; }
+.places-filter-field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Tag types stay visually distinct: locality, restaurant category, content. */
+.highlight-tag.place-tag-area { background: transparent; color: #315c50; box-shadow: inset 0 0 0 1px #9fb8ad; }
+.highlight-tag.place-tag-area::before { content: "⌖"; content: "⌖" / ""; margin-right: 3px; }
+.highlight-tag.place-tag-category { background: #315c50; color: #fff; }
+.highlight-tag.place-tag-content { background: #ebe3d8; color: #615d56; }
+.highlight-tag.place-tag-content::before { content: "#"; content: "#" / ""; margin-right: 2px; opacity: 0.6; }
+
+/* Editable AI / content tag draft; saved only with the editor. */
+.content-tag-editor { display: grid; gap: 8px; min-width: 0; }
+.content-tag-editor strong small { font-weight: 400; color: var(--muted); }
+.content-tag-list { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.content-tag-list:empty { display: none; }
+.content-tag-item { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding-left: 10px; border: 1px solid #d8ddd8; border-radius: 24px; background: #f6f1e8; }
+.content-tag-editor .content-tag-item input { width: 9em; min-width: 0; max-width: 100%; min-height: 40px; padding: 0; border: 0; background: transparent; font-size: 16px; }
+.content-tag-item button { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--muted); font-size: 18px; }
+.content-tag-editor > .tag-add-button { justify-self: start; }
 .restaurant-tag-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
 .restaurant-tag-editor[hidden] { display: none; }
 .restaurant-tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -8009,22 +7982,17 @@ body.transport-sheet-open .app {
 .detail-restaurant-tags > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .detail-gallery img[data-gallery-pending] { visibility: hidden; }
 
-.places-filter-row { width: 100%; max-width: 100%; overflow: hidden; }
-.places-filters { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 100%; }
-.places-filter-chips button { touch-action: pan-x pan-y; }
 .map-operation-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 6px 0 10px; }
 .map-operation-actions .map-live-location-toggle { margin-left: 0; height: 44px; padding: 0 12px; }
 .map-operation-actions .map-live-location-toggle b { font-size: 12px; }
 .map-screen .map-operation-actions .map-fullscreen-button { width: auto; min-height: 44px; padding: 0 12px; }
 .map-screen .map-operation-actions .map-fullscreen-button span { display: inline; }
-.map-fullscreen-sidebar > .places-filters, .map-fullscreen-sidebar > .map-operation-actions { padding-inline: 14px; }
+.map-fullscreen-sidebar > .places-filter-bar, .map-fullscreen-sidebar > .map-operation-actions { padding-inline: 14px; }
 
 /* Persistent, independent drawer handle; map gestures stay enabled outside panel. */
 .map-drawer-handle { position: absolute; left: max(0px, env(safe-area-inset-left)); top: 50%; transform: translateY(-50%); z-index: 30; width: 44px; height: 64px; border: 1px solid var(--line); border-left: 0; border-radius: 0 14px 14px 0; background: var(--paper-2); color: var(--ink); box-shadow: 2px 2px 10px #0002; font-size: 36px; touch-action: manipulation; }
 .map-screen.is-fullscreen .map-fullscreen-sidebar { padding-left: 52px; }
 .map-screen.is-fullscreen.sidebar-open .map-fullscreen-stage { pointer-events: auto; }
-.map-area-dropdown { flex: 0 0 auto; min-width: 0; margin: 0; }
-.map-area-dropdown select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
 @media (prefers-reduced-motion: reduce) { .map-fullscreen-sidebar, .map-screen.is-fullscreen { transition: none; } }
 
 .area-boundary-credit { position: absolute; right: 6px; bottom: 24px; z-index: 6; font-size: 10px; padding: 2px 5px; background: #fffdf2e8; color: #456054; border-radius: 4px; }
@@ -8061,7 +8029,7 @@ body.transport-sheet-open .app {
 .area-tag-suggestions button { min-height: 44px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
 .area-tag-suggestions button[aria-selected="true"], .area-tag-suggestions button:hover { background: var(--mineral-soft); }
 .detail-area-tags { display: flex; gap: 8px; align-items: baseline; margin: 12px 0 4px; color: var(--ink); font-weight: 600; }
-.detail-legacy-area { margin: 4px 0 12px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.detail-geography-summary { margin: 4px 0 12px; color: var(--muted); font-size: 12px; font-weight: 400; }
 .detail-area-tags > div { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .detail-area-tags .highlight-tag { overflow-wrap: anywhere; max-width: 100%; }
 

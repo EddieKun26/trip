@@ -86,8 +86,8 @@ test('real legacy reclassification and resolver field updates preserve manual ta
 });
 
 test('List and Map share multi-tag membership, trip-only options, All and stale selection clearing', () => {
-  const c=vm.createContext({AreaTags,state:{placeKind:'all',mapCategory:'all',mapPreference:'all'},placeVoters:()=>[],escapeHtml:String});
-  vm.runInContext(section('function restaurantTagValues','function placesScreen')+section('function matchesMapFilters','function spreadOverlappingPins'),c);
+  const c=vm.createContext({AreaTags,TravelAreaAudit:audit,state:{placeKind:'all',mapCategory:'all',mapPreference:'all'},placeVoters:()=>[],escapeHtml:String});
+  vm.runInContext(section('const TRAVEL_AREA_RESOLUTION_VERSION','function placeVoters')+section('function restaurantTagValues','function placesScreen')+section('function matchesMapFilters','function spreadOverlappingPins'),c);
   const places=[{name:'both',areaTags:['原宿','表參道']},{name:'empty',areaTags:[]},{name:'old',travelAreaKey:'ginza',travelAreaZh:'銀座'},{name:'custom',areaTags:['ＭＹ Place']}];
   for (const tag of ['原宿','表參道','my place','']) {
     c.state.areaTagFilter=tag;
@@ -97,31 +97,36 @@ test('List and Map share multi-tag membership, trip-only options, All and stale 
     assert.equal(model.visible.length,tag ? 1 : 4);
   }
   c.state.areaTagFilter='absent';c.placesFilterModel(places,c.state);assert.equal(c.state.areaTagFilter,'');
-  const html=c.placesFilterChips(c.placesFilterModel(places,c.state),{area:false,cuisine:false});
-  assert.match(html,/地區標籤/);assert.match(html,/data-area-tag-filter="原宿"/);assert.doesNotMatch(html,/data-place-area-filter/);
-  assert.match(source,/const drawerTags = placesFilterChips\(filterModel, \{ area: false/);
+  const html=c.placesFilterDropdowns(c.placesFilterModel(places,c.state));
+  assert.match(html,/<label for="places-filter-areaTag">地區標籤<\/label>/);assert.match(html,/<option value="原宿">原宿<\/option>/);assert.doesNotMatch(html,/data-area-tag-filter|data-place-area-filter/);
+  assert.match(source,/const placeFilters = placesFilterDropdowns\(filterModel/);
 });
 
-test('detail omits empty tags, escapes custom display, merges category chips after areaTags in one row, and retains separate legacy/address sections', () => {
-  const c=vm.createContext({AreaTags,escapeHtml:s=>s.replaceAll('<','&lt;'),restaurantTagValues:(place)=>Array.isArray(place.restaurantTags)?place.restaurantTags:[]});
+test('detail omits empty tags, escapes custom display, renders typed locality/category/content chips in one deduped row, and retains separate legacy/address sections', () => {
+  const c=vm.createContext({AreaTags,escapeHtml:s=>s.replaceAll('<','&lt;'),persistedRestaurantTagValues:(place)=>place.kind==='restaurant'&&Array.isArray(place.restaurantTags)?place.restaurantTags:[]});
   vm.runInContext(section('function placeTagsDetail','function areaTagEditor'),c);
+  const chip=(type,label,tag)=>`<span class="highlight-tag place-tag place-tag-${type}" data-place-tag-type="${type}"><span class="visually-hidden">${label}：</span>${tag}</span>`;
   assert.equal(c.placeTagsDetail({}),'');assert.equal(c.placeTagsDetail({areaTags:[]}),'');
   assert.match(c.placeTagsDetail({areaTags:['<custom>','表參道']}),/&lt;custom>/);
   assert.doesNotMatch(c.placeTagsDetail({areaTags:[]}),/highlight-tag/);
   // areaTags first, then category chips, only for kind restaurant, never invented when absent.
   assert.equal(c.placeTagsDetail({kind:'restaurant',areaTags:[],restaurantTags:[]}),'');
-  assert.match(c.placeTagsDetail({kind:'attraction',areaTags:['銀座'],restaurantTags:['燒肉']}),/^<section class="detail-area-tags"><div><span class="highlight-tag">銀座<\/span><\/div><\/section>$/);
+  assert.equal(c.placeTagsDetail({kind:'attraction',areaTags:['銀座'],restaurantTags:['燒肉']}),`<section class="detail-area-tags"><div>${chip('area','地區標籤','銀座')}</div></section>`);
   const merged=c.placeTagsDetail({kind:'restaurant',areaTags:['銀座'],restaurantTags:['燒肉']});
-  assert.equal(merged,'<section class="detail-area-tags"><div><span class="highlight-tag">銀座</span><span class="highlight-tag">燒肉</span></div></section>');
+  assert.equal(merged,`<section class="detail-area-tags"><div>${chip('area','地區標籤','銀座')}${chip('category','餐廳類別','燒肉')}</div></section>`);
   assert.ok(merged.indexOf('銀座')<merged.indexOf('燒肉'));
+  // Persisted content tags follow as their own type; identical text renders once.
+  const content=c.placeTagsDetail({kind:'restaurant',areaTags:['銀座'],restaurantTags:['燒肉'],highlights:['燒肉',' 晚餐候選 ','',3,'銀座']});
+  assert.equal(content,`<section class="detail-area-tags"><div>${chip('area','地區標籤','銀座')}${chip('category','餐廳類別','燒肉')}${chip('content','內容標籤','晚餐候選')}</div></section>`);
   const detail=section('function openPlaceSheet','async function ensurePlaceDetails');
-  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/travelAreaDisplayName\(place\)/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
-  assert.doesNotMatch(detail,/detail-restaurant-tags/);
+  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/大地區：\$\{escapeHtml\(planningSectionLabel\(place\)\)\}/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
+  assert.doesNotMatch(detail,/旅遊分區|travelAreaDisplayName|travelAreaChineseName/);
+  assert.doesNotMatch(detail,/detail-restaurant-tags|highlight-list|data-canonical-area-chip/);
 });
 
-test('tag selection does not invoke the boundary loader or draw geometry; legacy boundary selection is still the sole key', async () => {
+test('tag selection does not invoke the boundary loader or draw geometry; dropdown filter changes are pure client state', async () => {
   let fetches=0,draws=0;
-  const c=vm.createContext({state:{tripId:'test',placeAreaFilter:'',areaTagFilter:'原宿'},activeGoogleMap:{},activeLeafletMap:null,
+  const c=vm.createContext({state:{tripId:'test',placeSectionFilter:'',areaTagFilter:'原宿'},activeGoogleMap:{},activeLeafletMap:null,planningSectionKey:()=>'area:test',
     document:{querySelector:()=>null},fetch:()=>{fetches++;throw Error('unexpected')},google:{maps:{Polyline:class {constructor(){draws++;}}}}});
   vm.runInContext(section('let areaGeometryPromise','let lastMapViewport'),c);
   await c.renderAreaBoundary(c.activeGoogleMap,'google');
@@ -129,9 +134,13 @@ test('tag selection does not invoke the boundary loader or draw geometry; legacy
   c.state.areaTagFilter='';await c.renderAreaBoundary(c.activeGoogleMap,'google');
   assert.equal(fetches,0);assert.equal(draws,0);
   assert.doesNotMatch(section('let areaGeometryPromise','let lastMapViewport'),/areaTagFilter|AreaTags/);
-  const branch=section('} else if (listFilter.dataset.areaTagFilter','} else {\n      state.restaurantTagFilter');
-  assert.match(branch,/state.areaTagFilter = listFilter.dataset.areaTagFilter/);
-  assert.doesNotMatch(branch,/placeAreaFilter\s*=|fetch|Boundary|resolve/);
+  // Newline-neutral slicing: the change path only assigns client state and re-renders filter-only.
+  const change=section('function applyPlacesFilterChange','\nfunction ');
+  assert.match(change,/else if \(filter === "areaTag"\) state\.areaTagFilter = next;/);
+  assert.doesNotMatch(change,/fetch\(|Boundary|resolve|persist\(|saveSharedTrip/);
+  const handler=section('if (event.target.matches("[data-places-filter]"))','return;');
+  assert.match(handler,/applyPlacesFilterChange\(event\.target\.dataset\.placesFilter, event\.target\.value\)/);
+  assert.match(handler,/filterOnly: true/);
 });
 
 
@@ -197,13 +206,14 @@ test('localization uses unique saved component counterparts, not ordering, legac
 });
 
 
-test('selected chip styling is shared with categories; detail has primary tags and secondary legacy text',()=>{
+test('selected chip styling is shared with categories; detail has primary tags and a secondary 大地區 summary',()=>{
  const css=readFileSync(new URL('../styles.css',import.meta.url),'utf8');
  const shared=css.match(/\.restaurant-tag-options label:has\(input:checked\),\s*\[data-area-tags-selected\] button \{([^}]+)\}/);
  assert.ok(shared);assert.match(shared[1],/background: #315c50/);assert.match(shared[1],/color: white/);assert.match(shared[1],/border-color: #315c50/);
  assert.doesNotMatch(css,/background: #fff1e8; border-color: #db8b62/);
  assert.match(css,/\.detail-area-tags \{[^}]*color: var\(--ink\); font-weight: 600/);
- assert.match(css,/\.detail-legacy-area \{[^}]*color: var\(--muted\); font-size: 12px; font-weight: 400/);
+ assert.match(css,/\.detail-geography-summary \{[^}]*color: var\(--muted\); font-size: 12px; font-weight: 400/);
+ assert.doesNotMatch(css,/\.detail-legacy-area/);
  const editor=section('function areaTagEditor','function saveAreaTagsOnly');
  assert.doesNotMatch(editor,/inputmode=["']none|\.blur\(|visualViewport|user-scalable|maximum-scale/);
  assert.doesNotMatch(section('function areaTagEditor','function canSaveAreaTagsOnly'),/↑|↓|✓/);
@@ -259,8 +269,8 @@ test('exact saved localization supplies display only after persisted labels; no 
 });
 
 test('List and Map use the same evidenced Japanese identity and expose only one persisted filter label',()=>{
- const c=vm.createContext({AreaTags,state:{placeKind:'all',mapCategory:'all',mapPreference:'all'},placeVoters:()=>[],escapeHtml:String});
- vm.runInContext(section('function restaurantTagValues','function placesScreen')+section('function matchesMapFilters','function spreadOverlappingPins'),c);
+ const c=vm.createContext({AreaTags,TravelAreaAudit:audit,state:{placeKind:'all',mapCategory:'all',mapPreference:'all'},placeVoters:()=>[],escapeHtml:String});
+ vm.runInContext(section('const TRAVEL_AREA_RESOLUTION_VERSION','function placeVoters')+section('function restaurantTagValues','function placesScreen')+section('function matchesMapFilters','function spreadOverlappingPins'),c);
  const places=[{name:'one',areaTags:['Ōkubo']},{name:'two',...okuboPair,areaTags:['Okubo']},{name:'three',areaTags:['大久保']},{name:'empty',areaTags:[]}];
  for(const filter of ['Okubo','Ōkubo','大久保']) {
   c.state.areaTagFilter=filter;const model=c.placesFilterModel(places,c.state);

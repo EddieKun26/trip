@@ -24,7 +24,7 @@ test('manual arrays including removed and explicitly cleared tags always overrid
 function harness(){
  const layers=[], pending=[];let fetches=0;
  const map={};const node={html:'',remove(){this.html=''},insertAdjacentHTML(position,html){this.html+=html}};
- const c=vm.createContext({state:{tripId:'t',placeAreaFilter:'ginza',places:[{travelAreaKey:'ginza',travelAreaLocal:'銀座',countryCode:'JP'}]},
+ const c=vm.createContext({state:{tripId:'t',placeSectionFilter:'area:ginza',places:[{travelAreaKey:'ginza',travelAreaLocal:'銀座',countryCode:'JP'}]},planningSectionKey:place=>'area:'+place.travelAreaKey,
   activeGoogleMap:map,activeLeafletMap:null,document:{querySelector:()=>node},escapeHtml:String,AbortSignal,getComputedStyle:()=>({getPropertyValue:()=>"#c8452d"}),
   fetch:()=>{fetches++;return new Promise(resolve=>pending.push(resolve));},
   google:{maps:{OverlayView:class{setMap(map){this.removed=map===null}},Polyline:class{constructor(options){this.options=options;this.removed=false;layers.push(this)}setMap(v){this.removed=v===null}}}}
@@ -45,12 +45,12 @@ test('final catalog verifies stable keys, source identity, country, and optional
 });
 test('boundary loads independently, caches once, clears on All and ignores stale responses',async()=>{
  const h=harness();const first=h.c.renderAreaBoundary(h.map,'google');assert.equal(h.layers.length,0);
- h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');
+ h.c.state.placeSectionFilter='';await h.c.renderAreaBoundary(h.map,'google');
  h.pending[0]({ok:true,json:async()=>catalog});await first;assert.equal(h.layers.length,0);
- h.c.state.placeAreaFilter='ginza';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.length>0);assert.equal(h.fetches,1);
+ h.c.state.placeSectionFilter='area:ginza';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.length>0);assert.equal(h.fetches,1);
  assert(h.layers.every(l=>l.options.clickable===false&&l.options.strokeOpacity===0.75&&l.options.strokeColor==="#c8452d"&&!l.options.icons));
- h.c.state.placeAreaFilter='missing';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
- h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
+ h.c.state.placeSectionFilter='area:missing';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
+ h.c.state.placeSectionFilter='';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
 });
 test('failed geometry is graceful and does not retry every render',async()=>{
  const h=harness();const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:false});await task;
@@ -63,18 +63,28 @@ test('Leaflet boundary is noninteractive and uses a pointer-transparent pane',()
 test('fullscreen has one persistent arrow with dropdown and independent exit action',()=>{
  const map=section('function mapScreen','function syncMapDrawerHandle');
  assert.equal((map.match(/data-toggle-map-sidebar/g)||[]).length,1);
- assert.match(map,/data-map-area/);assert.match(map,/aria-expanded=/);assert.match(map,/aria-controls="map-drawer"/);
+ assert.match(map,/const placeFilters = placesFilterDropdowns\(filterModel/);assert.doesNotMatch(map,/data-map-area/);assert.match(map,/aria-expanded=/);assert.match(map,/aria-controls="map-drawer"/);
  assert.doesNotMatch(map,/aria-label="收合篩選列">×/);
  const css=readFileSync(new URL('../styles.css',import.meta.url),'utf8');
  assert.match(css,/map-drawer-handle[^}]*top: 50%/);assert.match(css,/map-drawer-handle[^}]*width: 44px/);
+});
+
+test('a grouped 大地區 draws every child Canonical Area boundary and credits them together',async()=>{
+ const h=harness();h.c.planningSectionKey=place=>place.section||'area:'+place.travelAreaKey;
+ h.c.state.placeSectionFilter='group:test';
+ h.c.state.places=[{...catalog.areas.shinjuku,section:'group:test'},{...catalog.areas.shibuya,section:'group:test'},{...catalog.areas.ginza}];
+ const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:true,json:async()=>catalog});await task;
+ assert.equal(h.layers.length,catalog.areas.shinjuku.exteriorRingCount+catalog.areas.shibuya.exteriorRingCount);
+ for(const key of ['shinjuku','shibuya']) if(catalog.areas[key].attribution) assert(h.node.html.includes(catalog.areas[key].travelAreaZh),key);
+ assert(!h.node.html.includes(catalog.areas.ginza.travelAreaZh),'areas outside the selected 大地區 are never drawn or credited');
 });
 
 test('rapid A to B to C selection renders only C after shared geometry resolves',async()=>{
  const h=harness();
  for(const key of ['shinjuku','shibuya'])h.c.state.places.push({...catalog.areas[key]});
  const first=h.c.renderAreaBoundary(h.map,'google');
- h.c.state.placeAreaFilter='shinjuku';const second=h.c.renderAreaBoundary(h.map,'google');
- h.c.state.placeAreaFilter='shibuya';const third=h.c.renderAreaBoundary(h.map,'google');
+ h.c.state.placeSectionFilter='area:shinjuku';const second=h.c.renderAreaBoundary(h.map,'google');
+ h.c.state.placeSectionFilter='area:shibuya';const third=h.c.renderAreaBoundary(h.map,'google');
  h.pending[0]({ok:true,json:async()=>catalog});await Promise.all([first,second,third]);
  assert.equal(h.fetches,1);assert.equal(h.layers.length,catalog.areas.shibuya.exteriorRingCount);
  const expected=h.c.areaBoundaryRings(catalog.areas.shibuya);
@@ -82,7 +92,7 @@ test('rapid A to B to C selection renders only C after shared geometry resolves'
 });
 
 test('union exteriors replace components; internal borders and hole rings are never sent to map',async()=>{
- const h=harness();h.c.state.placeAreaFilter='shinjuku';h.c.state.places=[{...catalog.areas.shinjuku}];
+ const h=harness();h.c.state.placeSectionFilter='area:shinjuku';h.c.state.places=[{...catalog.areas.shinjuku}];
  const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:true,json:async()=>catalog});await task;
  assert.equal(catalog.areas.shinjuku.geometryComponents.length,3);
  assert.equal(h.layers.length,1);
@@ -91,7 +101,7 @@ test('union exteriors replace components; internal borders and hole rings are ne
  const rings=h.c.areaBoundaryRings({finalGeometry:{type:'MultiPolygon',coordinates:[[outer,hole],[island]]}});
  assert.deepEqual(Array.from(rings),[outer,island]);
  assert.deepEqual(Array.from(h.c.areaBoundaryRings({features:[{geometry:{type:'Polygon',coordinates:[outer]}}]})),[],'components cannot be rendered as a fallback');
- h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
+ h.c.state.placeSectionFilter='';await h.c.renderAreaBoundary(h.map,'google');assert(h.layers.every(l=>l.removed));
 });
 
 test('missing, untrusted and malformed final geometry fail closed',async()=>{
@@ -103,7 +113,7 @@ test('missing, untrusted and malformed final geometry fail closed',async()=>{
 });
 
 test('provider render error removes partial boundaries without rejecting map task',async()=>{
- const h=harness();h.c.state.placeAreaFilter='shiba-park';h.c.state.places=[{...catalog.areas['shiba-park']}];
+ const h=harness();h.c.state.placeSectionFilter='area:shiba-park';h.c.state.places=[{...catalog.areas['shiba-park']}];
  let count=0;const Original=h.c.google.maps.Polyline;
  h.c.google.maps.Polyline=class extends Original {constructor(o){if(++count===2)throw Error('renderer failure');super(o)}};
  const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:true,json:async()=>catalog});await assert.doesNotReject(task);
@@ -122,7 +132,7 @@ test('Google fits final exteriors plus saved markers and credits the selected so
  for(const key of ['shinjuku','boston']){
   const h=harness(),area=catalog.areas[key];
   const marker={...area,latitude:area.bounds[3]+0.01,longitude:area.bounds[2]+0.01};
-  h.c.state.placeAreaFilter=key;h.c.state.places=[marker];
+  h.c.state.placeSectionFilter='area:'+key;h.c.state.places=[marker];
   h.c.google.maps.LatLngBounds=class{points=[];extend(p){this.points.push(p)}};
   const fits=[];h.map.fitBounds=(bounds,padding)=>fits.push({bounds,padding});
   const task=h.c.renderAreaBoundary(h.map,'google');h.pending[0]({ok:true,json:async()=>catalog});await task;
@@ -130,6 +140,6 @@ test('Google fits final exteriors plus saved markers and credits the selected so
   assert(fits[0].bounds.points.some(p=>p.lat===marker.latitude&&p.lng===marker.longitude));
   assert(h.node.html.includes(area.attribution.text));
   assert.equal(h.node.html.includes('OpenStreetMap'),area.sourceType==='osm');
-  h.c.state.placeAreaFilter='';await h.c.renderAreaBoundary(h.map,'google');assert.equal(h.node.html,'');
+  h.c.state.placeSectionFilter='';await h.c.renderAreaBoundary(h.map,'google');assert.equal(h.node.html,'');
  }
 });

@@ -206,12 +206,15 @@ test("day route markers keep place mark and votes with a separate order badge", 
 
 test("map type filter uses the same attraction restaurant lodging and shopping groups as the list", () => {
   const mapSection = sourceSection("function mapScreen", "function mapPinColor");
-  assert.match(mapSection, /\["attraction", "景點"\]/);
-  assert.match(mapSection, /\["restaurant", "餐廳"\]/);
-  assert.match(mapSection, /\["lodging", "住宿"\]/);
-  assert.match(mapSection, /\["shopping", "購物"\]/);
-  assert.doesNotMatch(mapSection, /data-map-category/);
-  assert.match(mapSection, /data-map-kind/);
+  const listSection = sourceSection("function placesScreen", "function kindLabel");
+  const kinds = sourceSection("const PLACE_KIND_FILTERS", "function restaurantCategoryFilterVisible");
+  assert.match(kinds, /\["attraction", "景點"\]/);
+  assert.match(kinds, /\["restaurant", "餐廳"\]/);
+  assert.match(kinds, /\["lodging", "住宿"\]/);
+  assert.match(kinds, /\["shopping", "購物"\]/);
+  assert.match(mapSection, /placesFilterDropdowns\(filterModel/);
+  assert.match(listSection, /placesFilterDropdowns\(filters\)/);
+  assert.doesNotMatch(mapSection, /data-map-category|data-map-kind|data-place-kind/);
 });
 
 test("map has a toggleable fullscreen workspace with a left filter and place list", () => {
@@ -226,7 +229,7 @@ test("map has a toggleable fullscreen workspace with a left filter and place lis
 
 test("shopping places are recognized and available throughout place workflows", () => {
   const kindSection = sourceSection("function kindLabel", "function placesSegment");
-  const classification = sourceSection("function inferPlaceKind", "function placeKindTabs");
+  const classification = sourceSection("function inferPlaceKind", "function placesSegment");
   const { inferPlaceKind, normalizedPlaceKind } = new Function(`${classification}; return { inferPlaceKind, normalizedPlaceKind };`)();
   assert.match(kindSection, /shopping:\s*"購物"/);
   assert.match(kindSection, /服飾/);
@@ -234,7 +237,7 @@ test("shopping places are recognized and available throughout place workflows", 
   assert.equal(normalizedPlaceKind({ kind: "attraction", category: "服飾店" }), "shopping");
   assert.match(appSource, /<option value="shopping">購物<\/option>/);
   assert.match(appSource, /\["shopping", "購物"\]/);
-  assert.match(stylesSource, /\.place-kind-tabs\s*{[^}]*repeat\(5, 1fr\)/s);
+  assert.match(appSource, /const PLACE_KIND_FILTERS = \[[^\n]*\["shopping", "購物"\]\];/);
 });
 
 test("Japanese restaurants store a Tabelog link and place its fixed App action beside the phone card", () => {
@@ -242,7 +245,7 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
     appSource.indexOf("const knownTabelogRestaurantUrls") < appSource.indexOf("state.places = state.places.map"),
     "the exact-link lookup must be initialized before the startup place backfill runs",
   );
-  const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
+  const section = sourceSection("function isWithinJapanCoordinates", "function placesSegment");
   const { isJapaneseRestaurant, tabelogRestaurantUrl, withStoredTabelogLink } = new Function(
     "normalizedPlaceKind",
     "knownTabelogRestaurantUrls",
@@ -617,7 +620,7 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
 });
 
 test("Tabelog reservation links deep-link to the App with a website fallback", () => {
-  const section = sourceSection("function isWithinJapanCoordinates", "function placeKindTabs");
+  const section = sourceSection("function isWithinJapanCoordinates", "function placesSegment");
   const { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink } = new Function(
     "normalizedPlaceKind",
     `${section}; return { tabelogRestaurantId, tabelogMultilingualWebUrl, tabelogAppLink };`,

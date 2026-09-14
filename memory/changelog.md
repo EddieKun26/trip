@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-14
+
+- Planning Geography UX refinement (local, pending review): Places filters became a 地點類別 → 大地區 → 地區標籤 → 餐廳類別 dropdown cascade; Canonical Area chips and the detail `旅遊分區` line were replaced by the 大地區 summary; areaTags suggestions and the tag backfill no longer use Canonical Area polygon containment; AI / content tags moved to an editable optional `contentTags` field with a read-only legacy `highlights` adapter.
+
 ## 2026-09-04
 
 - Closed Travel Area v5 after its successful production deployment. The user-confirmed `東京 7 日` production smoke test loaded all 31 places, completed the normal v5 migration, retained 14 `繁體中文（當地語言）` groups, merged the expected five Shibuya places and three Asakusa places, exposed none of 神宮前、神南、花川戶／花川戸、雷門 or a permanent `正在辨識地區` group, and produced zero page or console errors. The feature is complete; no Travel Area deployment, migration, or formal acceptance remains pending.

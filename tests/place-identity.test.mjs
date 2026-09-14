@@ -34,12 +34,12 @@ function frontend(places, resolved) {
     persist: (options) => saves.push(options), sheetRoot: { innerHTML: "" },
     escapeHtml: (s) => String(s || ""), placeReferenceMeta: () => null,
     placeNavigationUrl: () => "maps", safeTabelogUrl: () => "", tabelogMultilingualWebUrl: () => "",
-    tabelogAppLink: () => "", placeVoters: () => [], travelAreaDisplayName: () => "新宿",
+    tabelogAppLink: () => "", placeVoters: () => [], travelAreaDisplayName: () => "新宿", planningSectionLabel: () => "新宿",
     formatOpeningHours: () => "", placeAssignments: () => [], placeScheduleLabel: () => "",
     canEdit: () => false, placeCreatorName: () => "測試", currentMemberId: () => "test",
   };
   vm.createContext(context);
-  for (const name of ["restaurantTagValues", "placeTagsDetail", "placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
+  for (const name of ["restaurantTagValues", "persistedRestaurantTagValues", "placeTagsDetail", "placeTagEntries", "placeTagChip", "contentTagValues", "placeContentTags", "sanitizeContentTags", "placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "ensurePlaceDetails", "openPlaceSheet"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { context, calls, saves };
@@ -200,23 +200,24 @@ test("detail photos link to place page while photo fetch remains bound to matchi
 });
 
 
-test("detail promotes manual areaTags, demotes only legacy area, and retains independent category/description/highlights", () => {
+test("detail promotes manual areaTags, shows the 大地區 summary instead of Canonical Area, and shows content tags as typed chips with independent category/description", () => {
  const place=savedPlace({kind:"attraction",areaTags:["芝"],category:"地區歷史景點",description:"芝的歷史描述",highlights:["芝","歷史"],detailsLocked:true});
  const before=structuredClone(place);const {context}=frontend([place],null);
- context.travelAreaDisplayName=()=>"港（港）";
+ context.travelAreaDisplayName=()=>"港（港）";context.planningSectionLabel=()=>"六本木・赤坂・麻布";
  context.openPlaceSheet(place.name);const html=context.sheetRoot.innerHTML;
  const header=html.slice(html.indexOf('class="section-row"'),html.indexOf('class="detail-area-tags"'));
  assert.match(header,/id="place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
- assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag">芝<\/span><\/div><\/section>/);
- assert.match(html,/<p class="detail-legacy-area">旅遊分區：港（港）<\/p>/);
- assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-legacy-area"'));
+ assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag place-tag place-tag-area" data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>芝<\/span><span class="highlight-tag place-tag place-tag-content" data-place-tag-type="content"><span class="visually-hidden">內容標籤：<\/span>歷史<\/span><\/div><\/section>/);
+ assert.match(html,/<p class="detail-geography-summary">大地區：六本木・赤坂・麻布<\/p>/);assert.doesNotMatch(html,/旅遊分區|港（港）/);
+ assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-geography-summary"'));
  assert.match(html,/class="place-byline"[^>]*>[^<]*地區歷史景點/);
  assert.match(html,/class="place-description">芝的歷史描述/);
- assert.match(html,/class="highlight-list"><span class="highlight-tag">芝<\/span><span class="highlight-tag">歷史/);
+ assert.doesNotMatch(html,/class="highlight-list"/);
  assert.deepEqual(place,before);
  place.areaTags=[];context.openPlaceSheet(place.name);
- assert.doesNotMatch(context.sheetRoot.innerHTML,/class="detail-area-tags"/);
- assert.match(context.sheetRoot.innerHTML,/class="detail-legacy-area">旅遊分區：港（港）/);
+ assert.doesNotMatch(context.sheetRoot.innerHTML,/data-place-tag-type="area"/);
+ assert.match(context.sheetRoot.innerHTML,/data-place-tag-type="content"><span class="visually-hidden">內容標籤：<\/span>芝<\/span>/);
+ assert.match(context.sheetRoot.innerHTML,/class="detail-geography-summary">大地區：六本木・赤坂・麻布/);
 });
 
 test("detail merges areaTags and restaurant category chips into one wrapping row, areaTags first, without inventing a missing category", () => {
@@ -225,14 +226,15 @@ test("detail merges areaTags and restaurant category chips into one wrapping row
  context.travelAreaDisplayName=()=>"銀座（銀座）";
  context.openPlaceSheet(restaurant.name);
  const html=context.sheetRoot.innerHTML;
- assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag">銀座<\/span><span class="highlight-tag">燒肉<\/span><\/div><\/section>/);
- assert.doesNotMatch(html,/detail-restaurant-tags|尚未設定|地區：|<span>類別/);
+ assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag place-tag place-tag-area" data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>銀座<\/span><span class="highlight-tag place-tag place-tag-category" data-place-tag-type="category"><span class="visually-hidden">餐廳類別：<\/span>燒肉<\/span><\/div><\/section>/);
+ assert.doesNotMatch(html,/detail-restaurant-tags|尚未設定|(?<!大)地區：|<span>類別/);
  assert.deepEqual(restaurant,before);
 
  restaurant.areaTags=["原宿","表參道"];restaurant.restaurantTags=["咖啡甜點","早午餐"];
  context.openPlaceSheet(restaurant.name);
  const multi=context.sheetRoot.innerHTML;
- assert.match(multi,/<div><span class="highlight-tag">原宿<\/span><span class="highlight-tag">表參道<\/span><span class="highlight-tag">咖啡甜點<\/span><span class="highlight-tag">早午餐<\/span><\/div>/);
+ assert.deepEqual([...multi.matchAll(/data-place-tag-type="(\w+)"><span class="visually-hidden">[^<]*<\/span>([^<]+)<\/span>/g)].map(match=>`${match[1]}:${match[2]}`),
+  ["area:原宿","area:表參道","category:咖啡甜點","category:早午餐"]);
 
  restaurant.areaTags=[];restaurant.restaurantTags=[];
  context.openPlaceSheet(restaurant.name);

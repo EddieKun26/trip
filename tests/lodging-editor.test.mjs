@@ -677,7 +677,7 @@ test("editing only restaurant tags preserves exact Google identity, address and 
 });
 
 
-test("area tag chips edit only the draft, allow removal/clear, and save without geocoding or identity changes", async () => {
+test("area tag chips edit only the draft, never offer other Places' tags, allow removal/clear, and save without geocoding or identity changes", async () => {
  const existing={id:"original",name:"原 Place",kind:"attraction",placeId:"ChIJExact",formattedAddress:"",address:"original",addressComponents:[{longText:"神宮前",types:["neighborhood"]}],latitude:35.7,longitude:139.7,photos:[{name:"exact"}],googleMapsUrl:"https://maps.google.com/exact",restaurantTags:["custom"],lodging:{x:1},shopping:{x:2},travelAreaKey:"unclassified:original",areaTags:["手動區"]};
  const before=structuredClone(existing);
  const h=harness({existing,address:""});
@@ -688,7 +688,8 @@ test("area tag chips edit only the draft, allow removal/clear, and save without 
  const tagInput=h.form.querySelector("[data-area-tag-input]");tagInput.fire("focus");
  assert.match(h.form.querySelector("[data-area-tags-selected]").innerHTML,/神宮前/);assert.equal(dropdown.hidden,true);assert.doesNotMatch(dropdown.innerHTML,/表參道/);
  tagInput.value="表";tagInput.fire("input");
- assert.match(dropdown.innerHTML,/表參道/);assert.doesNotMatch(dropdown.innerHTML,/神宮前/);
+ assert.doesNotMatch(dropdown.innerHTML,/表參道/);assert.doesNotMatch(h.form.querySelector("[data-area-tags-selected]").innerHTML,/表參道/);
+ assert.deepEqual(Array.from(h.session.areaTagOptions),[]);
  assert.deepEqual(existing,before,"opening and suggestions cannot persist");
  const click=(data)=>h.form.querySelector("[data-area-tag-editor]").fire("click",{target:{closest:()=>({dataset:data,hasAttribute:()=>false})}});
  click({areaTagChoose:"表參道"});click({areaTagChoose:"表參道"});
@@ -760,28 +761,31 @@ test("pending custom input bypasses address validation only for an otherwise unc
 });
 
 
-test("area tag autocomplete requires input for trip tags, excludes selected, and closes on blur/Escape without changing data", () => {
+test("area tag autocomplete offers only this Place's own address evidence, never other Places' tags, and closes on blur/Escape without changing data", () => {
  const existing={name:"Test",kind:"attraction",areaTags:["銀座"],addressComponents:[{longText:"芝",types:["neighborhood"]}]};
  const before=structuredClone(existing);const h=harness({existing,address:""});
  h.context.state.places.push({name:"Other",areaTags:["銀座","銀座周邊","西新宿","CAFÉ"]});
  const input=h.form.querySelector("[data-area-tag-input]");const popup=h.form.querySelector("[data-area-tags-suggestions]");
  assert.equal(popup.hidden,true);assert.equal(input.attributes["aria-expanded"],"false");
  input.fire("focus");assert.match(h.form.querySelector("[data-area-tags-selected]").innerHTML,/芝/);assert.equal(popup.hidden,true);assert.doesNotMatch(popup.innerHTML,/銀座|西新宿/);
+ assert.doesNotMatch(h.form.querySelector("[data-area-tags-selected]").innerHTML,/銀座周邊|西新宿|CAFÉ/);
  input.value="銀";input.fire("input");
- assert.deepEqual(Array.from(h.session.areaTagOptions),["銀座周邊"]);
- assert.doesNotMatch(popup.innerHTML,/data-area-tag-choose="銀座"/);
- input.value="cafe\u0301";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),["CAFÉ"]);
+ assert.deepEqual(Array.from(h.session.areaTagOptions),[]);
+ assert.doesNotMatch(popup.innerHTML,/data-area-tag-choose/);
+ input.value="芝";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),["芝"]);
+ input.value="cafe\u0301";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),[]);
  input.value="";input.fire("input");assert.deepEqual(Array.from(h.session.areaTagOptions),[]);
  input.fire("blur");assert.equal(popup.hidden,true);assert.equal(popup.innerHTML,"");
  input.fire("focus");input.fire("keydown",{key:"Escape"});assert.equal(popup.hidden,true);
  assert.deepEqual(existing,before);assert.equal(h.session.dirty.has("areaTags"),false);
 });
 
-test("autocomplete supports touch selection and keyboard navigation without native input hacks or saving before confirmation", () => {
- const existing={name:"Test",kind:"attraction",areaTags:[]};const before=structuredClone(existing);const h=harness({existing,address:""});
- h.context.state.places.push({name:"Other",areaTags:["銀座","銀座周邊"]});
+test("autocomplete supports touch selection and keyboard navigation over the Place's own address evidence without native input hacks or saving before confirmation", () => {
+ const existing={name:"Test",kind:"attraction",areaTags:[],addressComponents:[{longText:"銀座",types:["neighborhood"]},{longText:"銀座周邊",types:["neighborhood"]}]};const before=structuredClone(existing);const h=harness({existing,address:""});
+ h.context.state.places.push({name:"Other",areaTags:["銀座西","銀座東"]});
  const input=h.form.querySelector("[data-area-tag-input]");const editor=h.form.querySelector("[data-area-tag-editor]");
  input.value="銀";input.fire("input");let prevented=0;
+ assert.deepEqual(Array.from(h.session.areaTagOptions),["銀座","銀座周邊"]);assert.doesNotMatch(h.form.querySelector("[data-area-tags-suggestions]").innerHTML,/銀座西|銀座東/);
  input.fire("keydown",{key:"ArrowUp",preventDefault(){prevented++;}});
  assert.equal(input.attributes["aria-activedescendant"],"area-tag-option-1");
  input.fire("keydown",{key:"ArrowDown",preventDefault(){prevented++;}});
