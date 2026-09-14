@@ -3676,15 +3676,6 @@ body.transport-sheet-open .app {
   font-size: 12px;
 }
 
-.avatar-stack {
-  display: flex;
-  padding-left: 14px;
-}
-
-.avatar-stack .member-avatar + .member-avatar {
-  margin-left: -7px;
-}
-
 .voter-list {
   display: flex;
   flex-wrap: wrap;

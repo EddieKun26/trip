@@ -146,3 +146,32 @@ test('rapid double toggle before debounce sends only the latest existing Trip pa
   assert.equal(h.b.requests.filter(r => r.options.method === 'PUT').length, 1);
   assert.equal(h.b.context.voteToasts.length, 0);
 });
+
+test('favorite detail sheet renders inactive visible copy and no duplicate top-right marker', async () => {
+  const b = await boot(trip([fixture()]));
+  b.run('openPlaceSheet(state.places[0].name, { refreshDetails: false })');
+  const html = b.sheet.innerHTML;
+  assert.match(html, /☆ 這我還好/);
+  assert.doesNotMatch(html, /我也最想去|已標記最想去/);
+  assert.doesNotMatch(html, /class="avatar-stack"/);
+  assert.match(html, /class="voter-list"/);
+});
+
+test('favorite detail sheet renders active visible copy when caller already voted', async () => {
+  const payload = trip([fixture()]); payload.votes = { 'Local smoke': ['alice'] };
+  const b = await boot(payload);
+  b.run('openPlaceSheet(state.places[0].name, { refreshDetails: false })');
+  const html = b.sheet.innerHTML;
+  assert.match(html, /★ 這我想去！/);
+  assert.doesNotMatch(html, /我也最想去|已標記最想去/);
+  assert.match(html, /voter-chip/);
+});
+
+test('favorite toggle updates visible copy between 這我還好 and 這我想去！', async () => {
+  const h = await voteBrowser();
+  const button = () => h.b.context.document.querySelectorAll('[data-vote]')[0];
+  await h.click();
+  assert.equal(button().textContent, '★ 這我想去！');
+  await h.click();
+  assert.equal(button().textContent, '☆ 這我還好');
+});

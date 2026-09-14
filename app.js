@@ -657,10 +657,9 @@ function updatePlaceVoteControls(name) {
     button.setAttribute("aria-label", active ? "取消我的最想去" : "標記我最想去");
     if (button.closest(".place-detail-sheet")) {
       button.classList.toggle("voted", active);
-      button.textContent = active ? "★ 已標記最想去" : "☆ 我也最想去";
+      button.textContent = active ? "★ 這我想去！" : "☆ 這我還好";
       const detail = button.closest(".place-detail-sheet");
       detail.querySelector(".vote-panel .section-row span").textContent = `${voters.length} 人標記`;
-      detail.querySelector(".vote-panel .avatar-stack").innerHTML = voters.map(id => avatarMarkup(id, true)).join("");
       detail.querySelector(".voter-list").innerHTML = voters.length
         ? voters.map(id => `<span class="voter-chip">${avatarMarkup(id, true)}${escapeHtml(memberName(id))}</span>`).join("")
         : '<span class="meta">還沒有人標記，成為第一個吧</span>';
@@ -5801,7 +5800,6 @@ function openPlaceSheet(name, { refreshDetails = true } = {}) {
         <section class="vote-panel" aria-label="最想去投票">
           <div class="section-row">
             <div><strong>最想去</strong><span>${voters.length} 人標記</span></div>
-            <div class="avatar-stack">${voters.map((memberId) => avatarMarkup(memberId, true)).join("")}</div>
           </div>
           <div class="voter-list">${voterChips}</div>
         </section>
@@ -5811,7 +5809,7 @@ function openPlaceSheet(name, { refreshDetails = true } = {}) {
             : `<p class="meta">此自訂地點尚未取得座標</p>`
         }
         <div class="modal-actions">
-          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" aria-pressed="${hasMyVote}" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 已標記最想去" : "☆ 我也最想去") : "訪客無法投票"}</button>
+          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" aria-pressed="${hasMyVote}" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 這我想去！" : "☆ 這我還好") : "訪客無法投票"}</button>
           <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapPlaceUrl)}">開啟 Google Maps</button>
         </div>
         ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
