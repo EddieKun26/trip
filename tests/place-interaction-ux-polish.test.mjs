@@ -175,3 +175,30 @@ test('favorite toggle updates visible copy between 這我還好 and 這我想去
   await h.click();
   assert.equal(button().textContent, '☆ 這我還好');
 });
+
+test('0-voter panel shows count and placeholder inside the shared voter-list slot', async () => {
+  const b = await boot(trip([fixture()]));
+  b.run('openPlaceSheet(state.places[0].name, { refreshDetails: false })');
+  const html = b.sheet.innerHTML;
+  assert.match(html, /0 人標記/);
+  assert.match(html, /<div class="voter-list"><span class="meta">還沒有人標記，成為第一個吧<\/span><\/div>/);
+});
+
+test('1-voter panel shows count and voter chip inside the same voter-list slot used for 0 voters', async () => {
+  const payload = trip([fixture()]); payload.votes = { 'Local smoke': ['alice'] };
+  const b = await boot(payload);
+  b.run('openPlaceSheet(state.places[0].name, { refreshDetails: false })');
+  const html = b.sheet.innerHTML;
+  assert.match(html, /1 人標記/);
+  const slot = html.match(/<div class="voter-list">([\s\S]*?)<\/div>\s*<\/section>/)[1];
+  assert.match(slot, /voter-chip/);
+  assert.doesNotMatch(slot, /還沒有人標記/);
+});
+
+test('voter-list has a min-height layout constraint so 0/1-voter toggles do not shift content below the panel', () => {
+  const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+  const rule = css.match(/\.voter-list\s*\{([^}]*)\}/)[1];
+  assert.match(rule, /min-height:\s*35px/);
+  assert.match(rule, /align-items:\s*center/);
+  assert.match(rule, /flex-wrap:\s*wrap/);
+});

@@ -3678,9 +3678,11 @@ body.transport-sheet-open .app {
 
 .voter-list {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 7px;
   margin-top: 11px;
+  min-height: 35px; /* matches compact avatar chip height (27px avatar + 8px chip padding) so 0/1-voter states don't shift the layout below */
 }
 
 .voter-chip {
