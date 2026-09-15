@@ -159,10 +159,16 @@ test("all-date route map keeps daily ordering and assigns different route colors
 
 test("itinerary uses custom solid drag behavior instead of native translucent dragging", () => {
   // Timeline reorder stays custom pointer drag. The only native draggable is the desktop-docked
-  // Place Pool card (a copy-to-day gesture), and it is never emitted on touch layouts.
+  // Place Pool drag handle (a copy-to-day gesture) — a sibling of the selectable card surface,
+  // never nested inside it — and it is never emitted on touch layouts.
   assert.doesNotMatch(sourceSection("function itineraryScreen", "function render("), /draggable/);
   assert.deepEqual(appSource.match(/draggable="true"/g), ['draggable="true"']);
-  assert.match(sourceSection("function placePoolMarkup", "function setPlacePoolOpen"), /\$\{docked \? ' draggable="true"' : ""\}/);
+  const poolCardSection = sourceSection("function placePoolCardMarkup", "function placePoolSelectedSectionMarkup");
+  assert.match(poolCardSection, /const handle = docked\s*\n\s*\? `<span class="place-pool-drag-handle"[^`]*draggable="true"[^`]*<\/span>`\s*\n\s*: "";/);
+  assert.doesNotMatch(poolCardSection.replace(/const handle = docked[\s\S]*?: "";/, ""), /draggable/);
+  // The handle is interpolated as ${handle} strictly after the selectable button's own closing
+  // tag, so it renders as a sibling and can never land nested inside it.
+  assert.match(poolCardSection, /<\/button>\s*\n\s*\$\{handle\}/);
   assert.match(appSource, /row\.animate\(/);
   assert.match(appSource, /data-swipe-item/);
   assert.match(appSource, /position: "fixed"/);

@@ -45,6 +45,11 @@
 - [ ] User production check on a real iPhone/Android device during bulk areaTags editing: the Save/Cancel bar stays visible while scrolling the editor, is not obscured by or fighting the on-screen keyboard, and the last field (photo section) is never hidden behind it. Confirm Save and Cancel on an existing place both return to that same place's detail (not the list), Save shows the freshly saved data, Cancel shows the untouched original, and the underlying Places list's scroll position/filters are exactly as left when the editor is eventually closed.
 
 
+## Selection-first Place Pool acceptance — 2026-09-16
+
+- [ ] User review of `feat/selection-first-place-pool` (not committed/pushed/deployed): confirm click/tap-to-select, the always-visible Selected section, filter-independent selected visibility, the ⋯/＋日期 secondary manual-add path, the ⠿ drag handle, and the disabled CTA copy match intent before merging.
+- Next round (explicitly out of scope here): implement the actual AI Planner behind the CTA (date/area/day-order assignment for HARD-selected Places plus SOFT choices from the rest of the pool and any future Discovery results). No OpenAI wiring exists yet.
+
 ## Safe auto-tag backfill acceptance — 2026-09-12
 
 - [ ] Deploy this round's `app.js` change to production, then open the real trip in a normal authenticated browser session (this triggers `scheduleTagBackfillMigration()` automatically, once). Afterwards check a few previously-tagless restaurant Places now show a single sensible 類別 chip (and a single 地區 chip where containment/address evidence existed), and that every Place that already had either tag is completely unchanged.

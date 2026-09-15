@@ -8062,16 +8062,34 @@ body.transport-sheet-open .app {
 .place-pool-head h2 { margin: 0; font-size: 20px; }
 .place-pool-head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .place-pool-close { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; font-size: 22px; }
+/* Everything between the head and the sticky CTA scrolls as one region; the CTA itself never
+   scrolls out of view, and Selected always renders above the filters inside this region. */
+.place-pool-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -4px; padding: 4px; }
+.place-pool-selected { margin: 4px 0 12px; }
+.place-pool-selected-heading { margin: 0 0 8px; font-size: 14px; color: var(--ink); }
+.place-pool-selected-toggle { display: flex; align-items: center; gap: 4px; min-height: 32px; margin: 0 0 8px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 14px; font-weight: 800; cursor: pointer; }
+.place-pool-selected-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-selected-list { margin-bottom: 4px; }
+.place-pool-section-heading { margin: 4px 0 8px; font-size: 13px; color: var(--muted); }
 .place-pool-filters { margin: 12px 0 4px; }
 .place-pool-favorite-filter { grid-column: 1 / -1; justify-self: start; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper-2); color: var(--muted); font-weight: 800; cursor: pointer; }
 .place-pool-favorite-filter[aria-pressed="true"] { border-color: #78558b; background: #78558b; color: #fff; }
 .place-pool-favorite-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .place-pool-hint { margin: 6px 0 8px; color: var(--muted); font-size: 12px; }
-.place-pool-list { flex: 1 1 auto; min-height: 0; display: grid; align-content: start; gap: 8px; margin: 0 -4px; padding: 4px; overflow-y: auto; overscroll-behavior: contain; list-style: none; }
-.place-pool-card { width: 100%; min-height: 60px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 250, 242, 0.92); color: var(--ink); text-align: left; cursor: pointer; }
-.place-pool-card[draggable="true"] { cursor: grab; }
-.place-pool-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.place-pool-card.is-dragging { opacity: 0.45; border-style: dashed; border-color: var(--mineral); }
+.place-pool-list { display: grid; align-content: start; gap: 8px; list-style: none; }
+.place-pool-item { display: grid; gap: 4px; }
+.place-pool-card { width: 100%; display: flex; align-items: center; gap: 6px; }
+.place-pool-select { flex: 1 1 auto; min-width: 0; min-height: 60px; display: grid; grid-template-columns: 16px 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 250, 242, 0.92); color: var(--ink); text-align: left; cursor: pointer; }
+.place-pool-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-select[aria-pressed="true"] { border-color: var(--mineral); background: var(--mineral-soft); }
+.place-pool-check { width: 16px; font-size: 14px; font-weight: 900; color: var(--mineral); }
+.place-pool-drag-handle { flex: 0 0 auto; width: 32px; height: 44px; display: grid; place-items: center; border-radius: 10px; color: var(--muted); font-size: 18px; cursor: grab; }
+.place-pool-drag-handle:active { cursor: grabbing; }
+.place-pool-add-button { flex: 0 0 auto; min-width: 44px; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--muted); font-size: 13px; font-weight: 800; cursor: pointer; }
+.place-pool-add-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-card.is-dragging { opacity: 0.45; }
+.place-pool-card.is-dragging .place-pool-select { border-style: dashed; border-color: var(--mineral); }
+.place-pool-out-of-filter { margin: 0; padding: 0 10px; color: var(--muted); font-size: 11px; }
 .place-pool-thumb { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--swatch, var(--mineral)); color: #fff; font-weight: 800; }
 .place-pool-copy { min-width: 0; display: grid; gap: 3px; }
 .place-pool-copy strong { font-size: 15px; overflow-wrap: anywhere; }
@@ -8082,6 +8100,10 @@ body.transport-sheet-open .app {
 .place-pool-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .place-pool-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
 .place-pool-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.place-pool-cta { flex: 0 0 auto; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); text-align: center; }
+.place-pool-cta-button { width: 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--mineral); color: #fff; font-size: 14px; font-weight: 800; cursor: not-allowed; }
+.place-pool-cta-button[disabled] { opacity: 0.55; }
+.place-pool-cta-hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 body.place-pool-dragging [data-pool-drop-date] { outline: 2px dashed rgba(64, 119, 122, 0.5); outline-offset: 2px; }
 body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3px solid var(--mineral); box-shadow: 0 0 0 6px rgba(64, 119, 122, 0.16); }
 @media (min-width: 900px) and (hover: hover) and (pointer: fine) {

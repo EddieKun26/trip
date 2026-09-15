@@ -1,5 +1,12 @@
 # Project state
 
+## Selection-first Place Pool — AI Planner Phase 1B.0 — 2026-09-16
+
+- Local, uncommitted work on `feat/selection-first-place-pool` (worktree `travel-app/prototype/selection-first-place-pool`) above `origin/main` 06a1f6ede967e9a8730a494193d0ff177f49bd84 (exact match). Not committed, pushed or deployed; awaiting review.
+- Production UX review rejected Phase 1A's "pick a day for every Place" flow. This round replaces it with tap-to-select: cards toggle into an always-visible Selected section (client memory, trip-scoped, never persisted); a sticky CTA ("用已選 N 個地點規劃" / "AI 幫我規劃行程") hands that hard-must-include set to the still-unbuilt AI Planner. The CTA itself is disabled with an "AI 規劃準備中" hint — 0 network/persist/mutation in this round, no AI Planner or OpenAI call added.
+- Manual add-to-a-day survives as a secondary path: a sibling ⋯/＋日期 button reopens the unchanged `openPlacePoolAddSheet` flow, and desktop drag moved from the whole card onto a dedicated ⠿ handle so it can never conflict with click-to-select. Full details, exact function/rename list and validation numbers: `memory/itinerary-place-pool.md`.
+- Validation: full regression 720/720 (41 files); targeted Place Pool 27/27, ui-logic 67/67, Planning Geography 118/118, Place Interaction 21/21, Phase A/B/C safety 79/79; PRE/POST canonical-area fingerprints unchanged; API functions 12; no api/lib/data/vercel diff. Playwright isn't installed in this sandbox, so the browser smoke gate was satisfied via a scratch local server driven through the Browser pane tool instead of the (updated but unexecuted) Playwright script.
+
 ## Planning Geography UX Refinement — 2026-09-14
 
 - Local, uncommitted work on `feat/planning-geography-ux-refinement` above released `e274e135` (Planning Geography Phase A+B+C). Not committed, pushed or deployed; awaiting review. Production Phase A migration was completed and verified earlier; this refinement changes no production data and needs no migration.

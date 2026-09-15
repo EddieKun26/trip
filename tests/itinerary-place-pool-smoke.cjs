@@ -83,34 +83,45 @@ async function desktop(browser) {
   assert.ok(phone.x + phone.width <= drawer.x, `docked drawer overlaps phone: ${JSON.stringify({ phone, drawer })}`);
   assert.equal(await page.locator('.place-pool-backdrop').isVisible(), false);
   assert.equal(await cards(page).count(), 5);
-  assert.equal(await cards(page).first().getAttribute('draggable'), 'true');
-  await page.locator('.place-pool-close').click();
-  await panel.waitFor({ state: 'hidden' });
-  assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
-  await toggle.click();
-  await panel.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('[data-pool-drag="app:smoke-asakusa"]').getAttribute('draggable'), 'true');
+  assert.equal(await cards(page).first().getAttribute('draggable'), null, 'the selectable card surface itself is never draggable');
+  assert.match(await page.locator('[data-pool-cta]').textContent(), /AI 幫我規劃行程/);
 
-  await page.selectOption('#place-pool-filter-section', { label: '上野・淺草・秋葉原' });
-  await page.waitForFunction(() => document.querySelectorAll('#place-pool-panel [data-pool-place]').length === 2);
-  await page.selectOption('#place-pool-filter-section', '');
+  // Click three cards: all three highlight, move to the Selected section, and stay on top.
+  for (const key of ['app:smoke-asakusa', 'app:smoke-ueno', 'app:smoke-tsukiji']) {
+    await page.locator(`[data-pool-place="${key}"]`).click();
+  }
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 3);
+  for (const key of ['app:smoke-asakusa', 'app:smoke-ueno', 'app:smoke-tsukiji']) {
+    assert.equal(await page.locator(`[data-pool-place="${key}"]`).getAttribute('aria-pressed'), 'true');
+  }
+  assert.match(await page.locator('.place-pool-selected').textContent(), /已選 3 個/);
+  assert.match(await page.locator('[data-pool-cta]').textContent(), /用已選 3 個地點規劃/);
+  assert.equal(requests.slice(poolStart).length, 0, 'selecting cards makes no requests');
+
+  // Filters narrow only 其他地點; the Selected section (and every card in it) stays visible.
   await page.selectOption('#place-pool-filter-kind', 'lodging');
-  await page.waitForFunction(() => document.querySelectorAll('#place-pool-panel [data-pool-place]').length === 1);
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 3);
+  assert.equal(await page.locator('[data-pool-place="app:smoke-asakusa"]').count(), 1, 'a selected Place outside the current filter remains visible');
+  assert.match(await page.locator('[data-pool-place="app:smoke-asakusa"]').locator('xpath=ancestor::li').textContent(), /不在目前篩選/);
   await page.selectOption('#place-pool-filter-kind', 'all');
-  await page.locator('[data-place-pool-favorite]').click();
-  await page.waitForFunction(() => document.querySelectorAll('#place-pool-panel [data-pool-place]').length === 1);
-  assert.match(await cards(page).first().textContent(), /上野動物園/);
-  await page.locator('[data-place-pool-favorite]').click();
-  await page.waitForFunction(() => document.querySelectorAll('#place-pool-panel [data-pool-place]').length === 5);
-  assert.equal(requests.slice(poolStart).length, 0, 'opening, closing and filtering make no requests');
 
-  await page.locator('[data-pool-place="app:smoke-asakusa"]').dragTo(page.locator('.date-button[data-date="9/21"]'));
+  // Unselecting returns the card to its original stable position among 其他地點.
+  await page.locator('[data-pool-place="app:smoke-ueno"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 2);
+  assert.equal(await page.locator('[data-pool-place="app:smoke-ueno"]').getAttribute('aria-pressed'), 'false');
+  assert.equal(requests.slice(poolStart).length, 0, 'unselecting still makes no requests');
+
+  // The dedicated drag handle still drags a (selected) Place straight onto a day.
+  await page.locator('[data-pool-drag="app:smoke-asakusa"]').dragTo(page.locator('.date-button[data-date="9/21"]'));
   await page.waitForFunction(() => !document.querySelector('[data-pool-place="app:smoke-asakusa"]') && state.selectedDate === '9/21');
   assert.match(await page.locator('.timeline').textContent(), /淺草寺/);
   assert.equal(await page.evaluate(() => document.body.classList.contains('place-pool-dragging')), false);
   await page.waitForTimeout(250);
   assert.deepEqual(savedItinerary(requests)['9/21'], [{ name: '淺草寺', time: '11:00', id: 'place:9/21:淺草寺' }]);
 
-  await page.locator('[data-pool-place="app:smoke-ueno"]').click();
+  // Manual direct-add via the secondary ＋日期 action still works, independent of selection.
+  await page.locator('[data-pool-add="app:smoke-ueno"]').click();
   await page.locator('#add-place-day-form').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#add-place-day-form h2').textContent(), '加入行程');
   await page.selectOption('#place-trip-date', '9/22');
@@ -125,8 +136,9 @@ async function desktop(browser) {
   await panel.waitFor({ state: 'hidden' });
   assert.deepEqual(errors, []);
   assert.deepEqual(blocked, []);
-  const result = { viewport: '1280x860', dockedBesidePhone: true, filters: 'section/kind/favorite', dragAdded: '淺草寺 → 9/21',
-    clickFallbackAdded: '上野動物園 → 9/22', escapeCloses: true, network: networkSummary(requests, poolStart) };
+  const result = { viewport: '1280x860', dockedBesidePhone: true, filters: 'section/kind/favorite', selectThreeCards: true,
+    selectedStaysVisibleOutOfFilter: true, unselectReturnsPosition: true, dragHandleAdded: '淺草寺 → 9/21',
+    secondaryActionAdded: '上野動物園 → 9/22', escapeCloses: true, network: networkSummary(requests, poolStart) };
   await context.close();
   return result;
 }
@@ -140,14 +152,23 @@ async function mobile(browser) {
   const sheet = await page.locator('.place-pool-panel').boundingBox();
   assert.ok(Math.abs(sheet.y + sheet.height - 844) <= 1 && sheet.width >= 389, `bottom sheet box ${JSON.stringify(sheet)}`);
   assert.equal(await page.locator('.place-pool-backdrop').isVisible(), true);
-  assert.equal(await page.locator('#place-pool-panel [draggable]').count(), 0);
+  assert.equal(await page.locator('#place-pool-panel [draggable]').count(), 0, 'no native card drag on touch layouts');
   assert.notEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.stage')).paddingRight), '408px', 'desktop dock is not applied');
-  assert.match(await page.locator('#place-pool-hint').textContent(), /點選地點/);
+  assert.match(await page.locator('#place-pool-hint').textContent(), /點選地點加入已選清單/);
 
-  await page.selectOption('#place-pool-filter-kind', 'restaurant');
-  await page.waitForFunction(() => document.querySelectorAll('#place-pool-panel [data-pool-place]').length === 1);
-  await page.screenshot({ path: path.join(output, 'place-pool-mobile-sheet.png') });
+  // Tap selects multiple cards; the Selected section centers them on top, unaffected by the filter below.
   await page.locator('[data-pool-place="app:smoke-tsukiji"]').tap();
+  await page.locator('[data-pool-place="app:smoke-ginza"]').tap();
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 2);
+  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').getAttribute('aria-pressed'), 'true');
+  assert.match(await page.locator('.place-pool-selected').textContent(), /已選 2 個/);
+  await page.selectOption('#place-pool-filter-kind', 'attraction');
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 2);
+  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').count(), 1, 'selected restaurant stays visible under an attraction-only filter');
+  await page.screenshot({ path: path.join(output, 'place-pool-mobile-sheet.png') });
+
+  // Secondary ⋯ action still opens the existing 加入某一天 sheet for a power-user manual add.
+  await page.locator('[data-pool-add="app:smoke-tsukiji"]').tap();
   const form = page.locator('#add-place-day-form');
   await form.waitFor({ state: 'visible' });
   const formBox = await form.boundingBox();
@@ -157,8 +178,8 @@ async function mobile(browser) {
   await page.locator('#add-place-day-form button[type="submit"]').tap();
   await page.waitForFunction(() => !document.querySelector('#add-place-day-form') && state.selectedDate === '9/22');
   assert.equal(await panel.isVisible(), true);
-  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').count(), 0);
-  assert.equal(await page.locator('.place-pool-empty').textContent(), '沒有符合篩選的未安排地點');
+  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').count(), 0, 'a manually added Place leaves the pool and its selection');
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 1);
   await page.locator('.place-pool-close').tap();
   await panel.waitFor({ state: 'hidden' });
   assert.match(await page.locator('.timeline').textContent(), /築地壽司/);
@@ -169,7 +190,8 @@ async function mobile(browser) {
   await page.screenshot({ path: path.join(output, 'place-pool-mobile-after.png') });
   assert.deepEqual(errors, []);
   assert.deepEqual(blocked, []);
-  const result = { viewport: '390x844 touch', bottomSheet: true, draggableCards: 0, filter: 'kind=restaurant', tapAdded: '築地壽司 → 9/22',
+  const result = { viewport: '390x844 touch', bottomSheet: true, draggableCards: 0, selectedTwoCards: true,
+    selectedStaysVisibleOutOfFilter: true, filter: 'kind=attraction', secondaryActionAdded: '築地壽司 → 9/22',
     dateSheetAbovePool: true, noHorizontalOverflow: true, network: networkSummary(requests, poolStart) };
   await context.close();
   return result;

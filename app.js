@@ -240,7 +240,7 @@ const state = {
   selectedDate: "9/22",
   itineraryPlaceKind: "all",
   // Place Pool filters are client-only view state: never persisted, stored or sent.
-  placePool: { open: false, kind: "all", section: "", favoriteOnly: false },
+  placePool: { open: false, kind: "all", section: "", favoriteOnly: false, selectedExpanded: false },
   places: [],
   deletedPlaces: [],
   profile: savedProfile,
@@ -1973,12 +1973,13 @@ function clearTripView() {
     members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
     placeKind: "all", placeSectionFilter: "", areaTagFilter: "", areaTagComparison: null, restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
     shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
-    placePool: { open: false, kind: "all", section: "", favoriteOnly: false },
+    placePool: { open: false, kind: "all", section: "", favoriteOnly: false, selectedExpanded: false },
     shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
   shoppingUndoSnapshot = null;
   shoppingSelectionMode = false;
   shoppingSelectedIds.clear();
   shoppingSavePending = false;
+  clearPlacePoolSelection();
 }
 
 function beginTripHydration() {
@@ -8708,14 +8709,17 @@ function getUnscheduledPlaces(places = state.places, itinerary = state.itinerary
 
 // 主要地區 and 地點類型 reuse the Places filter cascade over pool Places only; 最想去 means at
 // least one member voted. Client view state only: no Place mutation, persistence or network.
+// matchesFilters and allEntries let the Selected section stay visible even when it falls outside
+// the current filter (selection is a hard commitment, not something filters may hide).
 function getFilteredPlacePool(filters = state.placePool, pool = getUnscheduledPlaces()) {
   const selection = { placeKind: filters.kind, placeSectionFilter: filters.section, areaTagFilter: "", restaurantTagFilter: "" };
   const model = placesFilterModel(pool.entries.map((entry) => entry.place), selection);
   filters.kind = selection.placeKind;
   filters.section = selection.placeSectionFilter;
   const visible = new Set(model.visible);
-  const entries = pool.entries.filter((entry) => visible.has(entry.place) && (!filters.favoriteOnly || entry.voteCount >= 1));
-  return { total: pool.entries.length, ambiguousCount: pool.ambiguousCount, kinds: model.kinds, sections: model.sections, entries };
+  const matchesFilters = (entry) => visible.has(entry.place) && (!filters.favoriteOnly || entry.voteCount >= 1);
+  const entries = pool.entries.filter(matchesFilters);
+  return { total: pool.entries.length, ambiguousCount: pool.ambiguousCount, kinds: model.kinds, sections: model.sections, entries, allEntries: pool.entries, matchesFilters };
 }
 
 // Every Place Pool add (desktop drop, click fallback, mobile tap) goes through here.
@@ -8743,22 +8747,53 @@ function completePlacePoolAdd(placeKey, date) {
   return result;
 }
 
-/* AI Planner Phase 1B foundation. AI candidates are picked from this same Place Pool by stable
- * placeDetailKey, scoped to the current trip and held only in memory: never persisted, stored or
- * sent. A candidate is something the planner may choose from, never a Place that must be scheduled. */
-const aiCandidateSelection = { tripId: "", keys: new Set() };
+/* Selection-first Place Pool (AI Planner Phase 1B.0 foundation). Selecting a Place marks it HARD:
+ * the future AI Planner must schedule it exactly once, choosing the date, area grouping and daily
+ * order itself. Unselected pool Places and anything the planner later discovers stay SOFT: it may
+ * schedule them or not. Selection is picked from this same Place Pool by stable placeDetailKey,
+ * scoped to the current trip and held only in memory: never persisted, stored or sent. */
+const placePoolSelection = { tripId: "", keys: new Set() };
 
-function aiCandidatePlaceKeys() {
-  if (aiCandidateSelection.tripId !== state.tripId) {
-    aiCandidateSelection.tripId = state.tripId;
-    aiCandidateSelection.keys = new Set();
+function placePoolSelectedKeys() {
+  if (placePoolSelection.tripId !== state.tripId) {
+    placePoolSelection.tripId = state.tripId;
+    placePoolSelection.keys = new Set();
   }
-  return aiCandidateSelection.keys;
+  return placePoolSelection.keys;
 }
 
-function placePoolCandidateEntries(pool = getFilteredPlacePool()) {
-  const keys = aiCandidatePlaceKeys();
+function clearPlacePoolSelection() {
+  placePoolSelection.tripId = state.tripId;
+  placePoolSelection.keys = new Set();
+}
+
+// A stale key (its Place got scheduled, deleted or turned same-name ambiguous elsewhere) is
+// pruned here rather than counted: the selected count always reflects currently valid entries.
+function placePoolSelectedEntries(pool = getUnscheduledPlaces()) {
+  const keys = placePoolSelectedKeys();
+  const validKeys = new Set(pool.entries.map((entry) => entry.key));
+  for (const key of [...keys]) if (!validKeys.has(key)) keys.delete(key);
   return pool.entries.filter((entry) => keys.has(entry.key));
+}
+
+function togglePlacePoolSelection(key) {
+  if (!getUnscheduledPlaces().entries.some((entry) => entry.key === key)) {
+    render({ preserveScroll: true });
+    return showToast("這個地點已不在地點池");
+  }
+  const keys = placePoolSelectedKeys();
+  if (keys.has(key)) keys.delete(key); else keys.add(key);
+  return render({ preserveScroll: true, filterOnly: true });
+}
+
+// Selected stays visible above the current filters in getUnscheduledPlaces() stable order, no
+// matter selection time; filters only ever narrow the unselected list beneath it.
+function placePoolViewModel(pool = getFilteredPlacePool()) {
+  const selectedEntries = placePoolSelectedEntries({ entries: pool.allEntries });
+  const selectedKeys = new Set(selectedEntries.map((entry) => entry.key));
+  const unselectedEntries = pool.entries.filter((entry) => !selectedKeys.has(entry.key));
+  const outOfFilterKeys = new Set(selectedEntries.filter((entry) => !pool.matchesFilters(entry)).map((entry) => entry.key));
+  return { ...pool, selectedEntries, unselectedEntries, outOfFilterKeys };
 }
 
 // Drag is offered only where the pool is docked beside the phone frame; touch devices always use tap.
@@ -8772,21 +8807,66 @@ function placePoolToggleMarkup(pool) {
   return `<button class="place-pool-toggle" type="button" data-toggle-place-pool aria-expanded="${state.placePool.open}" aria-controls="place-pool-panel" aria-label="地點池，${pool.total} 個尚未安排"><span>地點池</span><b>${pool.total}</b></button>`;
 }
 
-function placePoolMarkup(pool) {
+// One card markup shared by the Selected and 其他地點 sections. The selectable surface (toggles
+// selection) and the drag handle (docked-only, copy-to-day gesture) are siblings, never nested,
+// so desktop click-to-select and native drag never fight over the same element.
+function placePoolCardMarkup({ key, place, voteCount }, { docked, selected, outOfFilter }) {
+  const tags = AreaTags.values(place).slice(0, 3).map((tag) => `<span class="highlight-tag place-tag-area">${escapeHtml(tag)}</span>`).join("");
+  const handle = docked
+    ? `<span class="place-pool-drag-handle" data-pool-drag="${escapeHtml(key)}" draggable="true" role="img" aria-label="拖曳「${escapeHtml(place.name)}」到某一天">⠿</span>`
+    : "";
+  return `
+          <li class="place-pool-item${selected ? " is-selected" : ""}">
+            <div class="place-pool-card${selected ? " is-selected" : ""}">
+              <button class="place-pool-select" type="button" data-pool-place="${escapeHtml(key)}" aria-pressed="${selected}" aria-describedby="place-pool-hint">
+                <span class="place-pool-check" aria-hidden="true">${selected ? "✓" : ""}</span>
+                <span class="place-pool-thumb" style="--swatch:${escapeHtml(place.swatch || "")}" aria-hidden="true">${escapeHtml(place.mark || "")}</span>
+                <span class="place-pool-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(kindLabel(place.kind))} · ${escapeHtml(planningSectionLabel(place))}</small>${tags ? `<span class="place-pool-tags">${tags}</span>` : ""}</span>
+                ${voteCount ? `<span class="place-pool-favorite"><span aria-hidden="true">★</span>${voteCount}<span class="place-pool-sr"> 人最想去</span></span>` : ""}
+              </button>
+              ${handle}
+              <button class="place-pool-add-button" type="button" data-pool-add="${escapeHtml(key)}" aria-label="直接將「${escapeHtml(place.name)}」加入某一天">${docked ? "＋日期" : "⋯"}</button>
+            </div>
+            ${outOfFilter ? '<p class="place-pool-out-of-filter">不在目前篩選</p>' : ""}
+          </li>`;
+}
+
+// Selected always renders in full above the filters (a hard commitment the user must never lose
+// sight of); past 6 entries it collapses to a single toggle so a long selection never buries the
+// rest of the pool on mobile. 其他地點 is the only section the filters narrow.
+function placePoolSelectedSectionMarkup(pool, docked) {
+  const count = pool.selectedEntries.length;
+  if (!count) return "";
+  const collapsible = count > 6;
+  const expanded = !collapsible || Boolean(state.placePool.selectedExpanded);
+  const heading = collapsible
+    ? `<button class="place-pool-selected-toggle" type="button" data-pool-selected-toggle aria-expanded="${expanded}" aria-controls="place-pool-selected-list">已選 ${count} 個 <span aria-hidden="true">${expanded ? "▴" : "▾"}</span></button>`
+    : `<h3 class="place-pool-selected-heading">已選 ${count} 個</h3>`;
+  const list = expanded
+    ? `<ul class="place-pool-list place-pool-selected-list" id="place-pool-selected-list" data-place-pool-selected-list>${pool.selectedEntries.map((entry) => placePoolCardMarkup(entry, { docked, selected: true, outOfFilter: pool.outOfFilterKeys.has(entry.key) })).join("")}</ul>`
+    : "";
+  return `<div class="place-pool-selected">${heading}${list}</div>`;
+}
+
+// Phase 1B.0 foundation only: the CTA is disabled and makes zero network, persistence or
+// itinerary changes. It exists so the copy and hand-off point are already correct once the AI
+// Planner ships; nothing here may look, or claim, like the Planner already works.
+function placePoolCtaMarkup(count) {
+  const label = count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
+  return `
+          <div class="place-pool-cta">
+            <button class="place-pool-cta-button" type="button" data-pool-cta disabled aria-disabled="true">${label}</button>
+            <p class="place-pool-cta-hint">AI 規劃準備中</p>
+          </div>`;
+}
+
+function placePoolMarkup(rawPool) {
   const filters = state.placePool;
   const docked = placePoolDocked();
+  const pool = placePoolViewModel(rawPool);
   const field = (filter, label, selected, options) => `<div class="places-filter-field"><label for="place-pool-filter-${filter}">${label}</label><select id="place-pool-filter-${filter}" data-place-pool-filter="${filter}">${options.map(([value, name]) => `<option value="${escapeHtml(value)}"${value === selected ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
-  const rows = pool.entries.map(({ key, place, voteCount }) => {
-    const tags = AreaTags.values(place).slice(0, 3).map((tag) => `<span class="highlight-tag place-tag-area">${escapeHtml(tag)}</span>`).join("");
-    return `
-          <li>
-            <button class="place-pool-card" type="button" data-pool-place="${escapeHtml(key)}"${docked ? ' draggable="true"' : ""} aria-describedby="place-pool-hint">
-              <span class="place-pool-thumb" style="--swatch:${escapeHtml(place.swatch || "")}" aria-hidden="true">${escapeHtml(place.mark || "")}</span>
-              <span class="place-pool-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(kindLabel(place.kind))} · ${escapeHtml(planningSectionLabel(place))}</small>${tags ? `<span class="place-pool-tags">${tags}</span>` : ""}</span>
-              ${voteCount ? `<span class="place-pool-favorite"><span aria-hidden="true">★</span>${voteCount}<span class="place-pool-sr"> 人最想去</span></span>` : ""}
-            </button>
-          </li>`;
-  }).join("");
+  const selectedSection = placePoolSelectedSectionMarkup(pool, docked);
+  const rows = pool.unselectedEntries.map((entry) => placePoolCardMarkup(entry, { docked, selected: false, outOfFilter: false })).join("");
   return `
       <div class="place-pool" id="place-pool-panel"${filters.open ? "" : " hidden"}>
         <div class="place-pool-backdrop" data-close-place-pool></div>
@@ -8795,14 +8875,19 @@ function placePoolMarkup(pool) {
             <div><h2 id="place-pool-title">地點池</h2><p>${pool.total} 個尚未安排</p></div>
             <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉地點池">×</button>
           </div>
-          <div class="places-filter-bar place-pool-filters" role="group" aria-label="地點池篩選">
-            ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
-            ${field("kind", "地點類型", filters.kind, pool.kinds)}
-            <button class="place-pool-favorite-filter" type="button" data-place-pool-favorite aria-pressed="${filters.favoriteOnly}">★ 最想去</button>
+          <div class="place-pool-scroll">
+            ${selectedSection}
+            <div class="places-filter-bar place-pool-filters" role="group" aria-label="地點池篩選">
+              ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
+              ${field("kind", "地點類型", filters.kind, pool.kinds)}
+              <button class="place-pool-favorite-filter" type="button" data-place-pool-favorite aria-pressed="${filters.favoriteOnly}">★ 最想去</button>
+            </div>
+            <p class="place-pool-hint" id="place-pool-hint">${docked ? "點選地點加入已選清單；拖曳「⠿」或按「＋日期」可直接加入某一天" : "點選地點加入已選清單；點「⋯」可直接加入某一天"}</p>
+            <h3 class="place-pool-section-heading">其他地點</h3>
+            ${rows ? `<ul class="place-pool-list" data-place-pool-list>${rows}</ul>` : `<div class="place-pool-empty">${pool.total ? "沒有符合篩選的未安排地點" : "所有收藏地點都已排入行程"}</div>`}
+            ${pool.ambiguousCount ? `<p class="place-pool-note">${pool.ambiguousCount} 個同名地點無法從地點池加入</p>` : ""}
           </div>
-          <p class="place-pool-hint" id="place-pool-hint">${docked ? "拖曳地點到日期，或點選地點選擇日期" : "點選地點，選擇要加入的日期"}</p>
-          ${rows ? `<ul class="place-pool-list" data-place-pool-list>${rows}</ul>` : `<div class="place-pool-empty">${pool.total ? "沒有符合篩選的未安排地點" : "所有收藏地點都已排入行程"}</div>`}
-          ${pool.ambiguousCount ? `<p class="place-pool-note">${pool.ambiguousCount} 個同名地點無法從地點池加入</p>` : ""}
+          ${placePoolCtaMarkup(pool.selectedEntries.length)}
         </aside>
       </div>`;
 }
@@ -9255,8 +9340,16 @@ document.addEventListener("click", async (event) => {
     return render({ preserveScroll: true, filterOnly: true });
   }
 
+  if (event.target.closest("[data-pool-selected-toggle]")) {
+    state.placePool.selectedExpanded = !state.placePool.selectedExpanded;
+    return render({ preserveScroll: true, filterOnly: true });
+  }
+
+  const poolAdd = event.target.closest("[data-pool-add]");
+  if (poolAdd) return canEdit() ? openPlacePoolAddSheet(poolAdd.dataset.poolAdd) : guestOnlyMessage();
+
   const poolPlace = event.target.closest("[data-pool-place]");
-  if (poolPlace) return canEdit() ? openPlacePoolAddSheet(poolPlace.dataset.poolPlace) : guestOnlyMessage();
+  if (poolPlace) return canEdit() ? togglePlacePoolSelection(poolPlace.dataset.poolPlace) : guestOnlyMessage();
 
   if (event.target.closest("[data-open-itinerary-places]")) {
     if (!canEdit()) return guestOnlyMessage();
@@ -10025,19 +10118,22 @@ function clearPlacePoolDropTargets() {
 }
 
 function endPlacePoolDrag() {
-  placePoolDrag?.card.classList.remove("is-dragging");
+  placePoolDrag?.card?.classList.remove("is-dragging");
   placePoolDrag = null;
   clearPlacePoolDropTargets();
   document.body.classList.remove("place-pool-dragging");
 }
 
+// Drag starts only from the dedicated handle, never the selectable card surface, so a desktop
+// click-to-select and a copy-to-day drag can never be triggered by the same gesture.
 document.addEventListener("dragstart", (event) => {
-  const card = event.target.closest?.("[data-pool-place]");
-  if (!card || !canEdit() || !placePoolDocked()) return;
-  placePoolDrag = { key: card.dataset.poolPlace, card };
+  const handle = event.target.closest?.("[data-pool-drag]");
+  if (!handle || !canEdit() || !placePoolDocked()) return;
+  const card = handle.closest(".place-pool-card");
+  placePoolDrag = { key: handle.dataset.poolDrag, card };
   event.dataTransfer.effectAllowed = "copy";
-  event.dataTransfer.setData("text/plain", card.dataset.poolPlace);
-  card.classList.add("is-dragging");
+  event.dataTransfer.setData("text/plain", handle.dataset.poolDrag);
+  card?.classList.add("is-dragging");
   document.body.classList.add("place-pool-dragging");
 });
 
