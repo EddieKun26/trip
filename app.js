@@ -239,8 +239,8 @@ const state = {
   mapPreference: "all",
   selectedDate: "9/22",
   itineraryPlaceKind: "all",
-  // Place Pool filters are client-only view state: never persisted, stored or sent.
-  placePool: { open: false, kind: "all", section: "", favoriteOnly: false, selectedExpanded: false },
+  // Place Pool (行程規劃 workspace) filters are client-only view state: never persisted, stored or sent.
+  placePool: { open: false, kind: "all", section: "", favoriteOnly: false },
   places: [],
   deletedPlaces: [],
   profile: savedProfile,
@@ -1531,15 +1531,12 @@ function canonicalAreaHydrationReady(tripId, context) {
   return scheduleCanonicalAreaMigration();
 }
 
+// Normal maintenance migration terminals (success, no-op, marker recovery, read-only, gated
+// abort) are a background concern and never surface to the user; diagnosticLines() above this
+// call still logs every terminal to the console for engineering visibility.
 function presentCanonicalAreaResult(entry, tripId) {
   if (entry.notified || tripId !== state.tripId || !tripIsHydrated()) return;
   entry.notified = true;
-  const migration = globalThis.CanonicalTravelMigration;
-  const result = entry.result;
-  const message = migration?.terminalMessage ? migration.terminalMessage(result)
-    : result.outcome === "read-only" ? "目前帳號無 migration 寫入權限"
-      : result.outcome === "marker-noop" ? "此旅程無需 migration，no-op" : "Migration aborted（gate）";
-  showToast(message);
 }
 
 function scheduleCanonicalAreaMigration() {
@@ -1592,7 +1589,7 @@ function scheduleCanonicalAreaMigration() {
           entry.status = "aborted";
           entry.result = { outcome: "abort", stage: "gate", writes: result.writes || 0, schedulersReleased: false };
           console.warn("[canonical-area] stage=gate outcome=abort schedulers=suspended");
-          showToast("Migration aborted（gate）");
+          showToast("地點資料更新未完成，請重新整理後再試。");
           return entry.result;
         } finally { entry.applying = false; }
       }
@@ -1973,7 +1970,7 @@ function clearTripView() {
     members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
     placeKind: "all", placeSectionFilter: "", areaTagFilter: "", areaTagComparison: null, restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
     shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
-    placePool: { open: false, kind: "all", section: "", favoriteOnly: false, selectedExpanded: false },
+    placePool: { open: false, kind: "all", section: "", favoriteOnly: false },
     shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
   shoppingUndoSnapshot = null;
   shoppingSelectionMode = false;
@@ -5587,16 +5584,20 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
   const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
   if (!mapIsActive) mapFullscreen = false;
   document.body.classList.toggle("map-fullscreen-open", mapIsActive && mapFullscreen);
-  const placePoolScrollTop = document.querySelector("[data-place-pool-list]")?.scrollTop || 0;
+  // Anchor-based, not raw scrollTop: selecting/filtering/constraint changes reshuffle these lists
+  // (a selected card leaves the candidate list entirely), so a naive scrollTop restore would jump.
+  const poolCandidateAnchor = capturePlacePoolAnchor("[data-place-pool-list]");
+  const poolSelectedAnchor = capturePlacePoolAnchor("[data-place-pool-selected-list]");
   if (!state.tripId) app.innerHTML = state.isGuest ? emptyGuestScreen() : emptyTripsScreen();
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
   else if (state.activeTab === "places") app.innerHTML = placesScreen();
   else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
   else if (state.activeTab === "shopping") app.innerHTML = shoppingScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
-  document.body.classList.toggle("place-pool-docked", Boolean(state.tripId) && state.activeTab === "itinerary" && state.placePool.open && canEdit());
-  const placePoolList = document.querySelector("[data-place-pool-list]");
-  if (placePoolList && preserveScroll) placePoolList.scrollTop = placePoolScrollTop;
+  if (preserveScroll) {
+    restorePlacePoolAnchor(poolCandidateAnchor);
+    restorePlacePoolAnchor(poolSelectedAnchor);
+  }
   if (state.activeTab === "places" && state.placesMode === "map") {
     if (state.mapView !== "planning" && liveLocationEnabled) stopLiveLocation();
     window.requestAnimationFrame(() => initializeInteractiveMap({ filterOnly }));
@@ -8709,8 +8710,9 @@ function getUnscheduledPlaces(places = state.places, itinerary = state.itinerary
 
 // 主要地區 and 地點類型 reuse the Places filter cascade over pool Places only; 最想去 means at
 // least one member voted. Client view state only: no Place mutation, persistence or network.
-// matchesFilters and allEntries let the Selected section stay visible even when it falls outside
-// the current filter (selection is a hard commitment, not something filters may hide).
+// allEntries lets placePoolViewModel split the Selected column/drawer out of the unfiltered pool,
+// so it is never narrowed by these filters at all (selection is a hard commitment, not something
+// filters may hide); matchesFilters/entries only ever drive the candidate column.
 function getFilteredPlacePool(filters = state.placePool, pool = getUnscheduledPlaces()) {
   const selection = { placeKind: filters.kind, placeSectionFilter: filters.section, areaTagFilter: "", restaurantTagFilter: "" };
   const model = placesFilterModel(pool.entries.map((entry) => entry.place), selection);
@@ -8747,11 +8749,12 @@ function completePlacePoolAdd(placeKey, date) {
   return result;
 }
 
-/* Selection-first Place Pool (AI Planner Phase 1B.0 foundation). Selecting a Place marks it HARD:
- * the future AI Planner must schedule it exactly once, choosing the date, area grouping and daily
- * order itself. Unselected pool Places and anything the planner later discovers stay SOFT: it may
- * schedule them or not. Selection is picked from this same Place Pool by stable placeDetailKey,
- * scoped to the current trip and held only in memory: never persisted, stored or sent. */
+/* Selection-first Place Pool / 行程規劃 workspace (AI Planner Phase 1B.1). Selecting a Place marks
+ * it HARD: the future AI Planner must schedule it exactly once, choosing the date, area grouping
+ * and daily order itself unless a planning constraint (below) pins some of that. Unselected pool
+ * Places and anything the planner later discovers stay SOFT: it may schedule them or not.
+ * Selection is picked from this same Place Pool by stable placeDetailKey, scoped to the current
+ * trip and held only in memory: never persisted, stored or sent. */
 const placePoolSelection = { tripId: "", keys: new Set() };
 
 function placePoolSelectedKeys() {
@@ -8767,36 +8770,114 @@ function clearPlacePoolSelection() {
   placePoolSelection.keys = new Set();
 }
 
+/* Planning constraints (Phase 1B.1 foundation): once a Place is selected it may optionally be
+ * pinned to a trip day, and further to an exact time. This is purely a hint for the future AI
+ * Planner: UNSCHEDULED leaves date/time to the planner, FIXED_DAY pins the day only, FIXED_TIME
+ * pins day and time as a hard anchor. Same lifetime/storage contract as placePoolSelection: a
+ * trip-scoped in-memory Map keyed by placeDetailKey, never persisted, stored or sent. A
+ * constraint only ever exists for a currently selected Place; unselecting deletes it outright,
+ * and a fresh selection always starts UNSCHEDULED (no restored/hidden day or time). */
+const placePoolPlanning = { tripId: "", constraints: new Map() };
+
+function placePoolPlanningConstraints() {
+  if (placePoolPlanning.tripId !== state.tripId) {
+    placePoolPlanning.tripId = state.tripId;
+    placePoolPlanning.constraints = new Map();
+  }
+  return placePoolPlanning.constraints;
+}
+
+function clearPlacePoolConstraint(key) {
+  placePoolPlanningConstraints().delete(key);
+}
+
+// Mobile Selected drawer open/closed: UI-only state, same trip-scoped lazy-reset pattern as
+// placePoolSelection/placePoolPlanning above (never part of `state.placePool`, which is not
+// itself trip-scoped) so it resets to closed on a trip switch without needing clearTripView().
+const placePoolDrawer = { tripId: "", open: false };
+
+function placePoolDrawerIsOpen() {
+  if (placePoolDrawer.tripId !== state.tripId) {
+    placePoolDrawer.tripId = state.tripId;
+    placePoolDrawer.open = false;
+  }
+  return placePoolDrawer.open;
+}
+
+function setPlacePoolDrawerOpen(open) {
+  placePoolDrawer.tripId = state.tripId;
+  placePoolDrawer.open = Boolean(open);
+  render({ preserveScroll: true, filterOnly: true });
+}
+
+// UNSCHEDULED: { dayKey: null, time: null }. FIXED_DAY: { dayKey, time: null }. FIXED_TIME: { dayKey, time }.
+function placePoolConstraintFor(key) {
+  return placePoolPlanningConstraints().get(key) || { dayKey: null, time: null };
+}
+
+function placePoolConstraintKind(constraint) {
+  if (!constraint?.dayKey) return "UNSCHEDULED";
+  return constraint.time ? "FIXED_TIME" : "FIXED_DAY";
+}
+
+// The one formatter every candidate card, the desktop Selected column and the mobile Selected
+// drawer all call, so 未安排 / 9/22 / 9/22・18:30 never diverge across the three surfaces.
+function placePoolConstraintDisplayText(key) {
+  const constraint = placePoolConstraintFor(key);
+  const kind = placePoolConstraintKind(constraint);
+  if (kind === "UNSCHEDULED") return "未安排";
+  if (kind === "FIXED_DAY") return constraint.dayKey;
+  return `${constraint.dayKey}・${constraint.time}`;
+}
+
+const POOL_CONSTRAINT_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Choosing a real trip day auto-selects the Place (picking a date is itself "I want to go");
+// clearing back to 未安排 (dayKey falsy) always drops any time too and never unselects an
+// already-selected Place. Fails closed against a stale/no-longer-pooled key, like togglePlacePoolSelection.
+function applyPlacePoolConstraint(key, dayKey, time) {
+  if (!getUnscheduledPlaces().entries.some((entry) => entry.key === key)) return false;
+  const normalizedDay = dayKey && dateMeta.some(([date]) => date === dayKey) ? dayKey : null;
+  const normalizedTime = normalizedDay && POOL_CONSTRAINT_TIME_PATTERN.test(time || "") ? time : null;
+  const constraints = placePoolPlanningConstraints();
+  if (!normalizedDay) constraints.delete(key);
+  else constraints.set(key, { dayKey: normalizedDay, time: normalizedTime });
+  if (normalizedDay) placePoolSelectedKeys().add(key);
+  return true;
+}
+
 // A stale key (its Place got scheduled, deleted or turned same-name ambiguous elsewhere) is
-// pruned here rather than counted: the selected count always reflects currently valid entries.
+// pruned here rather than counted, and its constraint is dropped with it: the selected count
+// always reflects currently valid entries, never the raw key Set size.
 function placePoolSelectedEntries(pool = getUnscheduledPlaces()) {
   const keys = placePoolSelectedKeys();
   const validKeys = new Set(pool.entries.map((entry) => entry.key));
-  for (const key of [...keys]) if (!validKeys.has(key)) keys.delete(key);
+  for (const key of [...keys]) if (!validKeys.has(key)) { keys.delete(key); clearPlacePoolConstraint(key); }
   return pool.entries.filter((entry) => keys.has(entry.key));
 }
 
 function togglePlacePoolSelection(key) {
   if (!getUnscheduledPlaces().entries.some((entry) => entry.key === key)) {
     render({ preserveScroll: true });
-    return showToast("這個地點已不在地點池");
+    return showToast("這個地點已不在行程規劃中");
   }
   const keys = placePoolSelectedKeys();
-  if (keys.has(key)) keys.delete(key); else keys.add(key);
+  // Unselecting drops the constraint outright: a Place must never carry a hidden fixed day/time
+  // once it stops being a hard commitment. Re-selecting later always starts UNSCHEDULED again.
+  if (keys.has(key)) { keys.delete(key); clearPlacePoolConstraint(key); } else keys.add(key);
   return render({ preserveScroll: true, filterOnly: true });
 }
 
-// Selected stays visible above the current filters in getUnscheduledPlaces() stable order, no
-// matter selection time; filters only ever narrow the unselected list beneath it.
+// Selected always splits out of the same getUnscheduledPlaces() stable order, no matter
+// selection/constraint time; filters only ever narrow the candidate list, never the Selected column/drawer.
 function placePoolViewModel(pool = getFilteredPlacePool()) {
   const selectedEntries = placePoolSelectedEntries({ entries: pool.allEntries });
   const selectedKeys = new Set(selectedEntries.map((entry) => entry.key));
   const unselectedEntries = pool.entries.filter((entry) => !selectedKeys.has(entry.key));
-  const outOfFilterKeys = new Set(selectedEntries.filter((entry) => !pool.matchesFilters(entry)).map((entry) => entry.key));
-  return { ...pool, selectedEntries, unselectedEntries, outOfFilterKeys };
+  return { ...pool, selectedEntries, unselectedEntries };
 }
 
-// Drag is offered only where the pool is docked beside the phone frame; touch devices always use tap.
+// Drag is offered only where the workspace is used with a real mouse; touch devices always use tap.
 const PLACE_POOL_DOCKED_MEDIA = "(min-width: 900px) and (hover: hover) and (pointer: fine)";
 
 function placePoolDocked() {
@@ -8804,51 +8885,81 @@ function placePoolDocked() {
 }
 
 function placePoolToggleMarkup(pool) {
-  return `<button class="place-pool-toggle" type="button" data-toggle-place-pool aria-expanded="${state.placePool.open}" aria-controls="place-pool-panel" aria-label="地點池，${pool.total} 個尚未安排"><span>地點池</span><b>${pool.total}</b></button>`;
+  return `<button class="place-pool-toggle" type="button" data-toggle-place-pool aria-expanded="${state.placePool.open}" aria-controls="place-pool-panel" aria-label="行程規劃，${pool.total} 個尚未安排"><span>行程規劃</span><b>${pool.total}</b></button>`;
 }
 
-// One card markup shared by the Selected and 其他地點 sections. The selectable surface (toggles
-// selection) and the drag handle (docked-only, copy-to-day gesture) are siblings, never nested,
-// so desktop click-to-select and native drag never fight over the same element.
-function placePoolCardMarkup({ key, place, voteCount }, { docked, selected, outOfFilter }) {
+// Candidate card: the selectable surface (toggles selection), the drag handle (docked-only,
+// copy-to-day gesture) and the planning-constraint control are always siblings, never nested, so
+// desktop click-to-select, native drag and opening the constraint sheet never fight over one element.
+function placePoolCardMarkup({ key, place, voteCount }, { docked }) {
   const tags = AreaTags.values(place).slice(0, 3).map((tag) => `<span class="highlight-tag place-tag-area">${escapeHtml(tag)}</span>`).join("");
   const handle = docked
     ? `<span class="place-pool-drag-handle" data-pool-drag="${escapeHtml(key)}" draggable="true" role="img" aria-label="拖曳「${escapeHtml(place.name)}」到某一天">⠿</span>`
     : "";
   return `
-          <li class="place-pool-item${selected ? " is-selected" : ""}">
-            <div class="place-pool-card${selected ? " is-selected" : ""}">
-              <button class="place-pool-select" type="button" data-pool-place="${escapeHtml(key)}" aria-pressed="${selected}" aria-describedby="place-pool-hint">
-                <span class="place-pool-check" aria-hidden="true">${selected ? "✓" : ""}</span>
+          <li class="place-pool-item" data-pool-anchor-key="${escapeHtml(key)}">
+            <div class="place-pool-card">
+              <button class="place-pool-select" type="button" data-pool-place="${escapeHtml(key)}" aria-pressed="false" aria-describedby="place-pool-hint">
+                <span class="place-pool-check" aria-hidden="true"></span>
                 <span class="place-pool-thumb" style="--swatch:${escapeHtml(place.swatch || "")}" aria-hidden="true">${escapeHtml(place.mark || "")}</span>
                 <span class="place-pool-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(kindLabel(place.kind))} · ${escapeHtml(planningSectionLabel(place))}</small>${tags ? `<span class="place-pool-tags">${tags}</span>` : ""}</span>
                 ${voteCount ? `<span class="place-pool-favorite"><span aria-hidden="true">★</span>${voteCount}<span class="place-pool-sr"> 人最想去</span></span>` : ""}
               </button>
               ${handle}
-              <button class="place-pool-add-button" type="button" data-pool-add="${escapeHtml(key)}" aria-label="直接將「${escapeHtml(place.name)}」加入某一天">${docked ? "＋日期" : "⋯"}</button>
+              <button class="place-pool-constraint" type="button" data-pool-constraint="${escapeHtml(key)}" aria-haspopup="dialog">${escapeHtml(placePoolConstraintDisplayText(key))} <span aria-hidden="true">▾</span></button>
             </div>
-            ${outOfFilter ? '<p class="place-pool-out-of-filter">不在目前篩選</p>' : ""}
           </li>`;
 }
 
-// Selected always renders in full above the filters (a hard commitment the user must never lose
-// sight of); past 6 entries it collapses to a single toggle so a long selection never buries the
-// rest of the pool on mobile. 其他地點 is the only section the filters narrow.
-function placePoolSelectedSectionMarkup(pool, docked) {
-  const count = pool.selectedEntries.length;
-  if (!count) return "";
-  const collapsible = count > 6;
-  const expanded = !collapsible || Boolean(state.placePool.selectedExpanded);
-  const heading = collapsible
-    ? `<button class="place-pool-selected-toggle" type="button" data-pool-selected-toggle aria-expanded="${expanded}" aria-controls="place-pool-selected-list">已選 ${count} 個 <span aria-hidden="true">${expanded ? "▴" : "▾"}</span></button>`
-    : `<h3 class="place-pool-selected-heading">已選 ${count} 個</h3>`;
-  const list = expanded
-    ? `<ul class="place-pool-list place-pool-selected-list" id="place-pool-selected-list" data-place-pool-selected-list>${pool.selectedEntries.map((entry) => placePoolCardMarkup(entry, { docked, selected: true, outOfFilter: pool.outOfFilterKeys.has(entry.key) })).join("")}</ul>`
-    : "";
-  return `<div class="place-pool-selected">${heading}${list}</div>`;
+// One compact row shared verbatim by the desktop Selected column and the mobile Selected drawer:
+// icon/check, name and the planning constraint only — never tags, geography, votes or description.
+function placePoolSelectedCompactCardMarkup({ key, place }) {
+  // The checkmark is its own toggle (reusing the exact same data-pool-place handler that
+  // candidate cards use — one selection verb, two entry points) so a Place can be unselected
+  // straight from the Selected column/drawer, not only by returning to its candidate card. The
+  // rest of the row opens the planning-constraint sheet, so the two never fight over one click.
+  return `
+          <li class="place-pool-selected-item" data-pool-anchor-key="${escapeHtml(key)}">
+            <button class="place-pool-selected-unselect" type="button" data-pool-place="${escapeHtml(key)}" aria-pressed="true" aria-label="取消選取「${escapeHtml(place.name)}」">
+              <span class="place-pool-selected-check" aria-hidden="true">✓</span>
+            </button>
+            <button class="place-pool-selected-row" type="button" data-pool-constraint="${escapeHtml(key)}" aria-haspopup="dialog">
+              <span class="place-pool-selected-name">${escapeHtml(place.name)}</span>
+              <span class="place-pool-selected-constraint">${escapeHtml(placePoolConstraintDisplayText(key))}</span>
+            </button>
+          </li>`;
 }
 
-// Phase 1B.0 foundation only: the CTA is disabled and makes zero network, persistence or
+// Desktop: a static left column. Mobile: the same markup becomes the right-side Selected drawer
+// via CSS only (one source of truth, no duplicated markup). Never collapses past any count —
+// the column/drawer scrolls independently instead.
+function placePoolSelectedColumnMarkup(pool) {
+  const count = pool.selectedEntries.length;
+  const list = count
+    ? `<ul class="place-pool-selected-list" id="place-pool-selected-list" data-place-pool-selected-list>${pool.selectedEntries.map((entry) => placePoolSelectedCompactCardMarkup(entry)).join("")}</ul>`
+    : `<div class="place-pool-selected-empty">還沒有選擇地點</div>`;
+  return `
+        <aside class="place-pool-selected-column" id="place-pool-selected-column" aria-label="已選地點">
+          <h3 class="place-pool-selected-heading">已選 ${count} 個</h3>
+          ${list}
+        </aside>`;
+}
+
+// Fixed to the right-center of the mobile viewport at every selected count, including 0, so the
+// drawer entry point is visible before the first selection is ever made. Chinese label/count are
+// stacked as separate lines, never rotated as one block.
+function placePoolMobileHandleMarkup(count) {
+  const open = placePoolDrawerIsOpen();
+  return `
+        <button class="place-pool-mobile-handle" type="button" data-pool-drawer-toggle aria-expanded="${open}" aria-controls="place-pool-selected-column" aria-label="已選地點，${count} 個">
+          <span class="place-pool-mobile-handle-check" aria-hidden="true">✓</span>
+          <span class="place-pool-mobile-handle-label">已選</span>
+          <b class="place-pool-mobile-handle-count">${count}</b>
+          <span class="place-pool-mobile-handle-chevron" aria-hidden="true">${open ? "›" : "‹"}</span>
+        </button>`;
+}
+
+// Phase 1B.1 foundation only: the CTA is disabled and makes zero network, persistence or
 // itinerary changes. It exists so the copy and hand-off point are already correct once the AI
 // Planner ships; nothing here may look, or claim, like the Planner already works.
 function placePoolCtaMarkup(count) {
@@ -8860,35 +8971,39 @@ function placePoolCtaMarkup(count) {
           </div>`;
 }
 
+// The full-viewport 行程規劃 workspace: a header, then a two-column layout on desktop (left:
+// Selected, right: candidates + filters) that becomes one candidate column plus a right-side
+// Selected drawer on narrow viewports (CSS only, same markup — see placePoolSelectedColumnMarkup).
 function placePoolMarkup(rawPool) {
   const filters = state.placePool;
   const docked = placePoolDocked();
   const pool = placePoolViewModel(rawPool);
   const field = (filter, label, selected, options) => `<div class="places-filter-field"><label for="place-pool-filter-${filter}">${label}</label><select id="place-pool-filter-${filter}" data-place-pool-filter="${filter}">${options.map(([value, name]) => `<option value="${escapeHtml(value)}"${value === selected ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
-  const selectedSection = placePoolSelectedSectionMarkup(pool, docked);
-  const rows = pool.unselectedEntries.map((entry) => placePoolCardMarkup(entry, { docked, selected: false, outOfFilter: false })).join("");
+  const rows = pool.unselectedEntries.map((entry) => placePoolCardMarkup(entry, { docked })).join("");
+  const selectedCount = pool.selectedEntries.length;
   return `
       <div class="place-pool" id="place-pool-panel"${filters.open ? "" : " hidden"}>
-        <div class="place-pool-backdrop" data-close-place-pool></div>
-        <aside class="place-pool-panel" aria-labelledby="place-pool-title">
+        <div class="place-pool-workspace${placePoolDrawerIsOpen() ? " is-drawer-open" : ""}" role="dialog" aria-modal="true" aria-labelledby="place-pool-title">
           <div class="place-pool-head">
-            <div><h2 id="place-pool-title">地點池</h2><p>${pool.total} 個尚未安排</p></div>
-            <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉地點池">×</button>
+            <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉行程規劃">×</button>
+            <div class="place-pool-head-copy"><h2 id="place-pool-title">行程規劃</h2><p>已選 ${selectedCount} 個</p></div>
           </div>
-          <div class="place-pool-scroll">
-            ${selectedSection}
-            <div class="places-filter-bar place-pool-filters" role="group" aria-label="地點池篩選">
-              ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
-              ${field("kind", "地點類型", filters.kind, pool.kinds)}
-              <button class="place-pool-favorite-filter" type="button" data-place-pool-favorite aria-pressed="${filters.favoriteOnly}">★ 最想去</button>
-            </div>
-            <p class="place-pool-hint" id="place-pool-hint">${docked ? "點選地點加入已選清單；拖曳「⠿」或按「＋日期」可直接加入某一天" : "點選地點加入已選清單；點「⋯」可直接加入某一天"}</p>
-            <h3 class="place-pool-section-heading">其他地點</h3>
-            ${rows ? `<ul class="place-pool-list" data-place-pool-list>${rows}</ul>` : `<div class="place-pool-empty">${pool.total ? "沒有符合篩選的未安排地點" : "所有收藏地點都已排入行程"}</div>`}
-            ${pool.ambiguousCount ? `<p class="place-pool-note">${pool.ambiguousCount} 個同名地點無法從地點池加入</p>` : ""}
+          <div class="place-pool-layout">
+            ${placePoolSelectedColumnMarkup(pool)}
+            <section class="place-pool-candidates-column" aria-label="待選地點">
+              <div class="places-filter-bar place-pool-filters" role="group" aria-label="行程規劃篩選">
+                ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
+                ${field("kind", "地點類型", filters.kind, pool.kinds)}
+                <button class="place-pool-favorite-filter" type="button" data-place-pool-favorite aria-pressed="${filters.favoriteOnly}">★ 最想去</button>
+              </div>
+              <p class="place-pool-hint" id="place-pool-hint">${docked ? "點選地點加入已選清單；拖曳「⠿」可直接加入某一天" : "點選地點加入已選清單；點日期可設定規劃限制"}</p>
+              ${rows ? `<ul class="place-pool-list" data-place-pool-list>${rows}</ul>` : `<div class="place-pool-empty">${pool.total ? "沒有符合篩選的待選地點" : "所有收藏地點都已排入行程"}</div>`}
+              ${pool.ambiguousCount ? `<p class="place-pool-note">${pool.ambiguousCount} 個同名地點無法在行程規劃中選取</p>` : ""}
+            </section>
           </div>
-          ${placePoolCtaMarkup(pool.selectedEntries.length)}
-        </aside>
+          ${placePoolMobileHandleMarkup(selectedCount)}
+          ${placePoolCtaMarkup(selectedCount)}
+        </div>
       </div>`;
 }
 
@@ -8902,9 +9017,209 @@ function openPlacePoolAddSheet(placeKey) {
   const matches = getUnscheduledPlaces().entries.filter((entry) => entry.key === placeKey);
   if (matches.length !== 1) {
     render({ preserveScroll: true });
-    return showToast("這個地點已不在地點池");
+    return showToast("這個地點已不在行程規劃中");
   }
   return openAddPlaceDateSheet(matches[0].place.name, { poolKey: placeKey });
+}
+
+/* Planning constraint sheet: a wheel-style day picker (未安排 + every trip day, never a date
+ * outside the trip range) that reveals an optional 15-minute-stop time wheel once a real day is
+ * chosen. Reuses the itinerary time wheel's exact visual/interaction contract — a scrollable
+ * 44px-row column where a click scrolls an option into place and a delegated scroll listener
+ * commits the nearest one (see the shared "scroll" listener below) — under distinct
+ * data-pool-wheel-* attributes so it never shares state with the itinerary editor's pendingTimePicker. */
+let pendingPoolConstraint = null;
+
+const POOL_CONSTRAINT_MINUTES = ["00", "15", "30", "45"];
+
+function poolConstraintDayWheelOptions() {
+  const options = [["", "未安排"], ...dateMeta.map(([date]) => [date, date])];
+  return options.map(([value, label]) => `<button class="time-wheel-option" type="button" data-pool-wheel-value="${escapeHtml(value)}">${escapeHtml(label)}</button>`).join("");
+}
+
+function poolConstraintHourWheelOptions() {
+  return Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, "0"))
+    .map((value) => `<button class="time-wheel-option" type="button" data-pool-wheel-value="${value}">${value}</button>`).join("");
+}
+
+function poolConstraintMinuteWheelOptions() {
+  return POOL_CONSTRAINT_MINUTES.map((value) => `<button class="time-wheel-option" type="button" data-pool-wheel-value="${value}">${value}</button>`).join("");
+}
+
+function poolConstraintDayIndex(dayKey) {
+  if (!dayKey) return 0;
+  const index = dateMeta.findIndex(([date]) => date === dayKey);
+  return index < 0 ? 0 : index + 1;
+}
+
+function poolConstraintPendingSummary(pending) {
+  if (!pending?.dayKey) return "未安排";
+  if (!pending.timeOn) return pending.dayKey;
+  return `${pending.dayKey}・${pending.hour}:${pending.minute}`;
+}
+
+function placePoolConstraintSheetMarkup(place, pending) {
+  return `
+    <div class="modal-backdrop place-pool-constraint-backdrop" data-dismiss-sheet>
+      <section class="modal-sheet place-pool-constraint-sheet" role="dialog" aria-modal="true" aria-label="設定「${escapeHtml(place.name)}」的規劃限制">
+        <div class="section-row">
+          <div><p class="section-kicker">${escapeHtml(place.name)}</p><h2>規劃限制</h2></div>
+          <button class="icon-button" type="button" data-pool-constraint-cancel aria-label="取消">×</button>
+        </div>
+        <p class="place-pool-constraint-summary" data-pool-constraint-summary>${escapeHtml(poolConstraintPendingSummary(pending))}</p>
+        <div class="time-wheel-picker place-pool-constraint-day-wheel">
+          <div class="time-wheel-selection" aria-hidden="true"></div>
+          <div class="time-wheel-column" data-pool-wheel-part="day" role="listbox" aria-label="日期">${poolConstraintDayWheelOptions()}</div>
+        </div>
+        <div class="place-pool-constraint-time-toggle"${pending.dayKey ? "" : " hidden"} data-pool-constraint-time-section>
+          <button class="place-pool-constraint-time-switch" type="button" data-pool-constraint-time-toggle aria-pressed="${pending.timeOn}">指定時間</button>
+          <div class="time-wheel-picker place-pool-constraint-time-wheel"${pending.timeOn ? "" : " hidden"} data-pool-constraint-time-wheel>
+            <div class="time-wheel-selection" aria-hidden="true"></div>
+            <div class="time-wheel-column" data-pool-wheel-part="hour" role="listbox" aria-label="小時">${poolConstraintHourWheelOptions()}</div>
+            <b aria-hidden="true">:</b>
+            <div class="time-wheel-column" data-pool-wheel-part="minute" role="listbox" aria-label="分鐘">${poolConstraintMinuteWheelOptions()}</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" data-pool-add="${escapeHtml(placeDetailKey(place))}">直接加入行程</button>
+          <button class="primary-button" type="button" data-pool-constraint-confirm>確定</button>
+        </div>
+      </section>
+    </div>`;
+}
+
+function openPlacePoolConstraintSheet(key) {
+  const place = state.places.find((candidate) => placeDetailKey(candidate) === key);
+  if (!place || !getUnscheduledPlaces().entries.some((entry) => entry.key === key)) {
+    render({ preserveScroll: true });
+    return showToast("這個地點已不在行程規劃中");
+  }
+  const constraint = placePoolConstraintFor(key);
+  const [hour = "00", minute = "00"] = (constraint.time || "00:00").split(":");
+  pendingPoolConstraint = { key, dayKey: constraint.dayKey || "", timeOn: Boolean(constraint.time), hour, minute: POOL_CONSTRAINT_MINUTES.includes(minute) ? minute : "00" };
+  sheetRoot.innerHTML = placePoolConstraintSheetMarkup(place, pendingPoolConstraint);
+  window.requestAnimationFrame(() => {
+    document.querySelector('[data-pool-wheel-part="day"]')?.scrollTo({ top: poolConstraintDayIndex(pendingPoolConstraint.dayKey) * 44 });
+    if (pendingPoolConstraint.timeOn) {
+      document.querySelector('[data-pool-wheel-part="hour"]')?.scrollTo({ top: Number(pendingPoolConstraint.hour) * 44 });
+      document.querySelector('[data-pool-wheel-part="minute"]')?.scrollTo({ top: POOL_CONSTRAINT_MINUTES.indexOf(pendingPoolConstraint.minute) * 44 });
+    }
+    syncPoolConstraintWheelsFromScroll();
+  });
+}
+
+// scrollTo(0) never fires a "scroll" event when a column is already at scrollTop 0 (the common
+// case: a fresh 未安排 sheet), so the initial .active highlight needs an explicit sync rather than
+// relying solely on the delegated scroll listener below.
+function syncPoolConstraintWheelsFromScroll() {
+  document.querySelectorAll("[data-pool-wheel-part]").forEach(updatePoolConstraintWheelColumn);
+}
+
+// Updates DOM incrementally (hidden/aria-pressed/active class/summary text) rather than
+// re-rendering the sheet, so a live scroll gesture on one wheel column is never interrupted by
+// its own commit handler replacing the markup mid-scroll.
+function updatePoolConstraintWheelColumn(column) {
+  if (!pendingPoolConstraint || !column) return;
+  const options = [...column.querySelectorAll("[data-pool-wheel-value]")];
+  const index = Math.max(0, Math.min(options.length - 1, Math.round(column.scrollTop / 44)));
+  const selected = options[index];
+  options.forEach((option) => option.classList.toggle("active", option === selected));
+  const part = column.dataset.poolWheelPart;
+  const value = selected?.dataset.poolWheelValue ?? "";
+  if (part === "day") {
+    pendingPoolConstraint.dayKey = value;
+    const timeSection = document.querySelector("[data-pool-constraint-time-section]");
+    if (timeSection) timeSection.hidden = !value;
+    if (!value) {
+      pendingPoolConstraint.timeOn = false;
+      const timeWheel = document.querySelector("[data-pool-constraint-time-wheel]");
+      if (timeWheel) timeWheel.hidden = true;
+      const toggle = document.querySelector("[data-pool-constraint-time-toggle]");
+      if (toggle) toggle.setAttribute("aria-pressed", "false");
+    }
+  } else if (part === "hour") {
+    pendingPoolConstraint.hour = value || "00";
+  } else if (part === "minute") {
+    pendingPoolConstraint.minute = value || "00";
+  }
+  const summary = document.querySelector("[data-pool-constraint-summary]");
+  if (summary) summary.textContent = poolConstraintPendingSummary(pendingPoolConstraint);
+}
+
+function togglePoolConstraintTime() {
+  if (!pendingPoolConstraint?.dayKey) return;
+  pendingPoolConstraint.timeOn = !pendingPoolConstraint.timeOn;
+  const toggle = document.querySelector("[data-pool-constraint-time-toggle]");
+  if (toggle) toggle.setAttribute("aria-pressed", String(pendingPoolConstraint.timeOn));
+  const timeWheel = document.querySelector("[data-pool-constraint-time-wheel]");
+  if (timeWheel) timeWheel.hidden = !pendingPoolConstraint.timeOn;
+  if (pendingPoolConstraint.timeOn) {
+    window.requestAnimationFrame(() => {
+      document.querySelector('[data-pool-wheel-part="hour"]')?.scrollTo({ top: Number(pendingPoolConstraint.hour) * 44 });
+      document.querySelector('[data-pool-wheel-part="minute"]')?.scrollTo({ top: POOL_CONSTRAINT_MINUTES.indexOf(pendingPoolConstraint.minute) * 44 });
+      syncPoolConstraintWheelsFromScroll();
+    });
+  }
+  const summary = document.querySelector("[data-pool-constraint-summary]");
+  if (summary) summary.textContent = poolConstraintPendingSummary(pendingPoolConstraint);
+}
+
+function confirmPlacePoolConstraint() {
+  if (!pendingPoolConstraint) return closeSheet();
+  const { key, dayKey, timeOn, hour, minute } = pendingPoolConstraint;
+  const ok = applyPlacePoolConstraint(key, dayKey || null, timeOn ? `${hour}:${minute}` : null);
+  pendingPoolConstraint = null;
+  closeSheet();
+  render({ preserveScroll: true, filterOnly: true });
+  if (!ok) showToast("這個地點已不在行程規劃中");
+}
+
+/* Scroll-anchor preservation: identify a stable content anchor before a re-render (by key, its
+ * pixel offset within the scroll container, and its immediate neighbor keys for a deterministic
+ * fallback when that exact Place was the one selected/removed) and restore the same visual
+ * position afterwards instead of a raw scrollTop, since selecting/filtering/constraint changes
+ * the list's height. placePoolScrollAnchorFromRects/placePoolScrollTopFromAnchor are pure math
+ * over plain { key, top } rects and are unit-tested directly; the remaining functions wire that
+ * math to the live DOM and only run in a real browser. */
+function placePoolScrollAnchorFromRects(rects, scrollTop) {
+  if (!rects.length) return null;
+  let index = 0;
+  for (let i = 0; i < rects.length; i += 1) {
+    if (rects[i].top <= scrollTop + 1) index = i; else break;
+  }
+  return { key: rects[index].key, offset: scrollTop - rects[index].top, prevKey: rects[index - 1]?.key ?? null, nextKey: rects[index + 1]?.key ?? null };
+}
+
+function placePoolScrollTopFromAnchor(rects, anchor) {
+  if (!anchor || !rects.length) return null;
+  const byKey = new Map(rects.map((rect) => [rect.key, rect]));
+  const exact = byKey.get(anchor.key);
+  if (exact) return Math.max(0, exact.top + anchor.offset);
+  const fallback = byKey.get(anchor.nextKey) || byKey.get(anchor.prevKey) || rects[0];
+  return Math.max(0, fallback.top);
+}
+
+function placePoolListItemRects(container) {
+  if (!container?.querySelectorAll) return [];
+  const containerTop = container.getBoundingClientRect().top - container.scrollTop;
+  return [...container.querySelectorAll("[data-pool-anchor-key]")].map((element) => ({
+    key: element.dataset.poolAnchorKey,
+    top: element.getBoundingClientRect().top - containerTop,
+  }));
+}
+
+function capturePlacePoolAnchor(selector) {
+  const container = document.querySelector(selector);
+  if (!container) return null;
+  return { selector, anchor: placePoolScrollAnchorFromRects(placePoolListItemRects(container), container.scrollTop) };
+}
+
+function restorePlacePoolAnchor(captured) {
+  if (!captured?.anchor) return;
+  const container = document.querySelector(captured.selector);
+  if (!container) return;
+  const top = placePoolScrollTopFromAnchor(placePoolListItemRects(container), captured.anchor);
+  if (top != null) container.scrollTop = top;
 }
 
 function openReorderSheet(key) {
@@ -8934,6 +9249,7 @@ function openReorderSheet(key) {
 
 function closeSheet() {
   pendingTimePicker = null;
+  pendingPoolConstraint = null;
   pendingFlightTicketFile = null;
   flightTicketRecognitionToken += 1;
   shoppingRecognitionToken += 1;
@@ -9340,16 +9656,33 @@ document.addEventListener("click", async (event) => {
     return render({ preserveScroll: true, filterOnly: true });
   }
 
-  if (event.target.closest("[data-pool-selected-toggle]")) {
-    state.placePool.selectedExpanded = !state.placePool.selectedExpanded;
-    return render({ preserveScroll: true, filterOnly: true });
-  }
+  if (event.target.closest("[data-pool-drawer-toggle]")) return setPlacePoolDrawerOpen(!placePoolDrawerIsOpen());
 
   const poolAdd = event.target.closest("[data-pool-add]");
   if (poolAdd) return canEdit() ? openPlacePoolAddSheet(poolAdd.dataset.poolAdd) : guestOnlyMessage();
 
   const poolPlace = event.target.closest("[data-pool-place]");
   if (poolPlace) return canEdit() ? togglePlacePoolSelection(poolPlace.dataset.poolPlace) : guestOnlyMessage();
+
+  const poolConstraint = event.target.closest("[data-pool-constraint]");
+  if (poolConstraint) return canEdit() ? openPlacePoolConstraintSheet(poolConstraint.dataset.poolConstraint) : guestOnlyMessage();
+
+  const poolWheelValue = event.target.closest("[data-pool-wheel-value]");
+  if (poolWheelValue) {
+    const column = poolWheelValue.closest("[data-pool-wheel-part]");
+    const options = [...column.querySelectorAll("[data-pool-wheel-value]")];
+    column.scrollTo({ top: options.indexOf(poolWheelValue) * 44, behavior: "smooth" });
+    return;
+  }
+
+  if (event.target.closest("[data-pool-constraint-time-toggle]")) return togglePoolConstraintTime();
+
+  if (event.target.closest("[data-pool-constraint-cancel]")) {
+    closeSheet();
+    return showToast("已取消規劃限制設定");
+  }
+
+  if (event.target.closest("[data-pool-constraint-confirm]")) return confirmPlacePoolConstraint();
 
   if (event.target.closest("[data-open-itinerary-places]")) {
     if (!canEdit()) return guestOnlyMessage();
@@ -9854,6 +10187,8 @@ document.addEventListener("pointercancel", finishPreviewRailDrag);
 document.addEventListener("scroll", (event) => {
   const column = event.target.closest?.("[data-wheel-part]");
   if (column) updateTimeWheelColumn(column);
+  const poolColumn = event.target.closest?.("[data-pool-wheel-part]");
+  if (poolColumn) updatePoolConstraintWheelColumn(poolColumn);
 }, true);
 
 document.addEventListener("change", async (event) => {

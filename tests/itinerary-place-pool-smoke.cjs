@@ -1,5 +1,9 @@
-// Local-only browser acceptance for the Itinerary Place Pool. NODE_PATH may point to an installed
-// Playwright runtime. Every request is served from this checkout or a synthetic API stub; no backend.
+// Local-only browser acceptance for the 行程規劃 (Fullscreen Trip Planning Workspace). NODE_PATH
+// may point to an installed Playwright runtime. Every request is served from this checkout or a
+// synthetic API stub; no backend. Playwright is not installed in this sandbox — this script was
+// updated to the new fullscreen/two-column/drawer contract but not executed here; the live
+// verification for this round was done through the Browser pane tool against a scratch server
+// instead (see memory/itinerary-place-pool.md), the same substitute used by prior Place Pool rounds.
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -51,13 +55,14 @@ async function open(browser, contextOptions) {
   await page.goto(`${origin}/`);
   await page.waitForFunction(() => state.hydrationStatus === 'ready' && state.tripId === 'b' && state.activeTab === 'itinerary');
   // Let pre-existing startup enrichment (the restaurant tag backfill's exact /api/places lookup,
-  // identical on the unmodified baseline) settle before the Place Pool phase is measured.
+  // identical on the unmodified baseline) settle before the workspace phase is measured.
   await page.waitForTimeout(2500);
   await page.evaluate(() => { state.selectedDate = '9/20'; render(); });
   return { context, page, errors, requests, blocked, poolStart: requests.length };
 }
 
-const cards = (page) => page.locator('#place-pool-panel [data-pool-place]');
+const candidateCards = (page) => page.locator('[data-place-pool-list] [data-pool-place]');
+const selectedRows = (page) => page.locator('[data-place-pool-selected-list] [data-pool-constraint]');
 const savedItinerary = (requests) => {
   const put = requests.filter((request) => request.method === 'PUT' && request.path === '/api/trip').at(-1);
   return put ? JSON.parse(put.body).itinerary : null;
@@ -65,134 +70,159 @@ const savedItinerary = (requests) => {
 function networkSummary(requests, poolStart) {
   const describe = (list) => list.map((request) => `${request.method} ${request.path}`);
   const pool = describe(requests.slice(poolStart));
-  assert.ok(pool.every((entry) => entry === 'PUT /api/trip'), `Place Pool phase made non-Trip requests: ${JSON.stringify(pool)}`);
+  assert.ok(pool.every((entry) => entry === 'PUT /api/trip'), `行程規劃 phase made non-Trip requests: ${JSON.stringify(pool)}`);
   return { startup: describe(requests.slice(0, poolStart)), poolPhase: pool };
 }
 
 async function desktop(browser) {
   const { context, page, errors, requests, blocked, poolStart } = await open(browser, { viewport: { width: 1280, height: 860 } });
-  const toggle = page.locator('[data-toggle-place-pool]'), panel = page.locator('#place-pool-panel');
+  const toggle = page.locator('[data-toggle-place-pool]'), panel = page.locator('#place-pool-panel'), workspace = page.locator('.place-pool-workspace');
   assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
   assert.equal(await toggle.getAttribute('aria-controls'), 'place-pool-panel');
   assert.equal(await panel.isVisible(), false);
-  assert.match(await toggle.textContent(), /地點池\s*5/);
+  assert.match(await toggle.textContent(), /行程規劃\s*5/);
   await toggle.click();
   await panel.waitFor({ state: 'visible' });
   assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
-  const phone = await page.locator('.phone').boundingBox(), drawer = await page.locator('.place-pool-panel').boundingBox();
-  assert.ok(phone.x + phone.width <= drawer.x, `docked drawer overlaps phone: ${JSON.stringify({ phone, drawer })}`);
-  assert.equal(await page.locator('.place-pool-backdrop').isVisible(), false);
-  assert.equal(await cards(page).count(), 5);
+
+  // Fullscreen: the workspace fills the viewport, not a docked side panel beside a phone frame.
+  const box = await workspace.boundingBox(), viewport = page.viewportSize();
+  assert.ok(Math.abs(box.width - viewport.width) <= 2 && Math.abs(box.height - viewport.height) <= 2, `workspace is not fullscreen: ${JSON.stringify({ box, viewport })}`);
+
+  // Two-column desktop layout: the Selected column sits fully to the left of the candidates column.
+  const selectedBox = await page.locator('.place-pool-selected-column').boundingBox();
+  const candidatesBox = await page.locator('.place-pool-candidates-column').boundingBox();
+  assert.ok(selectedBox.x + selectedBox.width <= candidatesBox.x + 1, `Selected column is not left of candidates: ${JSON.stringify({ selectedBox, candidatesBox })}`);
+  assert.equal(await page.locator('.place-pool-mobile-handle').isVisible(), false, 'no mobile handle on desktop');
+  assert.equal(await candidateCards(page).count(), 5);
   assert.equal(await page.locator('[data-pool-drag="app:smoke-asakusa"]').getAttribute('draggable'), 'true');
-  assert.equal(await cards(page).first().getAttribute('draggable'), null, 'the selectable card surface itself is never draggable');
+  assert.equal(await candidateCards(page).first().getAttribute('draggable'), null, 'the selectable card surface itself is never draggable');
   assert.match(await page.locator('[data-pool-cta]').textContent(), /AI 幫我規劃行程/);
 
-  // Click three cards: all three highlight, move to the Selected section, and stay on top.
+  // Click three cards: all three leave the candidate list and appear as compact rows in the left column.
   for (const key of ['app:smoke-asakusa', 'app:smoke-ueno', 'app:smoke-tsukiji']) {
     await page.locator(`[data-pool-place="${key}"]`).click();
   }
-  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 3);
-  for (const key of ['app:smoke-asakusa', 'app:smoke-ueno', 'app:smoke-tsukiji']) {
-    assert.equal(await page.locator(`[data-pool-place="${key}"]`).getAttribute('aria-pressed'), 'true');
-  }
-  assert.match(await page.locator('.place-pool-selected').textContent(), /已選 3 個/);
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-constraint]').length === 3);
+  assert.equal(await candidateCards(page).count(), 2);
+  assert.match(await page.locator('.place-pool-selected-heading').textContent(), /已選 3 個/);
   assert.match(await page.locator('[data-pool-cta]').textContent(), /用已選 3 個地點規劃/);
   assert.equal(requests.slice(poolStart).length, 0, 'selecting cards makes no requests');
 
-  // Filters narrow only 其他地點; the Selected section (and every card in it) stays visible.
+  // Filters narrow only the candidates column; the Selected column is entirely unaffected.
   await page.selectOption('#place-pool-filter-kind', 'lodging');
-  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 3);
-  assert.equal(await page.locator('[data-pool-place="app:smoke-asakusa"]').count(), 1, 'a selected Place outside the current filter remains visible');
-  assert.match(await page.locator('[data-pool-place="app:smoke-asakusa"]').locator('xpath=ancestor::li').textContent(), /不在目前篩選/);
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-constraint]').length === 3);
+  assert.equal(await selectedRows(page).count(), 3, 'the Selected column ignores the candidate filter entirely');
   await page.selectOption('#place-pool-filter-kind', 'all');
 
-  // Unselecting returns the card to its original stable position among 其他地點.
-  await page.locator('[data-pool-place="app:smoke-ueno"]').click();
-  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 2);
-  assert.equal(await page.locator('[data-pool-place="app:smoke-ueno"]').getAttribute('aria-pressed'), 'false');
-  assert.equal(requests.slice(poolStart).length, 0, 'unselecting still makes no requests');
+  // Unselecting from the Selected column's own checkmark returns the card to its original stable
+  // position among the candidates (the checkmark reuses the same data-pool-place toggle handler).
+  await page.locator('[data-place-pool-selected-list] [data-pool-place="app:smoke-ueno"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-pool-place="app:smoke-ueno"]')?.closest('[data-place-pool-list]'));
 
-  // The dedicated drag handle still drags a (selected) Place straight onto a day.
-  await page.locator('[data-pool-drag="app:smoke-asakusa"]').dragTo(page.locator('.date-button[data-date="9/21"]'));
-  await page.waitForFunction(() => !document.querySelector('[data-pool-place="app:smoke-asakusa"]') && state.selectedDate === '9/21');
-  assert.match(await page.locator('.timeline').textContent(), /淺草寺/);
+  // Planning constraint: set 淺草寺 to 9/22 with an exact time from its candidate-card control.
+  const asakusaConstraint = page.locator('[data-pool-constraint="app:smoke-asakusa"]');
+  if (await asakusaConstraint.count()) {
+    await asakusaConstraint.click();
+    await page.locator('.place-pool-constraint-sheet').waitFor({ state: 'visible' });
+    await page.locator('[data-pool-wheel-part="day"] [data-pool-wheel-value="9/22"]').click();
+    await page.locator('[data-pool-constraint-time-toggle]').click();
+    await page.locator('[data-pool-wheel-part="hour"] [data-pool-wheel-value="18"]').click();
+    await page.locator('[data-pool-wheel-part="minute"] [data-pool-wheel-value="30"]').click();
+    await page.locator('[data-pool-constraint-confirm]').click();
+    await page.locator('.place-pool-constraint-sheet').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('[data-place-pool-selected-list] [data-pool-constraint="app:smoke-asakusa"]')?.textContent.includes('9/22'));
+    assert.match(await page.locator('[data-place-pool-selected-list] [data-pool-constraint="app:smoke-asakusa"]').textContent(), /9\/22・18:30/);
+  }
+  assert.equal(requests.slice(poolStart).length, 0, 'setting a planning constraint makes no requests');
+
+  // The dedicated drag handle still drags a candidate Place straight onto a day.
+  const dragKey = 'app:smoke-tsukiji';
+  await page.locator(`[data-pool-drag="${dragKey}"]`).dragTo(page.locator('.date-button[data-date="9/21"]'));
+  await page.waitForFunction((key) => !document.querySelector(`[data-pool-place="${key}"]`) && state.selectedDate === '9/21', dragKey);
+  assert.match(await page.locator('.timeline').textContent(), /築地壽司/);
   assert.equal(await page.evaluate(() => document.body.classList.contains('place-pool-dragging')), false);
   await page.waitForTimeout(250);
-  assert.deepEqual(savedItinerary(requests)['9/21'], [{ name: '淺草寺', time: '11:00', id: 'place:9/21:淺草寺' }]);
+  assert.deepEqual(savedItinerary(requests)['9/21'], [{ name: '築地壽司', time: '11:00', id: 'place:9/21:築地壽司' }]);
 
-  // Manual direct-add via the secondary ＋日期 action still works, independent of selection.
-  await page.locator('[data-pool-add="app:smoke-ueno"]').click();
+  // Manual direct-add now lives inside the constraint sheet as a secondary action.
+  await page.locator('[data-pool-constraint="app:smoke-shibuya"]').click();
+  await page.locator('.place-pool-constraint-sheet').waitFor({ state: 'visible' });
+  await page.locator('[data-pool-add="app:smoke-shibuya"]').click();
   await page.locator('#add-place-day-form').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#add-place-day-form h2').textContent(), '加入行程');
   await page.selectOption('#place-trip-date', '9/22');
   await page.locator('#add-place-day-form button[type="submit"]').click();
-  await page.waitForFunction(() => !document.querySelector('#add-place-day-form') && !document.querySelector('[data-pool-place="app:smoke-ueno"]') && state.selectedDate === '9/22');
-  assert.match(await page.locator('.timeline').textContent(), /上野動物園/);
+  await page.waitForFunction(() => !document.querySelector('#add-place-day-form') && !document.querySelector('[data-pool-place="app:smoke-shibuya"]') && state.selectedDate === '9/22');
+  assert.match(await page.locator('.timeline').textContent(), /澀谷 PARCO/);
   await page.waitForTimeout(250);
-  assert.equal(savedItinerary(requests)['9/22'][0].name, '上野動物園');
+  assert.equal(savedItinerary(requests)['9/22'][0].name, '澀谷 PARCO');
   await page.screenshot({ path: path.join(output, 'place-pool-desktop.png') });
 
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'hidden' });
   assert.deepEqual(errors, []);
   assert.deepEqual(blocked, []);
-  const result = { viewport: '1280x860', dockedBesidePhone: true, filters: 'section/kind/favorite', selectThreeCards: true,
-    selectedStaysVisibleOutOfFilter: true, unselectReturnsPosition: true, dragHandleAdded: '淺草寺 → 9/21',
-    secondaryActionAdded: '上野動物園 → 9/22', escapeCloses: true, network: networkSummary(requests, poolStart) };
+  const result = { viewport: '1280x860', fullscreen: true, twoColumn: true, selectThreeCards: true,
+    selectedIgnoresFilter: true, planningConstraintSet: '淺草寺 → 9/22・18:30', dragHandleAdded: '築地壽司 → 9/21',
+    secondaryActionAdded: '澀谷 PARCO → 9/22', escapeCloses: true, network: networkSummary(requests, poolStart) };
   await context.close();
   return result;
 }
 
 async function mobile(browser) {
   const { context, page, errors, requests, blocked, poolStart } = await open(browser, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
-  const toggle = page.locator('[data-toggle-place-pool]'), panel = page.locator('#place-pool-panel');
+  const toggle = page.locator('[data-toggle-place-pool]'), panel = page.locator('#place-pool-panel'), workspace = page.locator('.place-pool-workspace');
   await toggle.tap();
   await panel.waitFor({ state: 'visible' });
   assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
-  const sheet = await page.locator('.place-pool-panel').boundingBox();
-  assert.ok(Math.abs(sheet.y + sheet.height - 844) <= 1 && sheet.width >= 389, `bottom sheet box ${JSON.stringify(sheet)}`);
-  assert.equal(await page.locator('.place-pool-backdrop').isVisible(), true);
+  const box = await workspace.boundingBox();
+  assert.ok(Math.abs(box.width - 390) <= 2 && Math.abs(box.height - 844) <= 2, `mobile workspace is not fullscreen: ${JSON.stringify(box)}`);
   assert.equal(await page.locator('#place-pool-panel [draggable]').count(), 0, 'no native card drag on touch layouts');
-  assert.notEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.stage')).paddingRight), '408px', 'desktop dock is not applied');
   assert.match(await page.locator('#place-pool-hint').textContent(), /點選地點加入已選清單/);
 
-  // Tap selects multiple cards; the Selected section centers them on top, unaffected by the filter below.
+  // The right-center Selected drawer handle is visible before any selection.
+  const handle = page.locator('[data-pool-drawer-toggle]');
+  await handle.waitFor({ state: 'visible' });
+  assert.match(await handle.textContent(), /已選/);
+  assert.match(await handle.textContent(), /0/);
+  const handleBox = await handle.boundingBox();
+  assert.ok(handleBox.width >= 44 && handleBox.height >= 90, `handle touch target too small: ${JSON.stringify(handleBox)}`);
+
+  // Tap selects multiple cards from the main (candidates-only) workspace; the handle count updates live.
   await page.locator('[data-pool-place="app:smoke-tsukiji"]').tap();
   await page.locator('[data-pool-place="app:smoke-ginza"]').tap();
-  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 2);
-  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').getAttribute('aria-pressed'), 'true');
-  assert.match(await page.locator('.place-pool-selected').textContent(), /已選 2 個/);
-  await page.selectOption('#place-pool-filter-kind', 'attraction');
-  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 2);
-  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').count(), 1, 'selected restaurant stays visible under an attraction-only filter');
+  await page.waitForFunction(() => document.querySelector('[data-pool-drawer-toggle]')?.getAttribute('aria-label')?.includes('2'));
+  assert.equal(await candidateCards(page).count(), 3, 'the two selected cards left the candidate list');
+
+  // Scroll the candidate list, then open the drawer: main scroll position must not be disturbed.
+  await page.evaluate(() => document.querySelector('[data-place-pool-list]').scrollTo({ top: 40 }));
+  const scrollBefore = await page.evaluate(() => document.querySelector('[data-place-pool-list]').scrollTop);
+  await handle.tap();
+  await page.locator('.place-pool-workspace.is-drawer-open').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-constraint]').length === 2);
+  const scrollAfter = await page.evaluate(() => document.querySelector('[data-place-pool-list]').scrollTop);
+  assert.equal(scrollAfter, scrollBefore, 'opening the drawer must not move the main candidate scroll position');
   await page.screenshot({ path: path.join(output, 'place-pool-mobile-sheet.png') });
 
-  // Secondary ⋯ action still opens the existing 加入某一天 sheet for a power-user manual add.
-  await page.locator('[data-pool-add="app:smoke-tsukiji"]').tap();
-  const form = page.locator('#add-place-day-form');
-  await form.waitFor({ state: 'visible' });
-  const formBox = await form.boundingBox();
-  const topmost = await page.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('#add-place-day-form')), { x: formBox.x + formBox.width / 2, y: formBox.y + 30 });
-  assert.equal(topmost, true, 'date sheet sits above the Place Pool');
-  await page.selectOption('#place-trip-date', '9/22');
-  await page.locator('#add-place-day-form button[type="submit"]').tap();
-  await page.waitForFunction(() => !document.querySelector('#add-place-day-form') && state.selectedDate === '9/22');
-  assert.equal(await panel.isVisible(), true);
-  assert.equal(await page.locator('[data-pool-place="app:smoke-tsukiji"]').count(), 0, 'a manually added Place leaves the pool and its selection');
-  await page.waitForFunction(() => document.querySelectorAll('[data-place-pool-selected-list] [data-pool-place]').length === 1);
-  await page.locator('.place-pool-close').tap();
-  await panel.waitFor({ state: 'hidden' });
-  assert.match(await page.locator('.timeline').textContent(), /築地壽司/);
-  assert.match(await toggle.textContent(), /地點池\s*4/);
-  await page.waitForTimeout(250);
-  assert.equal(savedItinerary(requests)['9/22'][0].name, '築地壽司');
+  // Drawer rows show name + planning constraint only; setting 9/22 there via the constraint sheet.
+  await page.locator('[data-place-pool-selected-list] [data-pool-constraint="app:smoke-tsukiji"]').click();
+  await page.locator('.place-pool-constraint-sheet').waitFor({ state: 'visible' });
+  await page.locator('[data-pool-wheel-part="day"] [data-pool-wheel-value="9/22"]').click();
+  await page.locator('[data-pool-constraint-confirm]').click();
+  await page.locator('.place-pool-constraint-sheet').waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => document.querySelector('[data-place-pool-selected-list] [data-pool-constraint="app:smoke-tsukiji"]')?.textContent.includes('9/22'));
+
+  // Close the drawer; no horizontal overflow anywhere.
+  await handle.tap();
+  await page.waitForFunction(() => !document.querySelector('.place-pool-workspace.is-drawer-open'));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
   await page.screenshot({ path: path.join(output, 'place-pool-mobile-after.png') });
   assert.deepEqual(errors, []);
   assert.deepEqual(blocked, []);
-  const result = { viewport: '390x844 touch', bottomSheet: true, draggableCards: 0, selectedTwoCards: true,
-    selectedStaysVisibleOutOfFilter: true, filter: 'kind=attraction', secondaryActionAdded: '築地壽司 → 9/22',
-    dateSheetAbovePool: true, noHorizontalOverflow: true, network: networkSummary(requests, poolStart) };
+  const result = { viewport: '390x844 touch', fullscreen: true, handleAlwaysVisible: true, handleTouchTarget: handleBox,
+    selectedTwoCards: true, drawerOpenPreservesMainScroll: true, planningConstraintSet: '築地壽司 → 9/22',
+    noHorizontalOverflow: true, network: networkSummary(requests, poolStart) };
   await context.close();
   return result;
 }

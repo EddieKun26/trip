@@ -69,6 +69,20 @@ test('the gate runs once per trip and re-releases on later hydrations', async ()
   assert.ok(calls.containment > containmentAfterFirst, 'released schedulers stay reachable');
 });
 
+test('a local apply failure after a successful migration shows one human-readable toast, no engineering copy', async () => {
+  const { context, calls } = gateContext({ outcome: mig.MIGRATED, trip: { id: mig.TRIP, places: [] } });
+  context.applySharedTrip = () => { throw new Error('boom'); };
+  context.scheduleCanonicalAreaMigration();
+  await settle();
+  assert.equal(calls.toasts.length, 1);
+  assert.equal(calls.toasts[0], '地點資料更新未完成，請重新整理後再試。');
+  for (const jargon of ['migrat', 'backfill', 'marker', 'PRE_VERIFIED', 'POST_VERIFIED', 'fingerprint', 'gate'])
+    assert.ok(!calls.toasts[0].toLowerCase().includes(jargon.toLowerCase()));
+  assert.equal(calls.warnings.length, 1);
+  assert.equal(calls.containment, 0, 'schedulers must stay parked after a local apply failure');
+  assert.equal(calls.backfill, 0);
+});
+
 test('another trip is released immediately without running the migration', async () => {
   const { context, calls } = gateContext({ tripId: 'some-other-trip' });
   context.scheduleCanonicalAreaMigration();
@@ -93,7 +107,7 @@ test('a missing helper module leaves the app working and the schedulers suspende
   assert.equal(calls.runs, 0);
   assert.equal(calls.containment, 0);
   assert.equal(calls.backfill, 0);
-  assert.equal(calls.toasts.length, 1);
+  assert.equal(calls.toasts.length, 0, 'a missing helper is a silent, console-only terminal');
 });
 
 test('hydration calls the gate, not the schedulers directly', () => {

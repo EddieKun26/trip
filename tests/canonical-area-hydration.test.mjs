@@ -36,14 +36,14 @@ test('H3/H8 membership authorizes a ready editor without a hard-coded owner ID',
   await c.scheduleCanonicalAreaMigration();assert.equal(calls.runs,1);
 });
 
-test('H4/H9 ready read-only membership has visible terminal and no write paths', async()=>{
+test('H4/H9 ready read-only membership has a silent, logged terminal and no write paths', async()=>{
   for(const guest of [true,false]){
     const {context:c,calls,registry}=gateContext({editor:false});c.state.isGuest=guest;
     assert.equal(c.canEdit(),false);assert.equal(c.canonicalAreaReadiness(),'READY_READ_ONLY');
     const result=await c.scheduleCanonicalAreaMigration();assert.equal(result.outcome,'read-only');
     assert.equal(registry().values().next().value.status,'read-only');
     assert.equal(calls.runs+calls.requests.length+calls.containment+calls.backfill,0);
-    assert.equal(calls.toasts.length,1);assert.equal(calls.infos.length,1);assert.match(calls.toasts[0],/無 migration 寫入權限/);
+    assert.equal(calls.toasts.length,0);assert.equal(calls.infos.length,1);
   }
 });
 
@@ -94,7 +94,7 @@ test('S1 concurrent same-key callers share one Promise, one A/B pair and one con
   const second=c.scheduleCanonicalAreaMigration();assert.equal(first,second);
   assert.equal(registry().values().next().value.status,'in-progress');assert.equal(calls.containment+calls.backfill,0);
   unblock();const [a,b]=await Promise.all([first,second]);assert.equal(a,b);assert.equal(a.outcome,mig.MIGRATED);
-  assert.equal(gets,4);assert.equal(puts,1);assert.equal(calls.runs,1);assert.equal(calls.toasts.length,1);
+  assert.equal(gets,4);assert.equal(puts,1);assert.equal(calls.runs,1);assert.equal(calls.toasts.length,0);
 });
 
 test('S2/S3 ABORT survives switch away/back and both schedulers remain suspended',async()=>{
@@ -131,23 +131,21 @@ test('in-progress A stays bound to A when the active Trip switches to B',async()
   assert.equal(calls.applied+calls.containment+calls.backfill+calls.toasts.length,0);
 });
 
-test('S8/S9 null, undefined, unknown status and exceptions fail closed with visible ABORT',async()=>{
+test('S8/S9 null, undefined, unknown status and exceptions fail closed with a silent, console-only ABORT',async()=>{
   for(const execute of [async()=>null,async()=>undefined,async()=>({outcome:'unexpected',schedulersReleased:true}),
     async()=>{throw Error('secret-cookie-value');},async()=>({outcome:mig.MIGRATED})]){
     const {context:c,calls}=gateContext({execute});const result=await c.scheduleCanonicalAreaMigration();
     assert.equal(result.outcome,mig.ABORT);assert.equal(calls.containment+calls.backfill,0);
-    assert.equal(calls.warnings.length,1);assert.equal(calls.toasts.length,1);
+    assert.equal(calls.warnings.length,1);assert.equal(calls.toasts.length,0);
     assert.ok(!JSON.stringify(calls).includes('secret-cookie-value'));
   }
 });
 
-test('every FIRST OPEN terminal has a toast and console; success reports its write mode',async()=>{
+test('every FIRST OPEN terminal is console-only and never shows a user-facing toast',async()=>{
   for(const value of [{outcome:mig.MIGRATED,writeMode:'atomic'},{outcome:mig.MIGRATED,writeMode:'cas-window'},
     {outcome:mig.MARKER_NOOP},{outcome:mig.RECOVERED},{outcome:mig.ABORT},{outcome:mig.ABORT,state:mig.POST}]){
     const {context:c,calls}=gateContext({execute:async()=>({...value,stage:'readback',schedulersReleased:mig.RELEASES_SCHEDULERS.has(value.outcome)})});
-    await c.scheduleCanonicalAreaMigration();assert.equal(calls.toasts.length,1);assert.equal(calls.infos.length+calls.warnings.length,1);
-    if(value.writeMode)assert.ok(calls.toasts[0].includes(value.writeMode));
-    if(value.outcome===mig.ABORT)assert.ok(calls.toasts[0].includes('readback'));
+    await c.scheduleCanonicalAreaMigration();assert.equal(calls.toasts.length,0);assert.equal(calls.infos.length+calls.warnings.length,1);
   }
 });
 
@@ -166,16 +164,16 @@ test('scheduler release allowlist suspends every nonterminal, read-only, abort a
 test('read-only terminal remains accurate when the optional migration helper is unavailable',async()=>{
   const {context:c,calls}=gateContext({editor:false});c.CanonicalTravelMigration=undefined;
   const result=await c.scheduleCanonicalAreaMigration();
-  assert.equal(result.outcome,'read-only');assert.equal(calls.toasts[0],'目前帳號無 migration 寫入權限');
+  assert.equal(result.outcome,'read-only');assert.equal(calls.toasts.length,0);
   assert.match(calls.infos[0],/outcome=read-only/);assert.match(calls.infos[0],/schedulers=suspended/);
   assert.equal(calls.runs+calls.containment+calls.backfill,0);
 });
 
-test('RECOVERY_ABORTED remains visible and latched after switching away and back',async()=>{
+test('RECOVERY_ABORTED stays silent to the user but latched and logged after switching away and back',async()=>{
   const {context:c,calls,readyNow,registry}=gateContext({execute:async()=>({outcome:mig.ABORT,state:mig.POST,
     stage:'conditional-write',schedulersReleased:false})});
   const first=await c.scheduleCanonicalAreaMigration();
-  assert.match(calls.toasts[0],/Marker recovery aborted/);assert.match(calls.warnings[0],/state=POST/);
+  assert.equal(calls.toasts.length,0);assert.match(calls.warnings[0],/state=POST/);
   readyNow('trip-b');await c.scheduleCanonicalAreaMigration();const releases=calls.containment;
   readyNow(mig.TRIP);assert.equal(await c.scheduleCanonicalAreaMigration(),first);
   assert.equal(registry().get(mig.TRIP+':'+mig.VERSION).status,'aborted');

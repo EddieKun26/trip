@@ -440,5 +440,5 @@ test("Phase A full cold startup retries the gate after ready without a newer rev
   assert.equal(result.outcome,migration.MARKER_NOOP);
   assert.equal(b.requests.filter(r=>r.url==='/api/trip?id='+id).length,2,'initial hydration plus exactly one marker read');
   assert.equal(b.requests.filter(r=>r.options.method==='PUT').length,0);
-  assert.match(b.toast.innerHTML,/no-op/);
+  assert.equal(b.toast.innerHTML,'','a normal no-op migration terminal must stay silent to the user');
 });

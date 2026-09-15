@@ -163,7 +163,7 @@ test("itinerary uses custom solid drag behavior instead of native translucent dr
   // never nested inside it — and it is never emitted on touch layouts.
   assert.doesNotMatch(sourceSection("function itineraryScreen", "function render("), /draggable/);
   assert.deepEqual(appSource.match(/draggable="true"/g), ['draggable="true"']);
-  const poolCardSection = sourceSection("function placePoolCardMarkup", "function placePoolSelectedSectionMarkup");
+  const poolCardSection = sourceSection("function placePoolCardMarkup", "function placePoolSelectedCompactCardMarkup");
   assert.match(poolCardSection, /const handle = docked\s*\n\s*\? `<span class="place-pool-drag-handle"[^`]*draggable="true"[^`]*<\/span>`\s*\n\s*: "";/);
   assert.doesNotMatch(poolCardSection.replace(/const handle = docked[\s\S]*?: "";/, ""), /draggable/);
   // The handle is interpolated as ${handle} strictly after the selectable button's own closing

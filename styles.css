@@ -8047,36 +8047,53 @@ body.transport-sheet-open .app {
 .place-editor-sheet .tag-add-row .tag-custom-entry { grid-template-columns: minmax(0, 1fr); }
 .tag-add-row input, .tag-add-row button { height: 44px; min-height: 44px; margin: 0; }
 
-/* Itinerary Place Pool: a bottom sheet by default, docked beside the phone frame on desktop. */
+/* 行程規劃 workspace (Fullscreen Trip Planning Workspace): a full-viewport overlay at every width.
+   Mobile: one candidate column plus a right-side Selected drawer behind a fixed handle. Desktop
+   (>=900px): a static two-column layout, left Selected / right candidates, no drawer/handle. */
 .place-pool-toggle { height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 250, 242, 0.8); color: var(--mineral); font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
 .place-pool-toggle b { min-width: 22px; padding: 2px 6px; border-radius: 10px; background: var(--mineral); color: #fff; font-size: 12px; text-align: center; }
 .place-pool-toggle[aria-expanded="true"] { border-color: var(--mineral); background: var(--mineral-soft); }
 .place-pool-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Its own row keeps the itinerary header exactly as before; the title never wraps for the toggle. */
 .itinerary-pool-bar { display: flex; justify-content: flex-end; margin: -12px 0 10px; }
-.place-pool { position: fixed; z-index: 60; inset: 0; display: grid; align-items: end; }
+.place-pool { position: fixed; z-index: 60; inset: 0; }
 .place-pool[hidden] { display: none; }
-.place-pool-backdrop { position: absolute; inset: 0; background: rgba(37, 31, 26, 0.28); }
-.place-pool-panel { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; width: 100%; max-height: min(78dvh, 660px); padding: 18px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; background: var(--paper-2); box-shadow: var(--shadow); }
-.place-pool-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.place-pool-head h2 { margin: 0; font-size: 20px; }
-.place-pool-head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.place-pool-workspace { position: relative; width: 100%; height: 100%; height: 100dvh; display: flex; flex-direction: column; min-height: 0; background: var(--paper-2); overflow: hidden; }
+.place-pool-head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: max(12px, env(safe-area-inset-top)) 16px 12px; border-bottom: 1px solid var(--line); }
+.place-pool-head-copy { min-width: 0; }
+.place-pool-head-copy h2 { margin: 0; font-size: 19px; }
+.place-pool-head-copy p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .place-pool-close { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; font-size: 22px; }
-/* Everything between the head and the sticky CTA scrolls as one region; the CTA itself never
-   scrolls out of view, and Selected always renders above the filters inside this region. */
-.place-pool-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -4px; padding: 4px; }
-.place-pool-selected { margin: 4px 0 12px; }
-.place-pool-selected-heading { margin: 0 0 8px; font-size: 14px; color: var(--ink); }
-.place-pool-selected-toggle { display: flex; align-items: center; gap: 4px; min-height: 32px; margin: 0 0 8px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 14px; font-weight: 800; cursor: pointer; }
-.place-pool-selected-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.place-pool-selected-list { margin-bottom: 4px; }
-.place-pool-section-heading { margin: 4px 0 8px; font-size: 13px; color: var(--muted); }
-.place-pool-filters { margin: 12px 0 4px; }
+.place-pool-layout { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.place-pool-selected-column { flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--paper-2); }
+.place-pool-selected-heading { flex: 0 0 auto; margin: 0 0 8px; font-size: 14px; color: var(--ink); font-weight: 800; }
+.place-pool-selected-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.place-pool-selected-empty { padding: 10px 0; color: var(--muted); font-size: 13px; }
+.place-pool-selected-item { display: flex; align-items: stretch; gap: 6px; }
+.place-pool-selected-unselect { flex: 0 0 auto; width: 36px; min-height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--mineral-soft); cursor: pointer; }
+.place-pool-selected-unselect:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-selected-check { color: var(--mineral); font-weight: 900; }
+.place-pool-selected-row { flex: 1 1 auto; min-width: 0; min-height: 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 250, 242, 0.92); color: var(--ink); text-align: left; cursor: pointer; }
+.place-pool-selected-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-selected-name { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.place-pool-selected-constraint { flex: 0 0 auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Fixed to the mobile viewport's right-center at every selected count, including 0, so it is a
+   visible entry point before any selection is made. Chinese label/count stack as separate lines
+   (never a rotated block). Hit target stays 46x100px even though the visible pill is narrower. */
+.place-pool-mobile-handle { position: fixed; z-index: 6; right: 0; top: 50%; transform: translateY(-50%); width: 46px; height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 8px 4px; border: 1px solid var(--line); border-right: 0; border-radius: 16px 0 0 16px; background: var(--paper-2); color: var(--ink); box-shadow: var(--shadow); cursor: pointer; transition: right 0.25s ease; }
+.place-pool-mobile-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.place-pool-mobile-handle-check { color: var(--mineral); font-size: 13px; font-weight: 900; }
+.place-pool-mobile-handle-label { font-size: 11px; color: var(--muted); }
+.place-pool-mobile-handle-count { font-size: 16px; font-weight: 900; }
+.place-pool-mobile-handle-chevron { font-size: 15px; color: var(--muted); }
+.place-pool-workspace.is-drawer-open .place-pool-mobile-handle { right: min(86vw, 360px); }
+.place-pool-candidates-column { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 0; }
+.place-pool-filters { flex: 0 0 auto; margin: 0 0 4px; }
 .place-pool-favorite-filter { grid-column: 1 / -1; justify-self: start; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper-2); color: var(--muted); font-weight: 800; cursor: pointer; }
 .place-pool-favorite-filter[aria-pressed="true"] { border-color: #78558b; background: #78558b; color: #fff; }
 .place-pool-favorite-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.place-pool-hint { margin: 6px 0 8px; color: var(--muted); font-size: 12px; }
-.place-pool-list { display: grid; align-content: start; gap: 8px; list-style: none; }
+.place-pool-hint { flex: 0 0 auto; margin: 6px 0 8px; color: var(--muted); font-size: 12px; }
+.place-pool-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 8px; list-style: none; margin: 0; padding: 0 0 16px; }
 .place-pool-item { display: grid; gap: 4px; }
 .place-pool-card { width: 100%; display: flex; align-items: center; gap: 6px; }
 .place-pool-select { flex: 1 1 auto; min-width: 0; min-height: 60px; display: grid; grid-template-columns: 16px 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 250, 242, 0.92); color: var(--ink); text-align: left; cursor: pointer; }
@@ -8085,11 +8102,10 @@ body.transport-sheet-open .app {
 .place-pool-check { width: 16px; font-size: 14px; font-weight: 900; color: var(--mineral); }
 .place-pool-drag-handle { flex: 0 0 auto; width: 32px; height: 44px; display: grid; place-items: center; border-radius: 10px; color: var(--muted); font-size: 18px; cursor: grab; }
 .place-pool-drag-handle:active { cursor: grabbing; }
-.place-pool-add-button { flex: 0 0 auto; min-width: 44px; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--muted); font-size: 13px; font-weight: 800; cursor: pointer; }
-.place-pool-add-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-constraint { flex: 0 0 auto; min-width: 44px; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--mineral); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.place-pool-constraint:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .place-pool-card.is-dragging { opacity: 0.45; }
 .place-pool-card.is-dragging .place-pool-select { border-style: dashed; border-color: var(--mineral); }
-.place-pool-out-of-filter { margin: 0; padding: 0 10px; color: var(--muted); font-size: 11px; }
 .place-pool-thumb { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--swatch, var(--mineral)); color: #fff; font-weight: 800; }
 .place-pool-copy { min-width: 0; display: grid; gap: 3px; }
 .place-pool-copy strong { font-size: 15px; overflow-wrap: anywhere; }
@@ -8100,15 +8116,41 @@ body.transport-sheet-open .app {
 .place-pool-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .place-pool-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
 .place-pool-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
-.place-pool-cta { flex: 0 0 auto; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); text-align: center; }
+.place-pool-cta { flex: 0 0 auto; padding: 10px 16px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--paper-2); text-align: center; }
 .place-pool-cta-button { width: 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--mineral); color: #fff; font-size: 14px; font-weight: 800; cursor: not-allowed; }
 .place-pool-cta-button[disabled] { opacity: 0.55; }
 .place-pool-cta-hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 body.place-pool-dragging [data-pool-drop-date] { outline: 2px dashed rgba(64, 119, 122, 0.5); outline-offset: 2px; }
 body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3px solid var(--mineral); box-shadow: 0 0 0 6px rgba(64, 119, 122, 0.16); }
-@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
-  body.place-pool-docked .stage { padding-right: 408px; }
-  .place-pool { inset: 24px 24px 24px auto; width: 360px; display: block; }
-  .place-pool-backdrop { display: none; }
-  .place-pool-panel { height: 100%; max-height: none; padding: 20px 18px; border: 1px solid var(--line); border-radius: 28px; }
+
+/* Mobile (<900px): Selected becomes a right-side drawer behind the fixed handle; main workspace
+   shows only filters + candidates, per the fullscreen workspace's mobile contract. */
+@media (max-width: 899.98px) {
+  .place-pool-selected-column { position: fixed; z-index: 5; top: 0; right: 0; bottom: 0; width: min(86vw, 360px); border-bottom: 0; border-left: 1px solid var(--line); box-shadow: var(--shadow); padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); transform: translateX(100%); transition: transform 0.25s ease; }
+  .place-pool-workspace.is-drawer-open .place-pool-selected-column { transform: translateX(0); }
 }
+
+/* Desktop (>=900px): static two-column layout; no drawer, no handle, nothing collapses. */
+@media (min-width: 900px) {
+  .place-pool-mobile-handle { display: none; }
+  .place-pool-layout { flex-direction: row; gap: 0; }
+  .place-pool-selected-column { position: static; transform: none; flex: 0 0 320px; width: 320px; max-width: 320px; border-bottom: 0; border-right: 1px solid var(--line); box-shadow: none; padding: 18px 16px; }
+  .place-pool-candidates-column { flex: 1 1 auto; padding: 18px 20px 0; }
+  .place-pool-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+}
+
+/* Planning constraint sheet: day wheel (未安排 + trip days only) reusing the itinerary time
+   wheel's exact visual/interaction contract; an optional 15-minute time wheel appears only once
+   a real day is chosen. */
+.place-pool-constraint-sheet { width: min(420px, 100%); max-height: none; }
+.place-pool-constraint-summary { margin: 0 0 4px; color: var(--mineral); font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; }
+.place-pool-constraint-day-wheel { grid-template-columns: 1fr; padding-inline: 16px; height: 160px; }
+.place-pool-constraint-day-wheel .time-wheel-column { height: 160px; padding-block: 58px; }
+.place-pool-constraint-day-wheel .time-wheel-selection { top: 58px; }
+.place-pool-constraint-day-wheel .time-wheel-option { font-size: 17px; }
+.place-pool-constraint-time-toggle { margin-top: 8px; text-align: center; }
+.place-pool-constraint-time-switch { min-height: 44px; padding: 0 18px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper-2); color: var(--muted); font-weight: 800; cursor: pointer; }
+.place-pool-constraint-time-switch[aria-pressed="true"] { border-color: var(--mineral); background: var(--mineral-soft); color: var(--ink); }
+.place-pool-constraint-time-wheel[hidden] { display: none; }
+.place-pool-constraint-time-wheel { height: 150px; }
+.place-pool-constraint-time-wheel .time-wheel-column { height: 150px; }

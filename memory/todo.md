@@ -45,6 +45,12 @@
 - [ ] User production check on a real iPhone/Android device during bulk areaTags editing: the Save/Cancel bar stays visible while scrolling the editor, is not obscured by or fighting the on-screen keyboard, and the last field (photo section) is never hidden behind it. Confirm Save and Cancel on an existing place both return to that same place's detail (not the list), Save shows the freshly saved data, Cancel shows the untouched original, and the underlying Places list's scroll position/filters are exactly as left when the editor is eventually closed.
 
 
+## Fullscreen Trip Planning Workspace acceptance — 2026-09-16
+
+- [x] Engineering Gate passed and pushed to `origin/main`/production this round: 行程規劃 rename, fullscreen desktop two-column layout, mobile drawer/handle, planning-constraint wheel sheet, auto-select-on-date-pick, unselect-clears-constraint, scroll-preservation (now real-browser-verified with 36 synthetic Places, not just unit math), and the migration-toast silencing fix all landed together.
+- [ ] User production smoke (one pass, in production itself, no local preview needed first): open 行程規劃, exercise desktop two-column + mid-list select/unselect/FIXED_DAY/FIXED_TIME, mobile drawer open/close, reload the App and confirm no migration/backfill/marker toast appears at startup, and a quick existing-itinerary sanity pass (date switch, timeline, transport, add place). See the release commit message / final report for the full checklist.
+- Next round (explicitly out of scope here): implement the actual AI Planner behind the CTA, now consuming both the HARD-selected set *and* each Place's UNSCHEDULED/FIXED_DAY/FIXED_TIME constraint. No OpenAI wiring exists yet.
+
 ## Selection-first Place Pool acceptance — 2026-09-16
 
 - [ ] User review of `feat/selection-first-place-pool` (not committed/pushed/deployed): confirm click/tap-to-select, the always-visible Selected section, filter-independent selected visibility, the ⋯/＋日期 secondary manual-add path, the ⠿ drag handle, and the disabled CTA copy match intent before merging.
