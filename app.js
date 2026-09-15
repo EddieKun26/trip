@@ -239,6 +239,8 @@ const state = {
   mapPreference: "all",
   selectedDate: "9/22",
   itineraryPlaceKind: "all",
+  // Place Pool filters are client-only view state: never persisted, stored or sent.
+  placePool: { open: false, kind: "all", section: "", favoriteOnly: false },
   places: [],
   deletedPlaces: [],
   profile: savedProfile,
@@ -1971,6 +1973,7 @@ function clearTripView() {
     members: {}, sharedRevision: 0, activeTab: "overview", placesMode: "list", selectedDate: "",
     placeKind: "all", placeSectionFilter: "", areaTagFilter: "", areaTagComparison: null, restaurantTagFilter: "", selectedArea: "", selectedMapPlace: "", mapCategory: "all", mapView: "planning", mapDate: "all",
     shopping: emptyShoppingState(), shoppingLoaded: false, shoppingLoadStatus: "idle",
+    placePool: { open: false, kind: "all", section: "", favoriteOnly: false },
     shoppingFilter: "all", shoppingStatus: "all", shoppingRecipientFilter: "all" });
   shoppingUndoSnapshot = null;
   shoppingSelectionMode = false;
@@ -5477,11 +5480,12 @@ function openShoppingImportSheet(mode = "screenshot") {
 function itineraryScreen() {
   syncFlightItineraryItems();
   const dayItems = state.itinerary[state.selectedDate] || [];
+  const placePool = canEdit() ? getFilteredPlacePool() : null;
   const selectedWeekday = dateMeta.find(([date]) => date === state.selectedDate)?.[1] || "";
   const dates = dateMeta
     .map(
       ([date, weekday]) => `
-        <button class="date-button ${state.selectedDate === date ? "active" : ""}" type="button" data-date="${date}">
+        <button class="date-button ${state.selectedDate === date ? "active" : ""}" type="button" data-date="${date}" data-pool-drop-date="${date}">
           <strong>${date}</strong><span>${weekday}</span>
         </button>`,
     )
@@ -5548,6 +5552,7 @@ function itineraryScreen() {
         <div><h1>每日行程</h1><p class="meta">先排區域，再調整時間</p></div>
         ${state.isGuest ? "" : `<div class="header-actions">${undoButtonMarkup()}${shareButtonMarkup()}</div>`}
       </header>
+      ${placePool ? `<div class="itinerary-pool-bar">${placePoolToggleMarkup(placePool)}</div>` : ""}
       <div class="date-strip">${dates}</div>
       <div class="day-area">
         <h2><span class="day-area-name">⌖ ${escapeHtml(area)}</span>${dayCountLabel ? `<small class="day-count">${escapeHtml(dayCountLabel)}</small>` : ""}</h2>
@@ -5555,10 +5560,11 @@ function itineraryScreen() {
       </div>
       ${
         dayItems.length
-          ? `<div class="timeline">${rows}</div>${transportReviewMarkup(state.selectedDate)}`
-          : `<div class="empty-state"><div><b>這天還沒有地點</b><span>從地圖選取同區景點，加入這一天。</span></div></div>`
+          ? `<div class="timeline" data-pool-drop-date="${escapeHtml(state.selectedDate)}">${rows}</div>${transportReviewMarkup(state.selectedDate)}`
+          : `<div class="empty-state" data-pool-drop-date="${escapeHtml(state.selectedDate)}"><div><b>這天還沒有地點</b><span>從地圖選取同區景點，加入這一天。</span></div></div>`
       }
       ${canEdit() ? `<button class="outline-button" type="button" data-open-itinerary-places>＋　加入地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
+      ${placePool ? placePoolMarkup(placePool) : ""}
     </section>`;
 }
 
@@ -5580,12 +5586,16 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
   const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
   if (!mapIsActive) mapFullscreen = false;
   document.body.classList.toggle("map-fullscreen-open", mapIsActive && mapFullscreen);
+  const placePoolScrollTop = document.querySelector("[data-place-pool-list]")?.scrollTop || 0;
   if (!state.tripId) app.innerHTML = state.isGuest ? emptyGuestScreen() : emptyTripsScreen();
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
   else if (state.activeTab === "places") app.innerHTML = placesScreen();
   else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
   else if (state.activeTab === "shopping") app.innerHTML = shoppingScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
+  document.body.classList.toggle("place-pool-docked", Boolean(state.tripId) && state.activeTab === "itinerary" && state.placePool.open && canEdit());
+  const placePoolList = document.querySelector("[data-place-pool-list]");
+  if (placePoolList && preserveScroll) placePoolList.scrollTop = placePoolScrollTop;
   if (state.activeTab === "places" && state.placesMode === "map") {
     if (state.mapView !== "planning" && liveLocationEnabled) stopLiveLocation();
     window.requestAnimationFrame(() => initializeInteractiveMap({ filterOnly }));
@@ -8535,7 +8545,7 @@ function openDateSheet(regionKey) {
     </div>`;
 }
 
-function openAddPlaceDateSheet(name) {
+function openAddPlaceDateSheet(name, { poolKey = "" } = {}) {
   const place = state.places.find((item) => item.name === name);
   if (!place) return;
   const options = dateMeta
@@ -8544,12 +8554,12 @@ function openAddPlaceDateSheet(name) {
   const assignments = placeAssignments(name);
   sheetRoot.innerHTML = `
     <div class="modal-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet" id="add-place-day-form" data-place-name="${escapeHtml(name)}">
+      <form class="modal-sheet" id="add-place-day-form" data-place-name="${escapeHtml(name)}"${poolKey ? ` data-add-source="place-pool" data-place-key="${escapeHtml(poolKey)}"` : ""}>
         <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(planningSectionLabel(place))}</p><h2>加入某一天</h2></div>
+          <div><p class="section-kicker">${escapeHtml(planningSectionLabel(place))}</p><h2>${poolKey ? "加入行程" : "加入某一天"}</h2></div>
           <button class="icon-button" type="button" data-close-sheet>×</button>
         </div>
-        <p><strong>${escapeHtml(name)}</strong>${assignments.length ? `目前已排：${escapeHtml(placeScheduleLabel(name))}` : "目前尚未安排。"}</p>
+        <p><strong>${escapeHtml(name)}</strong>${poolKey ? "會加在當天行程最後（回程航班之前），之後可再調整時間與順序。" : assignments.length ? `目前已排：${escapeHtml(placeScheduleLabel(name))}` : "目前尚未安排。"}</p>
         <div class="field"><label for="place-trip-date">選擇日期</label><select id="place-trip-date" name="date">${options}</select></div>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">確認加入</button></div>
       </form>
@@ -8613,8 +8623,8 @@ function rememberItineraryPlaceChecks() {
   });
 }
 
-function suggestedItineraryTimes(count) {
-  const usedTimes = (state.itinerary[state.selectedDate] || [])
+function suggestedItineraryTimes(count, date = state.selectedDate) {
+  const usedTimes = (state.itinerary[date] || [])
     .filter((item) => item.type !== "flight" && /^\d{2}:\d{2}$/.test(item.time || ""))
     .map((item) => item.time)
     .sort();
@@ -8655,6 +8665,161 @@ function openItineraryPlacesSheet({ reset = false } = {}) {
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">加入勾選地點</button></div>
       </form>
     </div>`;
+}
+
+// The one 加入地點 contract shared by the add-places sheet and the Place Pool: names already on
+// that day are skipped, new items get the next 90-minute suggestions after the day's latest time
+// and land before the return flight. Items keep the existing { name, time } shape; ids still come
+// from ensureItineraryItemIds.
+function insertPlacesIntoItineraryDay(date, names) {
+  const existing = state.itinerary[date] || [];
+  const existingNames = new Set(existing.map((item) => item.name));
+  const pending = [...new Set(names)].filter((name) => !existingNames.has(name));
+  if (!pending.length) return [];
+  const times = suggestedItineraryTimes(pending.length, date);
+  const additions = pending.map((name, index) => ({ name, time: times[index] }));
+  const returnFlightIndex = existing.findIndex((item) => item.type === "flight" && state.flights.find((flight) => flight.id === item.flightId)?.direction === "回程");
+  state.itinerary[date] = returnFlightIndex < 0
+    ? [...existing, ...additions]
+    : [...existing.slice(0, returnFlightIndex), ...additions, ...existing.slice(returnFlightIndex)];
+  return additions;
+}
+
+/* Place Pool: the Places not yet in any itinerary day. 尚未安排 follows the existing itinerary
+ * Place ↔ name contract; a name shared by several Places cannot be referenced safely, so those
+ * Places fail closed and are only counted. Each entry carries its stable placeDetailKey. */
+function getUnscheduledPlaces(places = state.places, itinerary = state.itinerary) {
+  const scheduled = new Set(Object.values(itinerary || {})
+    .flatMap((items) => (items || []).filter((item) => item?.type !== "flight").map((item) => item.name)));
+  const nameCounts = new Map();
+  for (const place of places) nameCounts.set(place?.name, (nameCounts.get(place?.name) || 0) + 1);
+  const entries = [];
+  let ambiguousCount = 0;
+  for (const place of places) {
+    if (!place?.name || scheduled.has(place.name)) continue;
+    if (nameCounts.get(place.name) > 1) {
+      ambiguousCount += 1;
+      continue;
+    }
+    entries.push({ key: placeDetailKey(place), place, voteCount: placeVoters(place.name).length });
+  }
+  return { entries, ambiguousCount };
+}
+
+// 主要地區 and 地點類型 reuse the Places filter cascade over pool Places only; 最想去 means at
+// least one member voted. Client view state only: no Place mutation, persistence or network.
+function getFilteredPlacePool(filters = state.placePool, pool = getUnscheduledPlaces()) {
+  const selection = { placeKind: filters.kind, placeSectionFilter: filters.section, areaTagFilter: "", restaurantTagFilter: "" };
+  const model = placesFilterModel(pool.entries.map((entry) => entry.place), selection);
+  filters.kind = selection.placeKind;
+  filters.section = selection.placeSectionFilter;
+  const visible = new Set(model.visible);
+  const entries = pool.entries.filter((entry) => visible.has(entry.place) && (!filters.favoriteOnly || entry.voteCount >= 1));
+  return { total: pool.entries.length, ambiguousCount: pool.ambiguousCount, kinds: model.kinds, sections: model.sections, entries };
+}
+
+// Every Place Pool add (desktop drop, click fallback, mobile tap) goes through here.
+function addPlaceToItineraryDay(placeKey, date) {
+  if (!canEdit()) return { ok: false, reason: "READ_ONLY" };
+  if (!dateMeta.some(([candidate]) => candidate === date)) return { ok: false, reason: "INVALID_DATE" };
+  const matches = getUnscheduledPlaces().entries.filter((entry) => entry.key === placeKey);
+  if (matches.length !== 1) return { ok: false, reason: "NOT_IN_POOL" };
+  const { name } = matches[0].place;
+  if (!insertPlacesIntoItineraryDay(date, [name]).length) return { ok: false, reason: "NOT_IN_POOL" };
+  persist();
+  return { ok: true, name, date };
+}
+
+function completePlacePoolAdd(placeKey, date) {
+  const result = addPlaceToItineraryDay(placeKey, date);
+  if (result.reason === "READ_ONLY") return guestOnlyMessage();
+  if (!result.ok) {
+    render({ preserveScroll: true });
+    return showToast(result.reason === "INVALID_DATE" ? "請選擇行程中的日期" : "這個地點已不在地點池");
+  }
+  state.selectedDate = date;
+  render({ preserveScroll: true });
+  showToast(`已將「${result.name}」加入 ${date}`);
+  return result;
+}
+
+/* AI Planner Phase 1B foundation. AI candidates are picked from this same Place Pool by stable
+ * placeDetailKey, scoped to the current trip and held only in memory: never persisted, stored or
+ * sent. A candidate is something the planner may choose from, never a Place that must be scheduled. */
+const aiCandidateSelection = { tripId: "", keys: new Set() };
+
+function aiCandidatePlaceKeys() {
+  if (aiCandidateSelection.tripId !== state.tripId) {
+    aiCandidateSelection.tripId = state.tripId;
+    aiCandidateSelection.keys = new Set();
+  }
+  return aiCandidateSelection.keys;
+}
+
+function placePoolCandidateEntries(pool = getFilteredPlacePool()) {
+  const keys = aiCandidatePlaceKeys();
+  return pool.entries.filter((entry) => keys.has(entry.key));
+}
+
+// Drag is offered only where the pool is docked beside the phone frame; touch devices always use tap.
+const PLACE_POOL_DOCKED_MEDIA = "(min-width: 900px) and (hover: hover) and (pointer: fine)";
+
+function placePoolDocked() {
+  return Boolean(window.matchMedia?.(PLACE_POOL_DOCKED_MEDIA).matches);
+}
+
+function placePoolToggleMarkup(pool) {
+  return `<button class="place-pool-toggle" type="button" data-toggle-place-pool aria-expanded="${state.placePool.open}" aria-controls="place-pool-panel" aria-label="地點池，${pool.total} 個尚未安排"><span>地點池</span><b>${pool.total}</b></button>`;
+}
+
+function placePoolMarkup(pool) {
+  const filters = state.placePool;
+  const docked = placePoolDocked();
+  const field = (filter, label, selected, options) => `<div class="places-filter-field"><label for="place-pool-filter-${filter}">${label}</label><select id="place-pool-filter-${filter}" data-place-pool-filter="${filter}">${options.map(([value, name]) => `<option value="${escapeHtml(value)}"${value === selected ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
+  const rows = pool.entries.map(({ key, place, voteCount }) => {
+    const tags = AreaTags.values(place).slice(0, 3).map((tag) => `<span class="highlight-tag place-tag-area">${escapeHtml(tag)}</span>`).join("");
+    return `
+          <li>
+            <button class="place-pool-card" type="button" data-pool-place="${escapeHtml(key)}"${docked ? ' draggable="true"' : ""} aria-describedby="place-pool-hint">
+              <span class="place-pool-thumb" style="--swatch:${escapeHtml(place.swatch || "")}" aria-hidden="true">${escapeHtml(place.mark || "")}</span>
+              <span class="place-pool-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(kindLabel(place.kind))} · ${escapeHtml(planningSectionLabel(place))}</small>${tags ? `<span class="place-pool-tags">${tags}</span>` : ""}</span>
+              ${voteCount ? `<span class="place-pool-favorite"><span aria-hidden="true">★</span>${voteCount}<span class="place-pool-sr"> 人最想去</span></span>` : ""}
+            </button>
+          </li>`;
+  }).join("");
+  return `
+      <div class="place-pool" id="place-pool-panel"${filters.open ? "" : " hidden"}>
+        <div class="place-pool-backdrop" data-close-place-pool></div>
+        <aside class="place-pool-panel" aria-labelledby="place-pool-title">
+          <div class="place-pool-head">
+            <div><h2 id="place-pool-title">地點池</h2><p>${pool.total} 個尚未安排</p></div>
+            <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉地點池">×</button>
+          </div>
+          <div class="places-filter-bar place-pool-filters" role="group" aria-label="地點池篩選">
+            ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
+            ${field("kind", "地點類型", filters.kind, pool.kinds)}
+            <button class="place-pool-favorite-filter" type="button" data-place-pool-favorite aria-pressed="${filters.favoriteOnly}">★ 最想去</button>
+          </div>
+          <p class="place-pool-hint" id="place-pool-hint">${docked ? "拖曳地點到日期，或點選地點選擇日期" : "點選地點，選擇要加入的日期"}</p>
+          ${rows ? `<ul class="place-pool-list" data-place-pool-list>${rows}</ul>` : `<div class="place-pool-empty">${pool.total ? "沒有符合篩選的未安排地點" : "所有收藏地點都已排入行程"}</div>`}
+          ${pool.ambiguousCount ? `<p class="place-pool-note">${pool.ambiguousCount} 個同名地點無法從地點池加入</p>` : ""}
+        </aside>
+      </div>`;
+}
+
+function setPlacePoolOpen(open) {
+  state.placePool.open = Boolean(open);
+  render({ preserveScroll: true, filterOnly: true });
+  window.requestAnimationFrame(() => document.querySelector(open ? "#place-pool-panel .place-pool-close" : "[data-toggle-place-pool]")?.focus());
+}
+
+function openPlacePoolAddSheet(placeKey) {
+  const matches = getUnscheduledPlaces().entries.filter((entry) => entry.key === placeKey);
+  if (matches.length !== 1) {
+    render({ preserveScroll: true });
+    return showToast("這個地點已不在地點池");
+  }
+  return openAddPlaceDateSheet(matches[0].place.name, { poolKey: placeKey });
 }
 
 function openReorderSheet(key) {
@@ -9077,6 +9242,21 @@ document.addEventListener("click", async (event) => {
     else startLiveLocation();
     return;
   }
+
+  if (event.target.closest("[data-toggle-place-pool]")) {
+    if (!canEdit()) return guestOnlyMessage();
+    return setPlacePoolOpen(!state.placePool.open);
+  }
+
+  if (event.target.closest("[data-close-place-pool]")) return setPlacePoolOpen(false);
+
+  if (event.target.closest("[data-place-pool-favorite]")) {
+    state.placePool.favoriteOnly = !state.placePool.favoriteOnly;
+    return render({ preserveScroll: true, filterOnly: true });
+  }
+
+  const poolPlace = event.target.closest("[data-pool-place]");
+  if (poolPlace) return canEdit() ? openPlacePoolAddSheet(poolPlace.dataset.poolPlace) : guestOnlyMessage();
 
   if (event.target.closest("[data-open-itinerary-places]")) {
     if (!canEdit()) return guestOnlyMessage();
@@ -9593,6 +9773,15 @@ document.addEventListener("change", async (event) => {
     if (applyPlacesFilterChange(event.target.dataset.placesFilter, event.target.value)) render({ preserveScroll: true, filterOnly: true });
     return;
   }
+  if (event.target.matches("[data-place-pool-filter]")) {
+    // Place Pool filters are view state only, like the Places filters above.
+    const filter = event.target.dataset.placePoolFilter;
+    if (filter !== "kind" && filter !== "section") return;
+    state.placePool[filter] = String(event.target.value ?? "");
+    render({ preserveScroll: true, filterOnly: true });
+    window.requestAnimationFrame(() => document.querySelector(`#place-pool-filter-${filter}`)?.focus());
+    return;
+  }
   if (event.target.matches("[data-shopping-category-select]")) {
     const owner = event.target.closest("[data-shopping-import-row], #shopping-item-form");
     const customField = owner?.querySelector("[data-shopping-custom-category]");
@@ -9820,6 +10009,62 @@ async function finishItineraryDrag(event) {
 }
 
 document.addEventListener("pointerup", finishItineraryDrag);
+
+/* Desktop Place Pool drag onto a day. Only a drag that started on a docked pool card is
+ * accepted, so text or files dragged in from elsewhere never add anything, and an invalid target
+ * never takes the drop. The drop uses the same add path as the click and tap fallbacks. */
+let placePoolDrag = null;
+
+function placePoolDropTarget(target) {
+  const element = target?.closest?.("[data-pool-drop-date]");
+  return element && dateMeta.some(([date]) => date === element.dataset.poolDropDate) ? element : null;
+}
+
+function clearPlacePoolDropTargets() {
+  document.querySelectorAll(".is-pool-drop-target").forEach((element) => element.classList.remove("is-pool-drop-target"));
+}
+
+function endPlacePoolDrag() {
+  placePoolDrag?.card.classList.remove("is-dragging");
+  placePoolDrag = null;
+  clearPlacePoolDropTargets();
+  document.body.classList.remove("place-pool-dragging");
+}
+
+document.addEventListener("dragstart", (event) => {
+  const card = event.target.closest?.("[data-pool-place]");
+  if (!card || !canEdit() || !placePoolDocked()) return;
+  placePoolDrag = { key: card.dataset.poolPlace, card };
+  event.dataTransfer.effectAllowed = "copy";
+  event.dataTransfer.setData("text/plain", card.dataset.poolPlace);
+  card.classList.add("is-dragging");
+  document.body.classList.add("place-pool-dragging");
+});
+
+document.addEventListener("dragover", (event) => {
+  if (!placePoolDrag) return;
+  const target = placePoolDropTarget(event.target);
+  clearPlacePoolDropTargets();
+  if (!target) {
+    event.dataTransfer.dropEffect = "none";
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  target.classList.add("is-pool-drop-target");
+});
+
+document.addEventListener("drop", (event) => {
+  if (!placePoolDrag) return;
+  const { key } = placePoolDrag;
+  const target = placePoolDropTarget(event.target);
+  endPlacePoolDrag();
+  if (!target) return;
+  event.preventDefault();
+  completePlacePoolAdd(key, target.dataset.poolDropDate);
+});
+
+document.addEventListener("dragend", endPlacePoolDrag);
 document.addEventListener("pointercancel", finishItineraryDrag);
 
 document.addEventListener("contextmenu", (event) => {
@@ -9831,6 +10076,10 @@ document.addEventListener("keydown", (event) => {
   if (sheetRoot.querySelector("[data-shopping-image-preview-root]")) {
     event.preventDefault();
     return closeShoppingImagePreview();
+  }
+  if (state.placePool.open && state.activeTab === "itinerary" && !sheetRoot.innerHTML) {
+    event.preventDefault();
+    return setPlacePoolOpen(false);
   }
   if (mapFullscreen) {
     event.preventDefault();
@@ -10200,16 +10449,8 @@ document.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
     rememberItineraryPlaceChecks();
-    const existing = state.itinerary[state.selectedDate] || [];
-    const existingNames = new Set(existing.map((item) => item.name));
-    const names = [...itineraryPlaceSelection].filter((name) => !existingNames.has(name));
-    if (!names.length) return showToast("請先勾選尚未加入本日的地點");
-    const times = suggestedItineraryTimes(names.length);
-    const additions = names.map((name, index) => ({ name, time: times[index] }));
-    const returnFlightIndex = existing.findIndex((item) => item.type === "flight" && state.flights.find((flight) => flight.id === item.flightId)?.direction === "回程");
-    state.itinerary[state.selectedDate] = returnFlightIndex < 0
-      ? [...existing, ...additions]
-      : [...existing.slice(0, returnFlightIndex), ...additions, ...existing.slice(returnFlightIndex)];
+    const additions = insertPlacesIntoItineraryDay(state.selectedDate, [...itineraryPlaceSelection]);
+    if (!additions.length) return showToast("請先勾選尚未加入本日的地點");
     itineraryPlaceSelection = new Set();
     persist();
     closeSheet();
@@ -10396,6 +10637,11 @@ document.addEventListener("submit", async (event) => {
   if (event.target.id === "add-place-day-form") {
     event.preventDefault();
     if (!canEdit()) return guestOnlyMessage();
+    if (event.target.dataset.addSource === "place-pool") {
+      const date = String(new FormData(event.target).get("date") || "");
+      closeSheet();
+      return completePlacePoolAdd(event.target.dataset.placeKey, date);
+    }
     const form = new FormData(event.target);
     const date = form.get("date");
     const name = event.target.dataset.placeName;

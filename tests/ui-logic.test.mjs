@@ -158,7 +158,11 @@ test("all-date route map keeps daily ordering and assigns different route colors
 });
 
 test("itinerary uses custom solid drag behavior instead of native translucent dragging", () => {
-  assert.doesNotMatch(appSource, /draggable="true"/);
+  // Timeline reorder stays custom pointer drag. The only native draggable is the desktop-docked
+  // Place Pool card (a copy-to-day gesture), and it is never emitted on touch layouts.
+  assert.doesNotMatch(sourceSection("function itineraryScreen", "function render("), /draggable/);
+  assert.deepEqual(appSource.match(/draggable="true"/g), ['draggable="true"']);
+  assert.match(sourceSection("function placePoolMarkup", "function setPlacePoolOpen"), /\$\{docked \? ' draggable="true"' : ""\}/);
   assert.match(appSource, /row\.animate\(/);
   assert.match(appSource, /data-swipe-item/);
   assert.match(appSource, /position: "fixed"/);

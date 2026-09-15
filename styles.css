@@ -8046,3 +8046,47 @@ body.transport-sheet-open .app {
 .place-editor-sheet > .modal-actions[hidden] { display: none; }
 .place-editor-sheet .tag-add-row .tag-custom-entry { grid-template-columns: minmax(0, 1fr); }
 .tag-add-row input, .tag-add-row button { height: 44px; min-height: 44px; margin: 0; }
+
+/* Itinerary Place Pool: a bottom sheet by default, docked beside the phone frame on desktop. */
+.place-pool-toggle { height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 250, 242, 0.8); color: var(--mineral); font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.place-pool-toggle b { min-width: 22px; padding: 2px 6px; border-radius: 10px; background: var(--mineral); color: #fff; font-size: 12px; text-align: center; }
+.place-pool-toggle[aria-expanded="true"] { border-color: var(--mineral); background: var(--mineral-soft); }
+.place-pool-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Its own row keeps the itinerary header exactly as before; the title never wraps for the toggle. */
+.itinerary-pool-bar { display: flex; justify-content: flex-end; margin: -12px 0 10px; }
+.place-pool { position: fixed; z-index: 60; inset: 0; display: grid; align-items: end; }
+.place-pool[hidden] { display: none; }
+.place-pool-backdrop { position: absolute; inset: 0; background: rgba(37, 31, 26, 0.28); }
+.place-pool-panel { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; width: 100%; max-height: min(78dvh, 660px); padding: 18px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; background: var(--paper-2); box-shadow: var(--shadow); }
+.place-pool-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.place-pool-head h2 { margin: 0; font-size: 20px; }
+.place-pool-head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.place-pool-close { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; font-size: 22px; }
+.place-pool-filters { margin: 12px 0 4px; }
+.place-pool-favorite-filter { grid-column: 1 / -1; justify-self: start; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper-2); color: var(--muted); font-weight: 800; cursor: pointer; }
+.place-pool-favorite-filter[aria-pressed="true"] { border-color: #78558b; background: #78558b; color: #fff; }
+.place-pool-favorite-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-hint { margin: 6px 0 8px; color: var(--muted); font-size: 12px; }
+.place-pool-list { flex: 1 1 auto; min-height: 0; display: grid; align-content: start; gap: 8px; margin: 0 -4px; padding: 4px; overflow-y: auto; overscroll-behavior: contain; list-style: none; }
+.place-pool-card { width: 100%; min-height: 60px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 250, 242, 0.92); color: var(--ink); text-align: left; cursor: pointer; }
+.place-pool-card[draggable="true"] { cursor: grab; }
+.place-pool-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-card.is-dragging { opacity: 0.45; border-style: dashed; border-color: var(--mineral); }
+.place-pool-thumb { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--swatch, var(--mineral)); color: #fff; font-weight: 800; }
+.place-pool-copy { min-width: 0; display: grid; gap: 3px; }
+.place-pool-copy strong { font-size: 15px; overflow-wrap: anywhere; }
+.place-pool-copy small { color: var(--muted); font-size: 12px; }
+.place-pool-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.place-pool-tags .highlight-tag { padding: 3px 7px; font-size: 10px; }
+.place-pool-favorite { color: #78558b; font-size: 13px; font-weight: 800; white-space: nowrap; }
+.place-pool-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.place-pool-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
+.place-pool-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+body.place-pool-dragging [data-pool-drop-date] { outline: 2px dashed rgba(64, 119, 122, 0.5); outline-offset: 2px; }
+body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3px solid var(--mineral); box-shadow: 0 0 0 6px rgba(64, 119, 122, 0.16); }
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+  body.place-pool-docked .stage { padding-right: 408px; }
+  .place-pool { inset: 24px 24px 24px auto; width: 360px; display: block; }
+  .place-pool-backdrop { display: none; }
+  .place-pool-panel { height: 100%; max-height: none; padding: 20px 18px; border: 1px solid var(--line); border-radius: 28px; }
+}
