@@ -8133,8 +8133,6 @@ body.transport-sheet-open .app {
 .place-pool-cta-hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 body.place-pool-dragging [data-pool-drop-date] { outline: 2px dashed rgba(64, 119, 122, 0.5); outline-offset: 2px; }
 body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3px solid var(--mineral); box-shadow: 0 0 0 6px rgba(64, 119, 122, 0.16); }
-.place-pool-selected-add { flex: 0 0 auto; width: 36px; min-height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--mineral); font-size: 16px; font-weight: 800; cursor: pointer; }
-.place-pool-selected-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Mobile (<900px): Selected becomes a right-side drawer behind the fixed handle; main workspace
    shows only filters + candidates, per the fullscreen workspace's mobile contract. The candidates

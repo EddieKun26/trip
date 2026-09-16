@@ -8823,6 +8823,25 @@ function setPlacePoolDrawerOpen(open) {
   render({ preserveScroll: true, filterOnly: true });
 }
 
+// Trip-scoped, in-memory only (no persistence) — same lazy-reset pattern as placePoolSelection
+// above, so any trip switch (or app reload, which simply reinitializes this module state) is
+// treated as a brand-new session: the very first time 行程規劃 is opened for a Trip, the main
+// Places list starts at the top; reopening the same workspace again later in the same session
+// (without a trip switch/reload in between) restores exactly where the user left off instead.
+// This is deliberately separate from the existing anchor-based restorePlacePoolAnchor mechanism,
+// which only ever preserves position across a re-render while the workspace stays open/visible —
+// it says nothing about where a *closed* workspace should resume when reopened.
+const placePoolScrollSession = { tripId: "", hasOpened: false, savedScrollTop: 0 };
+
+function placePoolScrollSessionState() {
+  if (placePoolScrollSession.tripId !== state.tripId) {
+    placePoolScrollSession.tripId = state.tripId;
+    placePoolScrollSession.hasOpened = false;
+    placePoolScrollSession.savedScrollTop = 0;
+  }
+  return placePoolScrollSession;
+}
+
 // dateOptions === [] means "no date restriction" for this selected Place.
 function placePoolConstraintFor(key) {
   return placePoolPlanningConstraints().get(key) || [];
@@ -8992,14 +9011,13 @@ function placePoolCardMarkup({ key, place, voteCount }, { docked, selected }) {
 }
 
 // One compact row shared verbatim by the desktop Selected column and the mobile Selected drawer:
-// icon/check, name, the planning-date summary and a secondary manual-add action only — never
-// tags, geography, votes or a restaurant category.
+// icon/check, name and the planning-date summary only — never tags, geography, votes, a
+// restaurant category, or a manual-add action (that duplicated 指定日期 and was removed).
 function placePoolSelectedCompactCardMarkup({ key, place }) {
   // The checkmark is its own toggle (reusing the exact same data-pool-place handler that
   // candidate cards use — one selection verb, two entry points) so a Place can be unselected
   // straight from the Selected column/drawer, not only by returning to its candidate card. The
-  // name/date row opens the date dialog; the trailing ＋ button reopens the unchanged manual
-  // 直接加入行程 flow as an independent secondary path — the three never fight over one click.
+  // name/date row opens the date dialog; the two never fight over one click.
   return `
           <li class="place-pool-selected-item" data-pool-anchor-key="${escapeHtml(key)}">
             <button class="place-pool-selected-unselect" type="button" data-pool-place="${escapeHtml(key)}" aria-pressed="true" aria-label="取消選取「${escapeHtml(place.name)}」">
@@ -9009,7 +9027,6 @@ function placePoolSelectedCompactCardMarkup({ key, place }) {
               <span class="place-pool-selected-name">${escapeHtml(place.name)}</span>
               <span class="place-pool-selected-constraint">${escapeHtml(placePoolConstraintSummaryText(key, "summary"))}</span>
             </button>
-            <button class="place-pool-selected-add" type="button" data-pool-add="${escapeHtml(key)}" aria-label="直接將「${escapeHtml(place.name)}」加入某一天">＋</button>
           </li>`;
 }
 
@@ -9097,8 +9114,25 @@ function placePoolMarkup(rawPool) {
 }
 
 function setPlacePoolOpen(open) {
+  const session = placePoolScrollSessionState();
+  // Capture the visible list's current position before it's hidden, so a same-session reopen can
+  // restore it; a first-ever open leaves savedScrollTop at its 0 default.
+  if (!open) {
+    const list = document.querySelector("[data-place-pool-list]");
+    if (list) session.savedScrollTop = list.scrollTop;
+  }
   state.placePool.open = Boolean(open);
   render({ preserveScroll: true, filterOnly: true });
+  if (open) {
+    // Deliberately synchronous, right after render() — the same completion point
+    // capturePlacePoolAnchor/restorePlacePoolAnchor already rely on above — rather than
+    // requestAnimationFrame, which a backgrounded/hidden tab can throttle indefinitely and never
+    // fire at all. This is the final word for an open transition: top on the first open this trip
+    // session, otherwise back to wherever the user scrolled to before it was last closed.
+    const list = document.querySelector("[data-place-pool-list]");
+    if (list) list.scrollTop = session.hasOpened ? session.savedScrollTop : 0;
+    session.hasOpened = true;
+  }
   window.requestAnimationFrame(() => document.querySelector(open ? "#place-pool-panel .place-pool-close" : "[data-toggle-place-pool]")?.focus());
 }
 

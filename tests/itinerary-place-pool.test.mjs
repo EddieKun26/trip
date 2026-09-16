@@ -351,18 +351,17 @@ test('unselected cards never expose a date control; a selected card does, defaul
   assert.match(b.app.innerHTML, new RegExp(`data-pool-constraint="${keyOf('ueno')}" aria-haspopup="dialog">指定日期`));
 });
 
-test('the manual 直接加入行程 add path lives on the Selected row as an independent secondary action, never inside the date dialog', async () => {
+test('the Selected row exposes no manual direct-add action (removed: it duplicated 指定日期); the underlying 直接加入行程 helper chain still works for any other caller', async () => {
   const b = await itinerary();
   b.run('setPlacePoolOpen(true)');
   spy(b);
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   const selectedListHtml = b.app.innerHTML.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
-  assert.match(selectedListHtml, new RegExp(`data-pool-add="${keyOf('ueno')}"`));
+  assert.doesNotMatch(selectedListHtml, /data-pool-add|place-pool-selected-add|＋/);
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
   assert.doesNotMatch(b.sheet.innerHTML, /data-pool-add|直接加入行程/);
   b.run('closeSheet()');
-  const poolAdd = listener(b, 'click', 'data-pool-add');
-  await poolAdd({ target: target('[data-pool-add]', { poolAdd: keyOf('ueno') }), preventDefault() {} });
+  b.run(`openPlacePoolAddSheet("${keyOf('ueno')}")`);
   const addSheet = b.sheet.innerHTML;
   assert.match(addSheet, /id="add-place-day-form" data-place-name="上野動物園" data-add-source="place-pool" data-place-key="app:synthetic-ueno"/);
   assert.match(addSheet, /<h2>加入行程<\/h2>/);
@@ -571,7 +570,7 @@ test('a Place can be unselected directly from the Selected column/drawer via its
   assert.deepEqual(poolNames(b), ['淺草寺', '上野動物園', '築地壽司', '澀谷 PARCO', '銀座飯店']);
 });
 
-test('drawer rows show name + date summary + a manual-add action only, never tags, geography or a restaurant category', async () => {
+test('drawer rows show name + date summary only, never tags, geography, a restaurant category, or a manual-add action', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   b.run('setPlacePoolOpen(true)');
@@ -580,7 +579,7 @@ test('drawer rows show name + date summary + a manual-add action only, never tag
   assert.match(row, /place-pool-selected-check/);
   assert.match(row, /上野動物園/);
   assert.match(row, /未指定日期/);
-  assert.match(row, new RegExp(`data-pool-add="${keyOf('ueno')}"`));
+  assert.doesNotMatch(row, /data-pool-add|place-pool-selected-add|＋/);
   assert.doesNotMatch(row, /place-tag-area|highlight-tag|place-pool-favorite|景點 ·/);
 });
 
@@ -937,6 +936,65 @@ test('render() captures and restores the candidate list and Selected column scro
   assert.match(source, /capturePlacePoolAnchor\("\[data-place-pool-selected-list\]"\)/);
   assert.match(source, /restorePlacePoolAnchor\(poolCandidateAnchor\)/);
   assert.match(source, /restorePlacePoolAnchor\(poolSelectedAnchor\)/);
+});
+
+// --- Selected Summary direct-add removal (Phase 1B.2.1) --------------------------------------
+
+test('the desktop Selected column exposes no manual direct-add action, only the unselect checkmark and the 指定日期 row', async () => {
+  const b = await itinerary();
+  b.context.window.matchMedia = () => ({ matches: true }); // docked/desktop
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run('setPlacePoolOpen(true)');
+  const selectedListHtml = b.app.innerHTML.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.doesNotMatch(selectedListHtml, /data-pool-add|place-pool-selected-add|＋/);
+  assert.match(selectedListHtml, new RegExp(`data-pool-place="${keyOf('ueno')}"`));
+  assert.match(selectedListHtml, new RegExp(`data-pool-constraint="${keyOf('ueno')}"`));
+});
+
+test('there is no data-pool-add trigger anywhere inside 行程規劃\'s Selected Summary markup (desktop column or mobile drawer share one template), and no lingering unused CSS for it', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run('setPlacePoolOpen(true)');
+  const selectedListHtml = b.app.innerHTML.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.doesNotMatch(selectedListHtml, /data-pool-add/);
+  assert.doesNotMatch(css, /\.place-pool-selected-add\b/);
+});
+
+test('unselecting from the Selected Summary still works, and the 指定日期 summary is still clickable, after removing the direct-add action', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "none", preferredPeriods: [], exactTime: null }])`);
+  b.run('setPlacePoolOpen(true)');
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') }); // unselect via the Selected row's own checkmark
+  assert.deepEqual(selectedNames(b), []);
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') }); // re-select
+  b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
+  assert.match(b.sheet.innerHTML, /<h2>指定日期<\/h2>/);
+});
+
+// --- Initial-open / same-session-reopen scroll behavior (Phase 1B.2.1) ------------------------
+
+test('placePoolScrollSessionState resets hasOpened/savedScrollTop on any trip switch, including switching back to a trip visited earlier this session', async () => {
+  const b = await itinerary();
+  assert.deepEqual(json(b.run('placePoolScrollSessionState()')), { tripId: 'b', hasOpened: false, savedScrollTop: 0 });
+  b.run('placePoolScrollSessionState().hasOpened = true; placePoolScrollSessionState().savedScrollTop = 1200');
+  assert.deepEqual(json(b.run('placePoolScrollSessionState()')), { tripId: 'b', hasOpened: true, savedScrollTop: 1200 });
+  b.state.tripId = 'another-trip';
+  assert.deepEqual(json(b.run('placePoolScrollSessionState()')), { tripId: 'another-trip', hasOpened: false, savedScrollTop: 0 });
+  b.run('placePoolScrollSessionState().hasOpened = true; placePoolScrollSessionState().savedScrollTop = 400');
+  b.state.tripId = 'b'; // switching back to a trip visited earlier this session is still a fresh first-open
+  assert.deepEqual(json(b.run('placePoolScrollSessionState()')), { tripId: 'b', hasOpened: false, savedScrollTop: 0 });
+});
+
+test('opening 行程規劃 sets the main list to the top on the first open this trip session, restores the saved position on a same-session reopen, and captures the position on close — never altered by selection/filter/constraint edits or the mobile drawer, which use the separate anchor-based restore (real-DOM wiring only runs in a browser; verified separately by manual smoke)', () => {
+  assert.match(source, /const placePoolScrollSession = \{ tripId: "", hasOpened: false, savedScrollTop: 0 \};/);
+  assert.match(source, /if \(!open\) \{\s*const list = document\.querySelector\("\[data-place-pool-list\]"\);\s*if \(list\) session\.savedScrollTop = list\.scrollTop;/);
+  assert.match(source, /list\.scrollTop = session\.hasOpened \? session\.savedScrollTop : 0;/);
+  assert.match(source, /session\.hasOpened = true;/);
+  // Only setPlacePoolOpen touches placePoolScrollSession; setPlacePoolDrawerOpen (mobile drawer)
+  // and the selection/filter/constraint render() calls never reference it.
+  const drawerFn = source.slice(source.indexOf("function setPlacePoolDrawerOpen"), source.indexOf("function setPlacePoolDrawerOpen") + 200);
+  assert.doesNotMatch(drawerFn, /placePoolScrollSession/);
 });
 
 test('drawer and toggle share one element: hidden when closed; fullscreen at every viewport width', () => {

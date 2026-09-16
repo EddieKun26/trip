@@ -1,5 +1,11 @@
 # Project state
 
+## Trip Planning Final Polish — release round, 2026-09-16
+
+- Released and pushed to `origin/main`/production from `fix/trip-planning-final-polish` on top of baseline `512ce8ecb2e2b700cc88aff423f060fed4139fd5`. See the commit for the exact hash; production deploy state is tracked per-push, not here.
+- Small production-smoke-feedback round, two items only: removed the redundant manual direct-add ➕ from 行程規劃's Selected Summary rows (desktop column and mobile drawer both use the same template) since 指定日期 already covers that need and the ➕ opened a conflicting old direct-to-itinerary flow; and fixed 行程規劃's main list to always start at the top the first time it's opened for a Trip in a session (app reload or trip switch), while still restoring the exact scroll position on a same-session reopen. A reliability bug in the first cut of the scroll fix (relying on `requestAnimationFrame`, which a backgrounded tab can throttle indefinitely) was caught by this round's own browser smoke and fixed to run synchronously instead. Full details: `memory/itinerary-place-pool.md`.
+- Validation: full regression 772/772 (41 files, up from 767/767); canonical-area Phase A/B/C safety unchanged; no api/lib/data/vercel diff; API functions 12; `node --check`/`git diff --check` pass. Production UX/smoke still needs a one-time user pass in production itself (not yet performed as of this commit).
+
 ## Trip Planning Workspace UX Refinement — release round, 2026-09-16
 
 - Released and pushed to `origin/main`/production from `feat/trip-planning-ux-refinement` on top of baseline `a206694be555a92781536ebce849d6fc3ebbea2c`. See the commit for the exact hash; production deploy state is tracked per-push, not here.
