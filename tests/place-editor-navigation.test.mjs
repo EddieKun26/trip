@@ -111,15 +111,22 @@ function harness({ existing = null, extraState = {} } = {}) {
   };
 }
 
-test("place-editor action bar is a sticky in-scroll footer, not a viewport-fixed one", () => {
+test("place-editor action bar is a true bottom-pinned footer outside the scrollable content, not a viewport-fixed or merely-sticky one", () => {
   assert.match(source, /<div class="modal-actions">.*data-close-sheet.*儲存變更.*確認新增/s);
-  assert.match(stylesSource, /\.place-editor-sheet > \.modal-actions\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0;/s);
+  // The sheet itself is a flex column (header/fields/photo editor scroll inside .place-editor-scroll,
+  // flex:1 min-height:0) so the action footer is a normal flow item pinned to the panel's true
+  // bottom at any content length, rather than a position:sticky footer that only visibly "sticks"
+  // once the content is tall enough to scroll — which left it sitting right after short content,
+  // not glued to the bottom, in production.
+  assert.match(stylesSource, /\.place-editor-sheet\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
+  assert.match(stylesSource, /\.place-editor-scroll\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
   const rule = stylesSource.slice(stylesSource.indexOf(".place-editor-sheet > .modal-actions"), stylesSource.indexOf("}", stylesSource.indexOf(".place-editor-sheet > .modal-actions")));
-  assert.doesNotMatch(rule, /position:\s*fixed/, "must stay sticky inside the sheet's own scroll container, never viewport-fixed");
+  assert.doesNotMatch(rule, /position:\s*fixed/, "must stay inside the sheet's own flex column, never viewport-fixed");
+  assert.doesNotMatch(rule, /position:\s*sticky/, "a normal flow flex item, not a sticky one that only sticks once content overflows");
+  assert.match(rule, /flex:\s*0 0 auto/);
   assert.match(rule, /env\(safe-area-inset-bottom\)/, "must respect the iOS home-indicator safe area");
   assert.match(rule, /background:\s*var\(--paper-2\)/, "opaque background so scrolled content cannot show through");
   assert.match(rule, /border-top|box-shadow/, "must visually separate from the scrolled content above it");
-  assert.match(stylesSource, /\.place-editor-sheet\s*\{[^}]*overflow-y:\s*auto;/s, "the sheet itself, not the viewport, must be the sticky positioning context");
 });
 
 test("Save on an existing place returns to the same place's updated detail, preserves list scroll/filter state, and never resets it to list top", async () => {

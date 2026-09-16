@@ -4340,26 +4340,37 @@ body.transport-sheet-open .app {
   font-weight: 800;
 }
 
+/* Column layout — header/fields/photo editor scroll in their own flex:1 region while the action
+   footer stays a normal flow item pinned to the panel's true bottom, so it can never be mistaken
+   for floating above unobscured page content when the form is short, and never scrolls away with
+   the rest of the content when it is long. */
 .place-editor-sheet {
   max-height: 90dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
 }
 
-/* Sticky action bar inside the sheet's own scroll container (not viewport-fixed), so it
-   stays clear of the iOS keyboard/accessory bar compressing the visual viewport. */
+.place-editor-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+}
+
 .place-editor-sheet > .modal-actions {
-  position: sticky;
-  bottom: 0;
+  flex: 0 0 auto;
   z-index: 2;
-  margin: 18px -20px -20px;
+  margin: 0;
   padding: 12px 20px max(12px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: var(--paper-2);
   box-shadow: 0 -6px 14px -10px rgba(37, 31, 26, 0.35);
 }
 
-.place-editor-sheet > .place-photo-editor {
+.place-editor-scroll > .place-photo-editor {
   padding-bottom: 8px;
 }
 
@@ -8122,12 +8133,23 @@ body.transport-sheet-open .app {
 .place-pool-cta-hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 body.place-pool-dragging [data-pool-drop-date] { outline: 2px dashed rgba(64, 119, 122, 0.5); outline-offset: 2px; }
 body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3px solid var(--mineral); box-shadow: 0 0 0 6px rgba(64, 119, 122, 0.16); }
+.place-pool-selected-add { flex: 0 0 auto; width: 36px; min-height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--mineral); font-size: 16px; font-weight: 800; cursor: pointer; }
+.place-pool-selected-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Mobile (<900px): Selected becomes a right-side drawer behind the fixed handle; main workspace
-   shows only filters + candidates, per the fullscreen workspace's mobile contract. */
+   shows only filters + candidates, per the fullscreen workspace's mobile contract. The candidates
+   column reserves the handle's own 46px-wide strip (plus a small buffer) as a permanent safe area
+   so a card's 指定日期 control can never render underneath the fixed handle. */
 @media (max-width: 899.98px) {
   .place-pool-selected-column { position: fixed; z-index: 5; top: 0; right: 0; bottom: 0; width: min(86vw, 360px); border-bottom: 0; border-left: 1px solid var(--line); box-shadow: var(--shadow); padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); transform: translateX(100%); transition: transform 0.25s ease; }
   .place-pool-workspace.is-drawer-open .place-pool-selected-column { transform: translateX(0); }
+  .place-pool-candidates-column { padding-right: 58px; }
+  .place-pool-drawer-backdrop { position: fixed; inset: 0; z-index: 4; background: rgba(37, 31, 26, 0.28); opacity: 0; pointer-events: none; transition: opacity 0.25s ease; }
+  .place-pool-workspace.is-drawer-open .place-pool-drawer-backdrop { opacity: 1; pointer-events: auto; }
+}
+
+@media (min-width: 900px) {
+  .place-pool-drawer-backdrop { display: none; }
 }
 
 /* Desktop (>=900px): static two-column layout; no drawer, no handle, nothing collapses. */
@@ -8139,18 +8161,30 @@ body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3p
   .place-pool-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 }
 
-/* Planning constraint sheet: day wheel (未安排 + trip days only) reusing the itinerary time
-   wheel's exact visual/interaction contract; an optional 15-minute time wheel appears only once
-   a real day is chosen. */
-.place-pool-constraint-sheet { width: min(420px, 100%); max-height: none; }
-.place-pool-constraint-summary { margin: 0 0 4px; color: var(--mineral); font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; }
-.place-pool-constraint-day-wheel { grid-template-columns: 1fr; padding-inline: 16px; height: 160px; }
-.place-pool-constraint-day-wheel .time-wheel-column { height: 160px; padding-block: 58px; }
-.place-pool-constraint-day-wheel .time-wheel-selection { top: 58px; }
-.place-pool-constraint-day-wheel .time-wheel-option { font-size: 17px; }
-.place-pool-constraint-time-toggle { margin-top: 8px; text-align: center; }
-.place-pool-constraint-time-switch { min-height: 44px; padding: 0 18px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper-2); color: var(--muted); font-weight: 800; cursor: pointer; }
-.place-pool-constraint-time-switch[aria-pressed="true"] { border-color: var(--mineral); background: var(--mineral-soft); color: var(--ink); }
-.place-pool-constraint-time-wheel[hidden] { display: none; }
+/* 指定日期 dialog: always a centered modal (never a bottom sheet, never drifting toward the
+   bottom of the screen), with a scrollable date-checkbox list between a fixed header/hint and a
+   取消/確定-only footer. */
+.place-pool-constraint-backdrop { align-items: center; }
+.place-pool-constraint-dialog { width: min(420px, 100%); max-height: min(600px, 84dvh); display: flex; flex-direction: column; overflow: hidden; }
+.place-pool-constraint-dialog > .section-row { flex: 0 0 auto; }
+.place-pool-constraint-hint { flex: 0 0 auto; margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.place-pool-constraint-date-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; margin: 0 -20px; padding: 2px 20px; display: grid; gap: 8px; }
+.place-pool-constraint-dialog > .modal-actions { flex: 0 0 auto; margin: 14px -20px -20px; padding: 12px 20px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--paper-2); }
+.place-pool-constraint-date-row { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: grid; gap: 8px; }
+.place-pool-constraint-date-check { display: flex; align-items: center; gap: 10px; min-height: 32px; font-weight: 800; cursor: pointer; }
+.place-pool-constraint-date-check input { width: 20px; height: 20px; }
+.place-pool-constraint-time-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: var(--mineral); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
+.place-pool-constraint-time-editor { display: grid; gap: 10px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.place-pool-constraint-mode-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.place-pool-constraint-mode-group button { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 20px; background: var(--paper-2); color: var(--muted); font-weight: 700; cursor: pointer; }
+.place-pool-constraint-mode-group button[aria-pressed="true"] { border-color: var(--mineral); background: var(--mineral-soft); color: var(--ink); }
+.place-pool-constraint-period-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.place-pool-period-chip { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper-2); color: var(--muted); font-weight: 700; cursor: pointer; }
+.place-pool-period-chip[aria-pressed="true"] { border-color: #78558b; background: #78558b; color: #fff; }
+/* Exact-time wheel: reuses .time-wheel-picker/.time-wheel-column but at a shorter 150px height, so
+   padding-block and the .time-wheel-selection highlight's `top` must both be recentered to
+   (150 - 44) / 2 = 53px — the base rule's 73px assumes the default 190px-tall wheel. Leaving those
+   two un-recentered is exactly what left the gray selection box visually sunk below true center. */
 .place-pool-constraint-time-wheel { height: 150px; }
-.place-pool-constraint-time-wheel .time-wheel-column { height: 150px; }
+.place-pool-constraint-time-wheel .time-wheel-column { height: 150px; padding-block: 53px; }
+.place-pool-constraint-time-wheel .time-wheel-selection { top: 53px; }

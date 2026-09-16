@@ -1,5 +1,11 @@
 # Project state
 
+## Trip Planning Workspace UX Refinement — release round, 2026-09-16
+
+- Released and pushed to `origin/main`/production from `feat/trip-planning-ux-refinement` on top of baseline `a206694be555a92781536ebce849d6fc3ebbea2c`. See the commit for the exact hash; production deploy state is tracked per-push, not here.
+- Reversed 行程規劃's "selection moves a Place into a separate Selected list" model: the main list is now every planning-eligible Place, always, selection only changes visual state. Planning constraints are now multi-date (`dateOptions[]` per selected Place, each day independently `none`/`preferred`(one or more of 6 periods)/`exact` HH:MM), edited through a centered 指定日期 dialog (was a bottom-sheet day/time wheel) with no `未安排` option and no direct-add button (that moved to its own `＋` action on the Selected row). Fixed three concrete production bugs: the mobile drawer handle overlapping a Place's date control (candidates column now reserves a permanent 58px right-edge safe area), the exact-time wheel's selection box sitting visibly below center (wheel height override never recentered `padding-block`/`top`), and the Place Editor's 取消/儲存變更 footer not truly pinned to the panel bottom on short content (rebuilt as an explicit flex column instead of `position: sticky`). The mobile Selected drawer handle also gained a horizontal drag gesture (real-time preview, 50%-threshold snap, reverse-drag support) alongside its existing click toggle, plus a backdrop that closes it on click. Full details, exact function/rename list, the one real bug caught by browser smoke (a cross-row summary-text mixup, not a data bug), and validation numbers: `memory/itinerary-place-pool.md`.
+- Validation: full regression 767/767 (41 files, up from 753/753); canonical-area Phase A/B/C safety unchanged; no api/lib/data/vercel diff; API functions 12; `node --check`/`git diff --check` pass. Production UX/smoke still needs a one-time user pass in production itself (not yet performed as of this commit).
+
 ## Fullscreen Trip Planning Workspace + Planning Constraints — release round, 2026-09-16
 
 - Released and pushed to `origin/main`/production from `feat/fullscreen-trip-planning-workspace` on top of baseline `b7df7338cced3a9d64c921aeda9bb1143c2c19d3`. See the commit for the exact hash; production deploy state is tracked per-push, not here.

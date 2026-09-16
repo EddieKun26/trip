@@ -166,27 +166,64 @@ test('selected count uses currently valid entries, not the raw key Set size, whe
 
 // --- Selection-first interaction -------------------------------------------------------------
 
-test('click/tap toggles Place Pool selection with aria-pressed and moves the Place into the Selected column', async () => {
+test('click/tap toggles Place Pool selection with aria-pressed, and the Place never leaves the main list', async () => {
   const b = await itinerary();
   b.run('setPlacePoolOpen(true)');
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   assert.deepEqual(selectedNames(b), ['上野動物園']);
   let html = b.app.innerHTML;
-  // The candidate list no longer carries this key; only the Selected column's own unselect
-  // checkmark does (it deliberately reuses the same data-pool-place attribute/handler).
-  const candidateListHtml = html.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
-  assert.doesNotMatch(candidateListHtml, new RegExp(`data-pool-place="${keyOf('ueno')}"`));
+  // The main list still carries every Place in the same stable order; selection only changes
+  // aria-pressed and reveals the 指定日期 control, never removes/reorders the card.
+  const mainListHtml = html.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.match(mainListHtml, new RegExp(`data-pool-place="${keyOf('ueno')}" aria-pressed="true"`));
+  assert.match(mainListHtml, new RegExp(`data-pool-constraint="${keyOf('ueno')}"`));
   assert.match(html, /已選 1 個/);
   const selectedListHtml = html.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
   assert.match(selectedListHtml, new RegExp(`data-pool-place="${keyOf('ueno')}"`));
   assert.match(selectedListHtml, new RegExp(`data-pool-constraint="${keyOf('ueno')}"`));
   assert.doesNotMatch(selectedListHtml, /place-tag-area|place-pool-favorite/);
-  // Clicking the card again unselects it and it leaves the Selected column entirely.
+  // Clicking the card again unselects it; it stays in the main list, just without the date control.
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   assert.deepEqual(selectedNames(b), []);
   html = b.app.innerHTML;
   assert.match(html, /place-pool-selected-empty/);
+  const mainListAfter = html.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.match(mainListAfter, new RegExp(`data-pool-place="${keyOf('ueno')}" aria-pressed="false"`));
+  assert.doesNotMatch(mainListAfter, new RegExp(`data-pool-constraint="${keyOf('ueno')}"`));
   assert.deepEqual(poolNames(b), ['淺草寺', '上野動物園', '築地壽司', '澀谷 PARCO', '銀座飯店']);
+});
+
+test('all Places selected: the main list still shows every one of them, never an empty state', async () => {
+  const b = await itinerary();
+  for (const key of ['asakusa', 'ueno', 'tsukiji', 'shibuya', 'ginza']) {
+    await click(b, '[data-pool-place]', { poolPlace: keyOf(key) });
+  }
+  assert.equal(b.run('placePoolSelectedEntries().length'), 5);
+  b.run('setPlacePoolOpen(true)');
+  const html = b.app.innerHTML;
+  assert.doesNotMatch(html, /place-pool-empty/);
+  const mainListHtml = html.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  for (const key of ['asakusa', 'ueno', 'tsukiji', 'shibuya', 'ginza']) {
+    assert.match(mainListHtml, new RegExp(`data-pool-place="${keyOf(key)}" aria-pressed="true"`));
+  }
+});
+
+test('empty-state copy distinguishes "nothing matches the filter" from "nothing left to plan at all", and never claims the old copy', async () => {
+  const b = await itinerary();
+  b.run('setPlacePoolOpen(true)');
+  b.state.placePool.kind = 'lodging';
+  b.state.placePool.favoriteOnly = true; // 銀座飯店 has no votes, so this filter combination matches nothing.
+  b.run('render({ preserveScroll: true, filterOnly: true })');
+  assert.match(b.app.innerHTML, /place-pool-empty">目前篩選條件下沒有地點/);
+});
+
+test('when every Place is already scheduled, the main list shows "目前沒有可規劃的地點", never the old copy', async () => {
+  const scheduled = ['淺草寺', '上野動物園', '築地壽司', '澀谷 PARCO', '銀座飯店']
+    .map((name, index) => ({ id: `place:9/20:${name}`, name, time: `${10 + index}:00` }));
+  const b = await itinerary({ itinerary: { '9/20': scheduled } });
+  b.run('setPlacePoolOpen(true)');
+  assert.match(b.app.innerHTML, /place-pool-empty">目前沒有可規劃的地點/);
+  assert.doesNotMatch(b.app.innerHTML, /所有收藏地點都已排入行程|沒有符合篩選的待選地點/);
 });
 
 test('clicking the selectable card no longer opens the 加入某一天 sheet directly', async () => {
@@ -222,7 +259,7 @@ test('selecting Places is client memory only: no persistence, network, itinerary
   assert.doesNotMatch(JSON.stringify(json(b.writes.slice(writes))), /synthetic-ueno|synthetic-tsukiji/);
 });
 
-test('filters never narrow the Selected column/drawer: a selected Place stays fully visible regardless of the current filter', async () => {
+test('filters narrow only the main list; the Selected Summary stays fully visible regardless of the current filter', async () => {
   const b = await itinerary();
   b.run('setPlacePoolOpen(true)');
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') }); // attraction
@@ -234,12 +271,13 @@ test('filters never narrow the Selected column/drawer: a selected Place stays fu
   const selectedListHtml = html.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
   assert.match(selectedListHtml, new RegExp(`data-pool-constraint="${keyOf('ueno')}"`));
   assert.match(selectedListHtml, new RegExp(`data-pool-constraint="${keyOf('tsukiji')}"`));
-  const candidateListHtml = html.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
-  assert.doesNotMatch(candidateListHtml, new RegExp(`data-pool-place="${keyOf('ueno')}"`));
-  assert.doesNotMatch(candidateListHtml, new RegExp(`data-pool-place="${keyOf('tsukiji')}"`));
-  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  assert.equal(b.run(`placePoolSelectedKeys().has("${keyOf('ueno')}")`), false);
-  assert.ok(!poolNames(b).includes('上野動物園'));
+  // 上野動物園 is an attraction: the restaurant filter hides it from the main list exactly like any
+  // unselected attraction, but 築地壽司 (a restaurant, still selected) stays visible there too.
+  const mainListHtml = html.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.doesNotMatch(mainListHtml, new RegExp(`data-pool-place="${keyOf('ueno')}"`));
+  assert.match(mainListHtml, new RegExp(`data-pool-place="${keyOf('tsukiji')}" aria-pressed="true"`));
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('tsukiji') });
+  assert.equal(b.run(`placePoolSelectedKeys().has("${keyOf('tsukiji')}")`), false);
 });
 
 test('the Selected column never auto-collapses, even past 6 or 7 selected Places; it scrolls independently instead', async () => {
@@ -305,19 +343,24 @@ test('drag is inert where the workspace is not used with a mouse; nothing is eve
   assert.deepEqual(json(b.state.itinerary), {});
 });
 
-test('every candidate card exposes a planning-constraint control, defaulting to 未安排', async () => {
+test('unselected cards never expose a date control; a selected card does, defaulting to 指定日期', async () => {
   const b = await itinerary();
   b.run('setPlacePoolOpen(true)');
-  assert.match(b.app.innerHTML, new RegExp(`data-pool-constraint="${keyOf('ueno')}" aria-haspopup="dialog">未安排`));
+  assert.doesNotMatch(b.app.innerHTML, new RegExp(`data-pool-constraint="${keyOf('ueno')}"`));
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  assert.match(b.app.innerHTML, new RegExp(`data-pool-constraint="${keyOf('ueno')}" aria-haspopup="dialog">指定日期`));
 });
 
-test('the manual 直接加入行程 add path lives inside the constraint sheet as a secondary action, independent of selection', async () => {
+test('the manual 直接加入行程 add path lives on the Selected row as an independent secondary action, never inside the date dialog', async () => {
   const b = await itinerary();
   b.run('setPlacePoolOpen(true)');
   spy(b);
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  const selectedListHtml = b.app.innerHTML.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.match(selectedListHtml, new RegExp(`data-pool-add="${keyOf('ueno')}"`));
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
-  const sheet = b.sheet.innerHTML;
-  assert.match(sheet, new RegExp(`data-pool-add="${keyOf('ueno')}">直接加入行程`));
+  assert.doesNotMatch(b.sheet.innerHTML, /data-pool-add|直接加入行程/);
+  b.run('closeSheet()');
   const poolAdd = listener(b, 'click', 'data-pool-add');
   await poolAdd({ target: target('[data-pool-add]', { poolAdd: keyOf('ueno') }), preventDefault() {} });
   const addSheet = b.sheet.innerHTML;
@@ -383,12 +426,12 @@ test('same-name Places fail closed: neither is listed, selectable, addable or co
   b.run(`openPlacePoolAddSheet("${keyOf('ueno')}")`);
   assert.doesNotMatch(b.sheet.innerHTML, /add-place-day-form/);
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
-  assert.doesNotMatch(b.sheet.innerHTML, /place-pool-constraint-sheet/);
+  assert.doesNotMatch(b.sheet.innerHTML, /place-pool-constraint-dialog/);
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   assert.equal(b.run('placePoolSelectedKeys().size'), 0);
   assert.match(b.app.innerHTML, /place-pool-selected-empty/);
   assert.deepEqual(json(b.run(`addPlaceToItineraryDay("${keyOf('asakusa')}", "12/31")`)), { ok: false, reason: 'INVALID_DATE' });
-  assert.equal(b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/21", null)`), false);
+  assert.equal(b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/21", mode: "none", preferredPeriods: [], exactTime: null }])`), false);
   assert.deepEqual(json(b.state.itinerary), {});
   assert.equal(b.run('persistCalls'), 0);
 });
@@ -528,7 +571,7 @@ test('a Place can be unselected directly from the Selected column/drawer via its
   assert.deepEqual(poolNames(b), ['淺草寺', '上野動物園', '築地壽司', '澀谷 PARCO', '銀座飯店']);
 });
 
-test('drawer rows show name + planning constraint only, never tags, geography or a restaurant category', async () => {
+test('drawer rows show name + date summary + a manual-add action only, never tags, geography or a restaurant category', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   b.run('setPlacePoolOpen(true)');
@@ -536,7 +579,8 @@ test('drawer rows show name + planning constraint only, never tags, geography or
   const row = itemBlock(html, keyOf('ueno'));
   assert.match(row, /place-pool-selected-check/);
   assert.match(row, /上野動物園/);
-  assert.match(row, /未安排/);
+  assert.match(row, /未指定日期/);
+  assert.match(row, new RegExp(`data-pool-add="${keyOf('ueno')}"`));
   assert.doesNotMatch(row, /place-tag-area|highlight-tag|place-pool-favorite|景點 ·/);
 });
 
@@ -554,176 +598,299 @@ test('no horizontal document overflow markers are introduced (structural: the wo
   assert.match(css, /\.place-pool-mobile-handle \{[^}]*width: 46px; height: 100px;/);
 });
 
-// --- Planning constraints ------------------------------------------------------------------
+// --- Planning constraints (multi-date dateOptions) ------------------------------------------
 
-test('a newly selected Place defaults to UNSCHEDULED (未安排), with no restored/hidden day or time', async () => {
+test('a newly selected Place has no date restriction: dateOptions is empty, with no restored/hidden day or time', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
-  assert.equal(b.run(`placePoolConstraintKind(placePoolConstraintFor("${keyOf('ueno')}"))`), 'UNSCHEDULED');
-  assert.equal(b.run(`placePoolConstraintDisplayText("${keyOf('ueno')}")`), '未安排');
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "summary")`), '未指定日期');
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "card")`), '指定日期');
 });
 
-test('choosing a trip day sets FIXED_DAY with no time', async () => {
+test('single-date summaries: plain date, preferred (one and two-plus periods), and exact', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  const ok = b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", null)`);
-  assert.equal(ok, true);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: '9/22', time: null });
-  assert.equal(b.run(`placePoolConstraintKind(placePoolConstraintFor("${keyOf('ueno')}"))`), 'FIXED_DAY');
-  assert.equal(b.run(`placePoolConstraintDisplayText("${keyOf('ueno')}")`), '9/22');
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "none", preferredPeriods: [], exactTime: null }])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "card")`), '9/22');
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "preferred", preferredPeriods: ["evening"], exactTime: null }])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "card")`), '9/22・偏好晚上');
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "preferred", preferredPeriods: ["morning", "afternoon"], exactTime: null }])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "card")`), '9/22・偏好上午、下午');
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: [], exactTime: "18:30" }])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "card")`), '9/22・18:30');
 });
 
-test('choosing an exact time on top of a day sets FIXED_TIME, formatted 日期・時間', async () => {
+test('clearing all dateOptions removes the date restriction entirely; the Place stays selected', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", "18:30")`);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: '9/22', time: '18:30' });
-  assert.equal(b.run(`placePoolConstraintKind(placePoolConstraintFor("${keyOf('ueno')}"))`), 'FIXED_TIME');
-  assert.equal(b.run(`placePoolConstraintDisplayText("${keyOf('ueno')}")`), '9/22・18:30');
-});
-
-test('changing back to 未安排 clears both day and time; no orphan time is ever left behind', async () => {
-  const b = await itinerary();
-  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", "18:30")`);
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", null, null)`);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
-  // Still selected: choosing 未安排 never unselects a Place.
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: [], exactTime: "18:30" }])`);
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [])`);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
+  // Still selected: an empty dateOptions list never unselects a Place.
   assert.deepEqual(selectedNames(b), ['上野動物園']);
 });
 
-test('choosing a date on a not-yet-selected Place auto-selects it and sets FIXED_DAY', async () => {
+test('applyPlacePoolConstraint fails closed on a not-yet-selected Place: the date dialog is only ever for an already-selected Place, never a second way to select one', async () => {
   const b = await itinerary();
   assert.equal(b.run(`placePoolSelectedKeys().has("${keyOf('ueno')}")`), false);
-  const ok = b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", null)`);
-  assert.equal(ok, true);
-  assert.equal(b.run(`placePoolSelectedKeys().has("${keyOf('ueno')}")`), true);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: '9/22', time: null });
+  const ok = b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "none", preferredPeriods: [], exactTime: null }])`);
+  assert.equal(ok, false);
+  assert.equal(b.run(`placePoolSelectedKeys().has("${keyOf('ueno')}")`), false);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
 });
 
-test('only the trip\'s own date range appears as day-wheel options', async () => {
+test("only the trip's own date range can ever be stored as a dateOption", async () => {
   const b = await itinerary();
   const optionKeys = json(b.run('dateMeta.map(([date]) => date)'));
   assert.deepEqual(optionKeys, ['9/20', '9/21', '9/22', '9/23']);
-  const day = b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "12/31", null)`);
-  assert.equal(day, true); // call succeeds (fail-closed only on stale keys) but normalizes an out-of-range day away
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  const ok = b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "12/31", mode: "none", preferredPeriods: [], exactTime: null }])`);
+  assert.equal(ok, true); // call succeeds (fail-closed only on stale/unselected keys) but drops the out-of-range day
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
 });
 
-test('unselecting a Place deletes its constraint outright; re-selecting starts UNSCHEDULED again, never restoring the old day/time', async () => {
+test('unselecting a Place deletes its dateOptions outright; re-selecting starts empty again, never restoring the old dates', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", "18:30")`);
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: [], exactTime: "18:30" }])`);
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') }); // unselect
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') }); // re-select
-  assert.equal(b.run(`placePoolConstraintDisplayText("${keyOf('ueno')}")`), '未安排');
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
 });
 
-test('an invalid time never commits: fails closed, no dayKey without a valid time pattern', async () => {
+test('an invalid exact time never commits: normalizes to no time restriction for that day, never a stored garbage exactTime', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", "25:99")`);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: '9/22', time: null });
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: [], exactTime: "25:99" }])`);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), [{ dayKey: '9/22', mode: 'none', preferredPeriods: [], exactTime: null }]);
 });
 
 test('applyPlacePoolConstraint fails closed against a stale/no-longer-pooled key, like togglePlacePoolSelection', async () => {
   const b = await itinerary({ itinerary: { '9/20': [{ id: 'place:9/20:上野動物園', name: '上野動物園', time: '10:00' }] } });
-  assert.equal(b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/21", null)`), false);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
+  assert.equal(b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/21", mode: "none", preferredPeriods: [], exactTime: null }])`), false);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
 });
 
-test('a stale selected key that leaves the pool also drops its constraint', async () => {
+test('a stale selected key that leaves the pool also drops its dateOptions', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", null)`);
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "none", preferredPeriods: [], exactTime: null }])`);
   b.run(`addPlaceToItineraryDay("${keyOf('ueno')}", "9/21")`);
   assert.deepEqual(selectedNames(b), []); // triggers the lazy prune, like placePoolSelectedKeys().size elsewhere
   assert.equal(b.run('placePoolSelectedKeys().size'), 0);
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
 });
 
-test('the same formatter is used by the candidate card, the desktop Selected column, and the mobile drawer', async () => {
+test('the same summary formatter is used by the main-list card, the desktop Selected column, and the mobile drawer', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", "18:30")`);
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: [], exactTime: "18:30" }])`);
   b.context.window.matchMedia = () => ({ matches: true }); // docked/desktop
   b.run('setPlacePoolOpen(true)');
   const desktopHtml = b.app.innerHTML;
-  const desktopRow = itemBlock(desktopHtml, keyOf('ueno'));
-  assert.match(desktopRow, new RegExp(`data-pool-place="${keyOf('ueno')}" aria-pressed="true"`));
-  assert.match(desktopRow, new RegExp(`data-pool-constraint="${keyOf('ueno')}" aria-haspopup="dialog"`));
-  assert.match(desktopRow, /9\/22・18:30/);
+  const mainListHtml = desktopHtml.match(/<ul class="place-pool-list" data-place-pool-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  const mainRow = itemBlock(mainListHtml, keyOf('ueno'));
+  assert.match(mainRow, new RegExp(`data-pool-place="${keyOf('ueno')}" aria-pressed="true"`));
+  assert.match(mainRow, new RegExp(`data-pool-constraint="${keyOf('ueno')}" aria-haspopup="dialog"`));
+  assert.match(mainRow, /9\/22・18:30/);
+  const selectedListHtml = desktopHtml.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.match(selectedListHtml, /9\/22・18:30/);
   b.context.window.matchMedia = () => ({ matches: false }); // mobile drawer
   b.run('render({ preserveScroll: true })');
-  const mobileRow = itemBlock(b.app.innerHTML, keyOf('ueno'));
-  assert.match(mobileRow, /9\/22・18:30/);
+  const mobileSelectedHtml = b.app.innerHTML.match(/data-place-pool-selected-list>([\s\S]*?)<\/ul>/)?.[1] || '';
+  assert.match(mobileSelectedHtml, /9\/22・18:30/);
 });
 
-test('the constraint sheet opens from a candidate card, from the desktop Selected column and from the mobile drawer, all via data-pool-constraint', async () => {
+test('multi-date: dateOptions can hold several trip days at once, each with independent time rules, always ordered by the trip\'s own day order regardless of input order', async () => {
   const b = await itinerary();
-  b.run('setPlacePoolOpen(true)');
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [
+    { dayKey: "9/23", mode: "none", preferredPeriods: [], exactTime: null },
+    { dayKey: "9/20", mode: "exact", preferredPeriods: [], exactTime: "09:00" },
+    { dayKey: "9/22", mode: "preferred", preferredPeriods: ["morning", "afternoon"], exactTime: null }
+  ])`);
+  const stored = json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`));
+  assert.deepEqual(stored.map((option) => option.dayKey), ['9/20', '9/22', '9/23']);
+  assert.equal(stored[0].mode, 'exact');
+  assert.equal(stored[1].mode, 'preferred');
+  assert.equal(stored[2].mode, 'none');
+  // A Place with a multi-date constraint is still only ever selected once, not once per date.
+  assert.deepEqual(selectedNames(b), ['上野動物園']);
+});
+
+test('preferred periods: all six labels, deterministic ranges, multi-select, and selecting all six normalizes to no restriction', async () => {
+  const b = await itinerary();
+  const ranges = json(b.run('POOL_PREFERRED_PERIOD_RANGES'));
+  assert.deepEqual(ranges, {
+    early_morning: ['00:00', '05:59'], morning: ['06:00', '11:29'], noon: ['11:30', '13:29'],
+    afternoon: ['13:30', '17:29'], evening: ['17:30', '21:59'], late_night: ['22:00', '23:59'],
+  });
+  assert.deepEqual(json(b.run('POOL_PREFERRED_PERIOD_KEYS.map(poolPreferredPeriodLabel)')), ['凌晨', '上午', '中午', '下午', '晚上', '深夜']);
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "preferred", preferredPeriods: ["morning", "noon", "afternoon"], exactTime: null }])`);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`))[0].preferredPeriods, ['morning', 'noon', 'afternoon']);
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "preferred", preferredPeriods: ["early_morning", "morning", "noon", "afternoon", "evening", "late_night"], exactTime: null }])`);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), [{ dayKey: '9/22', mode: 'none', preferredPeriods: [], exactTime: null }]);
+});
+
+test('preferred and exact are mutually exclusive per day: a malformed entry with both fields set normalizes to exact-only, dropping the stale preferred periods', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: ["morning"], exactTime: "09:00" }])`);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), [{ dayKey: '9/22', mode: 'exact', preferredPeriods: [], exactTime: '09:00' }]);
+});
+
+test('summary formatter: contiguous all-none dates collapse to a date range; non-contiguous or mixed-constraint dates collapse to "可選 N 天"', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [
+    { dayKey: "9/22", mode: "none", preferredPeriods: [], exactTime: null },
+    { dayKey: "9/23", mode: "none", preferredPeriods: [], exactTime: null }
+  ])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "summary")`), '9/22–9/23');
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [
+    { dayKey: "9/20", mode: "none", preferredPeriods: [], exactTime: null },
+    { dayKey: "9/23", mode: "none", preferredPeriods: [], exactTime: null }
+  ])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "summary")`), '可選 2 天');
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [
+    { dayKey: "9/22", mode: "none", preferredPeriods: [], exactTime: null },
+    { dayKey: "9/23", mode: "exact", preferredPeriods: [], exactTime: "18:00" }
+  ])`);
+  assert.equal(b.run(`placePoolConstraintSummaryText("${keyOf('ueno')}", "summary")`), '可選 2 天');
+});
+
+test('the date dialog is a centered modal titled 指定日期, showing the place name, every trip day unchecked by default, and never the old 規劃限制 copy', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
   const sheet = b.sheet.innerHTML;
-  assert.match(sheet, /規劃限制/);
-  assert.match(sheet, /data-pool-wheel-part="day"/);
-  assert.match(sheet, /data-pool-wheel-value="">未安排/);
-  assert.match(sheet, /data-pool-wheel-value="9\/20">9\/20/);
-  assert.match(sheet, /data-pool-wheel-value="9\/23">9\/23/);
-  assert.doesNotMatch(sheet, /data-pool-wheel-value="9\/24"/);
-  // Time wheel/toggle is hidden until a real day is chosen.
-  assert.match(sheet, /place-pool-constraint-time-toggle" hidden data-pool-constraint-time-section/);
+  assert.match(sheet, /place-pool-constraint-backdrop/);
+  assert.match(sheet, /place-pool-constraint-dialog/);
+  assert.match(sheet, /<h2>指定日期<\/h2>/);
+  assert.match(sheet, /section-kicker">上野動物園/);
+  assert.doesNotMatch(sheet, /規劃限制/);
+  assert.match(sheet, /未勾選日期時，將交由 AI 自由安排/);
+  for (const date of ['9/20', '9/21', '9/22', '9/23']) {
+    assert.match(sheet, new RegExp(`data-pool-constraint-date="${date.replace('/', '\\/')}"`));
+  }
+  assert.doesNotMatch(sheet, /checked/); // dateOptions=[] -> nothing pre-checked, no restored/hidden day
+  assert.doesNotMatch(sheet, /直接加入行程|data-pool-add/);
+  assert.match(sheet, /<button class="secondary-button" type="button" data-pool-constraint-cancel>取消<\/button>/);
+  assert.match(sheet, /<button class="primary-button" type="button" data-pool-constraint-confirm>確定<\/button>/);
 });
 
-test('once a day is pending, the 指定時間 toggle becomes available; the time wheel is hidden until it is switched on', async () => {
+test('checking a date reveals its 不指定時間 time-summary row; clicking it expands the mode/period/time editor', async () => {
   const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
-  b.run('pendingPoolConstraint.dayKey = "9/22"');
-  const sheet = placePoolConstraintSheetRerender(b);
-  assert.doesNotMatch(sheet, /place-pool-constraint-time-toggle" hidden/);
-  assert.match(sheet, /place-pool-constraint-time-wheel" hidden data-pool-constraint-time-wheel/);
-  assert.match(sheet, /place-pool-constraint-time-switch" type="button" data-pool-constraint-time-toggle aria-pressed="false"/);
+  b.run('togglePoolConstraintDraftDate("9/22")');
+  let sheet = b.sheet.innerHTML;
+  assert.match(sheet, /data-pool-constraint-date="9\/22" checked/);
+  assert.match(sheet, /data-pool-constraint-expand="9\/22"[\s\S]*?不指定時間/);
+  assert.doesNotMatch(sheet, /place-pool-constraint-time-editor/);
+  b.run('togglePoolConstraintExpandedDay("9/22")');
+  sheet = b.sheet.innerHTML;
+  assert.match(sheet, /place-pool-constraint-time-editor/);
+  assert.match(sheet, /data-pool-constraint-mode="none" aria-pressed="true"/);
+  assert.match(sheet, /data-pool-constraint-mode="preferred" aria-pressed="false"/);
+  assert.match(sheet, /data-pool-constraint-mode="exact" aria-pressed="false"/);
 });
-function placePoolConstraintSheetRerender(b) {
-  return b.run('placePoolConstraintSheetMarkup(state.places.find((p) => placeDetailKey(p) === pendingPoolConstraint.key), pendingPoolConstraint)');
-}
 
-test('confirming the constraint sheet commits the pending selection and closes the sheet with zero network/persist', async () => {
+test('unchecking a date removes it from the draft entirely, including any time rule it carried', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
+  b.run('togglePoolConstraintDraftDate("9/22"); togglePoolConstraintExpandedDay("9/22"); setPoolConstraintDraftMode("exact")');
+  assert.equal(b.run('pendingPoolConstraint.dates.has("9/22")'), true);
+  b.run('togglePoolConstraintDraftDate("9/22")');
+  assert.equal(b.run('pendingPoolConstraint.dates.has("9/22")'), false);
+  assert.equal(b.run('pendingPoolConstraint.expandedDayKey'), null);
+});
+
+test('the exact-time wheel commit updates only the summary text of the currently expanded date row, never the first checked row in DOM order (regression: every checked row shares the same data-pool-constraint-time-summary-text attribute, so an unscoped querySelector previously wrote into the wrong row once two dates were checked)', () => {
+  assert.match(source, /document\.querySelector\(`\[data-pool-constraint-expand="\$\{pendingPoolConstraint\.expandedDayKey\}"\] \[data-pool-constraint-time-summary-text\]`\)/);
+});
+
+test('confirming the date dialog commits the draft dateOptions with zero network/persist', async () => {
   const b = await itinerary();
   spy(b);
   const requests = b.requests.length;
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
-  b.run('pendingPoolConstraint.dayKey = "9/22"; pendingPoolConstraint.timeOn = true; pendingPoolConstraint.hour = "18"; pendingPoolConstraint.minute = "30"');
+  b.run('togglePoolConstraintDraftDate("9/22"); togglePoolConstraintExpandedDay("9/22"); setPoolConstraintDraftMode("exact")');
+  b.run('pendingPoolConstraint.timeWheel = { hour: "18", minute: "30" }; pendingPoolConstraint.dates.get("9/22").exactTime = "18:30"');
   b.run('confirmPlacePoolConstraint()');
   assert.equal(b.sheet.innerHTML, '');
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: '9/22', time: '18:30' });
-  assert.equal(b.run('placePoolSelectedKeys().size'), 1);
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), [{ dayKey: '9/22', mode: 'exact', preferredPeriods: [], exactTime: '18:30' }]);
   assert.equal(b.requests.length, requests);
   assert.equal(b.run('persistCalls'), 0);
   assert.deepEqual(json(b.state.itinerary), {});
 });
 
-test('canceling the constraint sheet discards the pending edit entirely', async () => {
+test('canceling the date dialog (footer 取消 / closeSheet, same as the icon × or backdrop) discards the draft entirely', async () => {
   const b = await itinerary();
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
-  b.run('pendingPoolConstraint.dayKey = "9/22"');
+  b.run('togglePoolConstraintDraftDate("9/22")');
   b.run('closeSheet()');
   assert.equal(b.sheet.innerHTML, '');
-  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), { dayKey: null, time: null });
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
 });
 
-test('day/time constraints are client memory only, like selection: no persist, no Trip PUT, no revision or undo change', async () => {
+test('Escape cancels the date dialog and discards the draft, like backdrop/×/取消', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
+  b.run(`openPlacePoolConstraintSheet("${keyOf('ueno')}")`);
+  b.run('togglePoolConstraintDraftDate("9/22")');
+  listener(b, 'keydown', 'pendingPoolConstraint')({ key: 'Escape', preventDefault() {} });
+  assert.equal(b.sheet.innerHTML, '');
+  assert.deepEqual(json(b.run(`placePoolConstraintFor("${keyOf('ueno')}")`)), []);
+});
+
+test('dateOptions are client memory only, like selection: no persist, no Trip PUT, no revision or undo change', async () => {
   const b = await itinerary();
   spy(b);
   const revision = b.state.sharedRevision;
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
-  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", "9/22", "18:30")`);
+  b.run(`applyPlacePoolConstraint("${keyOf('ueno')}", [{ dayKey: "9/22", mode: "exact", preferredPeriods: [], exactTime: "18:30" }])`);
   assert.equal(b.run('persistCalls'), 0);
   assert.equal(b.state.sharedRevision, revision);
   assert.deepEqual(json(b.state.itinerary), {});
-  assert.doesNotMatch(JSON.stringify(b.run('sharedTripPayload()')), /9:30|dayKey|FIXED_TIME/i);
+  assert.doesNotMatch(JSON.stringify(b.run('sharedTripPayload()')), /18:30|dayKey|exactTime/i);
+});
+
+test('clicking the drawer backdrop closes the drawer; the backdrop only exists on mobile', async () => {
+  const b = await itinerary();
+  await click(b, '[data-pool-drawer-toggle]');
+  assert.equal(b.run('placePoolDrawerIsOpen()'), true);
+  await click(b, '[data-pool-drawer-backdrop]');
+  assert.equal(b.run('placePoolDrawerIsOpen()'), false);
+  assert.match(css, /\.place-pool-drawer-backdrop \{ position: fixed; inset: 0;/);
+  assert.match(css, /@media \(min-width: 900px\) \{\s*\.place-pool-drawer-backdrop \{ display: none; \}/);
+});
+
+test('drawer handle drag preview/snap wiring is scoped to the handle element and never interferes with the drawer\'s own vertical scroll (real-DOM pixel behavior verified separately by manual smoke)', () => {
+  assert.match(source, /event\.target\.closest\("\[data-pool-drawer-toggle\]"\)/);
+  assert.match(source, /function applyPoolDrawerDragPreview/);
+  assert.match(source, /function finishPoolDrawerDrag/);
+  assert.match(source, /current\.fraction >= 0\.5/);
+  assert.match(source, /suppressPoolDrawerClick/);
+});
+
+test('the date dialog backdrop is always centered, never bottom-aligned like an ordinary sheet', () => {
+  assert.match(css, /\.place-pool-constraint-backdrop \{ align-items: center; \}/);
+});
+
+test('exact-time wheel is recentered for its shorter 150px height, fixing the sunk selection-box alignment bug', () => {
+  assert.match(css, /\.place-pool-constraint-time-wheel \.time-wheel-column \{ height: 150px; padding-block: 53px; \}/);
+  assert.match(css, /\.place-pool-constraint-time-wheel \.time-wheel-selection \{ top: 53px; \}/);
+});
+
+test('the candidates column reserves a permanent right-edge safe area on mobile so 指定日期 controls never sit under the fixed drawer handle', () => {
+  assert.match(css, /@media \(max-width: 899\.98px\) \{[\s\S]*?\.place-pool-candidates-column \{ padding-right: 58px; \}/);
 });
 
 // --- Scroll-anchor preservation (pure math; DOM wiring is exercised via manual browser smoke) --
