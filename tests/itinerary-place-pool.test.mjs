@@ -474,16 +474,17 @@ test('selection lifetime: survives close/reopen of the same trip, clears on trip
   assert.equal(b.run('placePoolSelectedKeys().size'), 0);
 });
 
-test('sticky CTA shows the correct Phase 1B.1 copy and performs zero mutation, persistence or network', async () => {
+test('sticky CTA shows the correct copy and selecting Places performs zero mutation, persistence or network', async () => {
   const b = await itinerary();
   b.run('setPlacePoolOpen(true)');
   spy(b);
   const requests = b.requests.length;
-  assert.ok(b.app.innerHTML.includes('data-pool-cta disabled aria-disabled="true">AI 幫我規劃行程</button>'));
+  // Phase 2A: the CTA is enabled (AI Planner Preview); tests/ai-planner-preview-ui.test.mjs covers its request.
+  assert.ok(b.app.innerHTML.includes('data-pool-cta>AI 幫我規劃行程</button>'));
   await click(b, '[data-pool-place]', { poolPlace: keyOf('ueno') });
   await click(b, '[data-pool-place]', { poolPlace: keyOf('tsukiji') });
   await click(b, '[data-pool-place]', { poolPlace: keyOf('shibuya') });
-  assert.ok(b.app.innerHTML.includes('data-pool-cta disabled aria-disabled="true">用已選 3 個地點規劃</button>'));
+  assert.ok(b.app.innerHTML.includes('data-pool-cta>用已選 3 個地點規劃</button>'));
   assert.equal(b.requests.length, requests);
   assert.equal(b.run('persistCalls'), 0);
   assert.deepEqual(json(b.state.itinerary), {});
@@ -517,12 +518,23 @@ test('no AI, network or API surface is added by the Place Pool', async () => {
   b.run('setPlacePoolOpen(true)');
   b.run(`completePlacePoolAdd("${keyOf('asakusa')}", "9/21"); openPlacePoolAddSheet("${keyOf('ueno')}"); closeSheet()`);
   assert.equal(b.requests.length, requests);
-  const pool = source.slice(source.indexOf('function insertPlacesIntoItineraryDay'), source.indexOf('function openReorderSheet'));
+  // Phase 2A: the AI Planner Preview block is the one sanctioned network surface (a read-only
+  // POST action "plan"); everything else in the Place Pool stays network-free.
+  const plannerStart = source.indexOf('/* AI Planner Preview (Phase 2A).');
+  const plannerEnd = source.indexOf('// dateOptions === [] means "no date restriction"', plannerStart);
+  assert.ok(plannerStart > 0 && plannerEnd > plannerStart);
+  const planner = source.slice(plannerStart, plannerEnd);
+  const poolStart = source.indexOf('function insertPlacesIntoItineraryDay');
+  const pool = source.slice(poolStart, plannerStart) + source.slice(plannerEnd, source.indexOf('function openReorderSheet'));
   const dragCode = source.slice(source.indexOf('let placePoolDrag = null'), source.indexOf('document.addEventListener("dragend", endPlacePoolDrag)'));
-  assert.ok(pool.length > 1000 && dragCode.length > 500);
+  assert.ok(pool.length > 1000 && dragCode.length > 500 && poolStart < plannerStart);
   for (const code of [pool, dragCode]) {
     assert.doesNotMatch(code, /openai|anthropic|gemini|fetch\(|\/api\/|localStorage|sessionStorage|expectedRevision/i);
   }
+  assert.equal(planner.match(/fetch\(/g).length, 1);
+  assert.match(planner, /fetch\(`\/api\/trip\?id=\$\{encodeURIComponent\(snapshot\.tripId\)\}`, \{\s*method: "POST",/);
+  assert.match(planner, /action: "plan",/);
+  assert.doesNotMatch(planner, /openai|anthropic|gemini|"PUT"|persist\(|saveSharedTrip|localStorage|sessionStorage|state\.itinerary/i);
   const apiFiles = readdirSync(new URL('../api/', import.meta.url)).filter((name) => name.endsWith('.mjs'));
   assert.equal(apiFiles.length, 12);
 });
@@ -988,7 +1000,7 @@ test('placePoolScrollSessionState resets hasOpened/savedScrollTop on any trip sw
 
 test('opening 行程規劃 sets the main list to the top on the first open this trip session, restores the saved position on a same-session reopen, and captures the position on close — never altered by selection/filter/constraint edits or the mobile drawer, which use the separate anchor-based restore (real-DOM wiring only runs in a browser; verified separately by manual smoke)', () => {
   assert.match(source, /const placePoolScrollSession = \{ tripId: "", hasOpened: false, savedScrollTop: 0 \};/);
-  assert.match(source, /if \(!open\) \{\s*const list = document\.querySelector\("\[data-place-pool-list\]"\);\s*if \(list\) session\.savedScrollTop = list\.scrollTop;/);
+  assert.match(source, /if \(!open\) \{\s*const list = document\.querySelector\("\[data-place-pool-list\]"\);\s*const planner = placePoolPlannerState\(\);\s*if \(list\) session\.savedScrollTop = list\.scrollTop;\s*else if \(planner\.preview\) session\.savedScrollTop = planner\.editScrollTop;/);
   assert.match(source, /list\.scrollTop = session\.hasOpened \? session\.savedScrollTop : 0;/);
   assert.match(source, /session\.hasOpened = true;/);
   // Only setPlacePoolOpen touches placePoolScrollSession; setPlacePoolDrawerOpen (mobile drawer)

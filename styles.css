@@ -8128,9 +8128,45 @@ body.transport-sheet-open .app {
 .place-pool-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
 .place-pool-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .place-pool-cta { flex: 0 0 auto; padding: 10px 16px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--paper-2); text-align: center; }
-.place-pool-cta-button { width: 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--mineral); color: #fff; font-size: 14px; font-weight: 800; cursor: not-allowed; }
-.place-pool-cta-button[disabled] { opacity: 0.55; }
+.place-pool-cta-button { width: 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--mineral); color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; }
+.place-pool-cta-button[disabled] { opacity: 0.55; cursor: not-allowed; }
+.place-pool-cta-button[aria-busy="true"] { cursor: progress; }
 .place-pool-cta-hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+
+/* AI 行程預覽: same fullscreen workspace; a scrollable day list between the header and a
+   返回調整/重新規劃 footer. Locked existing items, 我指定想去 and 已在我的清單 are visually distinct. */
+.place-pool-preview { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 18px; }
+.place-pool-preview-banner { margin: 0 0 12px; padding: 10px 12px; border-radius: 14px; background: var(--mineral-soft); color: #2f5b5d; font-size: 13px; font-weight: 700; text-align: center; }
+.place-pool-preview-hint { margin: -4px 0 12px; color: var(--muted); font-size: 12px; text-align: center; }
+.place-pool-preview-days { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.place-pool-preview-day h3 { margin: 0 0 8px; font-size: 16px; }
+.place-pool-preview-day h3 small { margin-left: 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.place-pool-preview-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.place-pool-preview-item { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: #fffdf9; }
+.place-pool-preview-item.is-existing { background: transparent; border-style: dashed; color: var(--muted); }
+.place-pool-preview-item.is-required { border-color: rgba(200, 69, 45, 0.45); box-shadow: inset 4px 0 0 var(--accent); }
+.place-pool-preview-item.is-saved { border-color: rgba(64, 119, 122, 0.45); box-shadow: inset 4px 0 0 var(--mineral); }
+.place-pool-preview-time { justify-self: center; min-width: 58px; padding: 5px 0; border-radius: 999px; background: var(--paper); font-size: 14px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+.place-pool-preview-copy { min-width: 0; display: grid; gap: 3px; }
+.place-pool-preview-copy strong { font-size: 15px; overflow-wrap: anywhere; }
+.place-pool-preview-item.is-existing .place-pool-preview-copy strong { color: var(--ink); font-weight: 600; }
+.place-pool-preview-copy small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.place-pool-preview-badge { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+.place-pool-preview-badge.is-existing { background: var(--paper); color: var(--muted); }
+.place-pool-preview-badge.is-required { background: rgba(200, 69, 45, 0.12); color: var(--accent-deep); }
+.place-pool-preview-badge.is-saved { background: var(--mineral-soft); color: #2f5b5d; }
+.place-pool-preview-notes { display: flex; flex-wrap: wrap; gap: 6px; }
+.place-pool-preview-note { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.place-pool-preview-note.is-exact { background: var(--paper); color: var(--ink); }
+.place-pool-preview-note.is-warning { background: #fbefd5; color: #8a5a12; }
+.place-pool-preview-empty { margin: 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 16px; color: var(--muted); font-size: 13px; text-align: center; }
+.place-pool-preview-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; }
+.place-pool-preview-back { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 16px; background: #fffdf9; color: var(--ink); font-size: 14px; font-weight: 800; cursor: pointer; }
+.place-pool-preview-back[disabled] { opacity: 0.55; cursor: not-allowed; }
+@media (min-width: 900px) {
+  .place-pool-preview { padding: 20px max(20px, calc((100% - 760px) / 2)) 24px; }
+  .place-pool-preview-actions { padding-left: max(16px, calc((100% - 760px) / 2)); padding-right: max(16px, calc((100% - 760px) / 2)); }
+}
 body.place-pool-dragging [data-pool-drop-date] { outline: 2px dashed rgba(64, 119, 122, 0.5); outline-offset: 2px; }
 body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3px solid var(--mineral); box-shadow: 0 0 0 6px rgba(64, 119, 122, 0.16); }
 

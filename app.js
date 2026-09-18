@@ -1977,6 +1977,7 @@ function clearTripView() {
   shoppingSelectedIds.clear();
   shoppingSavePending = false;
   clearPlacePoolSelection();
+  resetPlacePoolPlanner();
 }
 
 function beginTripHydration() {
@@ -8842,6 +8843,137 @@ function placePoolScrollSessionState() {
   return placePoolScrollSession;
 }
 
+/* AI Planner Preview (Phase 2A). The CTA sends only the Trip revision, the selected Places'
+ * placeDetailKeys and their dateOptions; the server re-loads the canonical Trip and returns a
+ * read-only Preview. A Preview lives only here, in memory, for the request snapshot that produced
+ * it: nothing is persisted, applied to the itinerary, or merged with later selection changes.
+ * Same trip-scoped lazy-reset pattern as placePoolSelection, and every response is dropped
+ * unless its request sequence, trip, member and trip context are still current. */
+const PLACE_POOL_PLANNER_TIMEOUT_MS = 240000;
+const placePoolPlanner = { tripId: "", status: "idle", preview: null, snapshot: null, sequence: 0, editScrollTop: 0 };
+
+function placePoolPlannerState() {
+  if (placePoolPlanner.tripId !== state.tripId) resetPlacePoolPlanner();
+  return placePoolPlanner;
+}
+
+function resetPlacePoolPlanner() {
+  Object.assign(placePoolPlanner, { tripId: state.tripId, status: "idle", preview: null, snapshot: null, editScrollTop: 0 });
+  placePoolPlanner.sequence += 1;
+}
+
+// Lodging is never an AI stop, so it never makes the CTA usable on its own.
+function placePoolPlannerCandidateCount(pool) {
+  return (pool.allEntries || pool.entries || []).filter((entry) => normalizedPlaceKind(entry.place) !== "lodging").length;
+}
+
+function placePoolPlannerSnapshot() {
+  return {
+    tripId: state.tripId,
+    context: tripContextVersion,
+    memberId: currentMemberId(),
+    expectedRevision: state.sharedRevision,
+    selected: placePoolSelectedEntries().map((entry) => ({ ref: entry.key, name: entry.place.name, dateOptions: cloneValue(placePoolConstraintFor(entry.key)) })),
+  };
+}
+
+async function postPlacePoolPlan(snapshot) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PLACE_POOL_PLANNER_TIMEOUT_MS);
+  try {
+    const response = await fetch(`/api/trip?id=${encodeURIComponent(snapshot.tripId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+      body: JSON.stringify({
+        action: "plan",
+        expectedRevision: snapshot.expectedRevision,
+        selected: snapshot.selected.map(({ ref, dateOptions }) => ({ ref, dateOptions })),
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { status: response.status, ok: response.ok, payload };
+  } catch {
+    return { status: 0, ok: false, payload: {} };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function placePoolPlannerErrorMessage(result, snapshot) {
+  const payload = result.payload || {};
+  const code = String(payload.error || "");
+  const names = snapshot.selected.filter((entry) => (payload.placeKeys || []).includes(entry.ref)).map((entry) => `「${entry.name}」`).join("、");
+  if (code === "TRIP_STALE") return "行程內容已更新，請重新整理後再規劃。";
+  if (code === "PLANNER_MODEL_NOT_CONFIGURED" || code === "AI_PLANNER_NOT_CONFIGURED" || code === "PLANNER_QUOTA_NOT_CONFIGURED") return "AI 行程規劃尚未啟用，請稍後再試。";
+  if (code === "NO_PLANNING_CANDIDATES") return "目前沒有可規劃的地點，請先儲存想去的地方。";
+  if (code === "INVALID_PLANNER_CONSTRAINTS") return "指定日期的設定有誤，請重新確認後再規劃。";
+  if (code === "INVALID_PLANNER_PLACE_REF") return "部分已選地點已變更，請重新整理後再規劃。";
+  if (code === "PLANNER_LODGING_SELECTED") return `住宿${names}不會由 AI 排入行程，請先取消選取。`;
+  if (code === "PLANNER_CONSTRAINTS_INFEASIBLE") {
+    return payload.reason === "EXACT_TIME_CONFLICT"
+      ? `${names || "部分地點"}的指定時間互相衝突或與既有行程同時間，請調整後再規劃。`
+      : `${names || "部分地點"}指定的日期已排滿（每天最多 5 個地點），請多勾選幾天或減少指定地點。`;
+  }
+  if (code === "PLANNER_INVALID_OUTPUT") return "AI 這次沒有排出符合條件的行程，請再試一次。";
+  if (code === "DAILY_PLANNER_LIMIT") return "今天的 AI 規劃次數已達上限，請明天再試。";
+  if (result.status === 429) return "AI 服務目前忙碌，請稍後再試。";
+  return "AI 規劃暫時無法完成，請稍後再試。";
+}
+
+// One active planning request at most. The CTA plans from a fresh snapshot of the current
+// selection; 重新規劃 replays the Preview's own snapshot so later edits can never leak in.
+async function requestPlacePoolPlan({ regenerate = false } = {}) {
+  const planner = placePoolPlannerState();
+  if (planner.status === "loading") return;
+  if (!canEdit()) return guestOnlyMessage();
+  if (regenerate && !planner.snapshot) return;
+  if (!regenerate && !placePoolSelectedEntries().length && !placePoolPlannerCandidateCount(getFilteredPlacePool())) {
+    return showToast("目前沒有可規劃的地點，請先儲存想去的地方。");
+  }
+  if (sharedSaveTimer || sharedSyncBusy) return showToast("行程正在同步，請稍候再規劃。");
+  const snapshot = regenerate ? planner.snapshot : placePoolPlannerSnapshot();
+  const sequence = ++planner.sequence;
+  if (!planner.preview) {
+    const list = document.querySelector("[data-place-pool-list]");
+    planner.editScrollTop = list ? list.scrollTop : 0;
+  }
+  Object.assign(planner, { status: "loading", snapshot });
+  render({ preserveScroll: true, filterOnly: true });
+  const result = await postPlacePoolPlan(snapshot);
+  const current = () => placePoolPlanner.sequence === sequence && placePoolPlanner.tripId === snapshot.tripId && state.tripId === snapshot.tripId
+    && tripContextVersion === snapshot.context && currentMemberId() === snapshot.memberId && state.placePool.open;
+  if (!current()) return;
+  if (result.status === 401) {
+    resetPlacePoolPlanner();
+    expireAppSession();
+    return showToast("登入已過期，請重新輸入暱稱與 PIN");
+  }
+  if (result.ok && result.payload?.preview?.tripId === snapshot.tripId && Array.isArray(result.payload.preview.days)) {
+    Object.assign(planner, { status: "preview", preview: result.payload.preview });
+    render({ preserveScroll: true, filterOnly: true });
+    const previewList = document.querySelector("[data-place-pool-preview]");
+    if (previewList) previewList.scrollTop = 0;
+    return;
+  }
+  planner.status = planner.preview ? "preview" : "idle";
+  if (!planner.preview) planner.snapshot = null;
+  render({ preserveScroll: true, filterOnly: true });
+  showToast(placePoolPlannerErrorMessage(result, snapshot));
+}
+
+// 返回調整: discard the Preview (never patched later) and return to the untouched selection,
+// dateOptions and drawer state, at the list position the user planned from.
+function closePlacePoolPreview() {
+  const planner = placePoolPlannerState();
+  const editScrollTop = planner.editScrollTop;
+  resetPlacePoolPlanner();
+  render({ preserveScroll: true, filterOnly: true });
+  const list = document.querySelector("[data-place-pool-list]");
+  if (list) list.scrollTop = editScrollTop;
+}
+
 // dateOptions === [] means "no date restriction" for this selected Place.
 function placePoolConstraintFor(key) {
   return placePoolPlanningConstraints().get(key) || [];
@@ -9059,22 +9191,88 @@ function placePoolMobileHandleMarkup(count) {
         </button>`;
 }
 
-// Phase 1B.1 foundation only: the CTA is disabled and makes zero network, persistence or
-// itinerary changes. It exists so the copy and hand-off point are already correct once the AI
-// Planner ships; nothing here may look, or claim, like the Planner already works.
-function placePoolCtaMarkup(count) {
-  const label = count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
+// The CTA asks the AI Planner for a read-only Preview. It is usable whenever there is something
+// to plan (a selection, or any saved non-lodging Place for selected=0) and is locked while a
+// request is in flight so a second click can never start a parallel request.
+function placePoolCtaMarkup(pool) {
+  const count = pool.selectedEntries.length;
+  const loading = placePoolPlannerState().status === "loading";
+  const available = count > 0 || placePoolPlannerCandidateCount(pool) > 0;
+  const label = loading ? "正在規劃行程…" : count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
+  const hint = loading ? "AI 正在安排，可能需要一點時間" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
+  const enabled = available && !loading;
   return `
           <div class="place-pool-cta">
-            <button class="place-pool-cta-button" type="button" data-pool-cta disabled aria-disabled="true">${label}</button>
-            <p class="place-pool-cta-hint">AI 規劃準備中</p>
+            <button class="place-pool-cta-button" type="button" data-pool-cta${enabled ? "" : ' disabled aria-disabled="true"'}${loading ? ' aria-busy="true"' : ""}>${label}</button>
+            <p class="place-pool-cta-hint" aria-live="polite">${hint}</p>
           </div>`;
+}
+
+const PLACE_POOL_PREVIEW_KIND_LABELS = { attraction: "景點", restaurant: "餐廳", shopping: "購物", lodging: "住宿", flight: "航班", custom: "行程" };
+
+function placePoolPreviewItemMarkup(item) {
+  if (item.source === "existing") {
+    const kind = PLACE_POOL_PREVIEW_KIND_LABELS[item.kind] || "行程";
+    return `
+                <li class="place-pool-preview-item is-existing">
+                  <span class="place-pool-preview-time">${escapeHtml(item.time || "--:--")}</span>
+                  <span class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><small><span class="place-pool-preview-badge is-existing">🔒 既有行程</span>${escapeHtml(kind)}</small></span>
+                </li>`;
+  }
+  const badge = item.source === "required"
+    ? `<span class="place-pool-preview-badge is-required">我指定想去</span>`
+    : `<span class="place-pool-preview-badge is-saved">已在我的清單</span>`;
+  const meta = [PLACE_POOL_PREVIEW_KIND_LABELS[item.kind] || "地點", item.area, `${item.durationMinutes} 分鐘`].filter(Boolean).map(escapeHtml).join(" · ");
+  const notes = [
+    item.exactTime ? `<span class="place-pool-preview-note is-exact">指定時間</span>` : "",
+    item.preferenceMiss ? `<span class="place-pool-preview-note is-warning">偏好時段未完全符合</span>` : "",
+  ].join("");
+  return `
+                <li class="place-pool-preview-item is-${item.source === "required" ? "required" : "saved"}">
+                  <span class="place-pool-preview-time">${escapeHtml(item.startTime)}</span>
+                  <span class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><small>${badge}${meta}</small>${notes ? `<span class="place-pool-preview-notes">${notes}</span>` : ""}</span>
+                </li>`;
+}
+
+// 行程預覽 inside the same fullscreen workspace. Everything displayed comes from the server's
+// canonical Preview; it has no Accept/apply action in this phase — only 返回調整 and 重新規劃.
+function placePoolPreviewMarkup(planner) {
+  const { preview } = planner;
+  const loading = planner.status === "loading";
+  const days = preview.days.map((day) => `
+            <li class="place-pool-preview-day">
+              <h3>${escapeHtml(day.dayKey)} <small>${escapeHtml(day.weekday || "")}</small></h3>
+              ${day.items.length
+                ? `<ol class="place-pool-preview-items">${day.items.map(placePoolPreviewItemMarkup).join("")}</ol>`
+                : `<p class="place-pool-preview-empty">這天沒有安排</p>`}
+            </li>`).join("");
+  const summary = [`指定 ${preview.summary.requiredCount} 個`, `從清單安排 ${preview.summary.savedCount} 個`].join("・");
+  return `
+      <div class="place-pool" id="place-pool-panel"${state.placePool.open ? "" : " hidden"}>
+        <div class="place-pool-workspace is-preview" role="dialog" aria-modal="true" aria-labelledby="place-pool-title">
+          <div class="place-pool-head">
+            <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉行程規劃">×</button>
+            <div class="place-pool-head-copy"><h2 id="place-pool-title">AI 行程預覽</h2><p>${escapeHtml(summary)}</p></div>
+          </div>
+          <div class="place-pool-preview" data-place-pool-preview>
+            <p class="place-pool-preview-banner" role="note">這是預覽，不會變更目前行程。</p>
+            ${preview.summary.unscheduledSavedCount > 0 ? `<p class="place-pool-preview-hint">另有 ${preview.summary.unscheduledSavedCount} 個已存地點這次沒有排入</p>` : ""}
+            <ol class="place-pool-preview-days">${days}</ol>
+          </div>
+          <div class="place-pool-cta place-pool-preview-actions">
+            <button class="place-pool-preview-back" type="button" data-pool-preview-back${loading ? " disabled" : ""}>返回調整</button>
+            <button class="place-pool-cta-button" type="button" data-pool-preview-regenerate${loading ? ' disabled aria-disabled="true" aria-busy="true"' : ""}>${loading ? "正在重新規劃…" : "重新規劃"}</button>
+          </div>
+        </div>
+      </div>`;
 }
 
 // The full-viewport 行程規劃 workspace: a header, then a two-column layout on desktop (left:
 // Selected, right: candidates + filters) that becomes one candidate column plus a right-side
 // Selected drawer on narrow viewports (CSS only, same markup — see placePoolSelectedColumnMarkup).
 function placePoolMarkup(rawPool) {
+  const planner = placePoolPlannerState();
+  if (planner.preview) return placePoolPreviewMarkup(planner);
   const filters = state.placePool;
   const docked = placePoolDocked();
   const pool = placePoolViewModel(rawPool);
@@ -9108,7 +9306,7 @@ function placePoolMarkup(rawPool) {
             </section>
           </div>
           ${placePoolMobileHandleMarkup(selectedCount)}
-          ${placePoolCtaMarkup(selectedCount)}
+          ${placePoolCtaMarkup(pool)}
         </div>
       </div>`;
 }
@@ -9119,7 +9317,12 @@ function setPlacePoolOpen(open) {
   // restore it; a first-ever open leaves savedScrollTop at its 0 default.
   if (!open) {
     const list = document.querySelector("[data-place-pool-list]");
+    const planner = placePoolPlannerState();
     if (list) session.savedScrollTop = list.scrollTop;
+    else if (planner.preview) session.savedScrollTop = planner.editScrollTop;
+    // Closing the workspace discards any Preview or in-flight plan; reopening starts from the
+    // selection again, never a stale Preview.
+    resetPlacePoolPlanner();
   }
   state.placePool.open = Boolean(open);
   render({ preserveScroll: true, filterOnly: true });
@@ -9840,6 +10043,10 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.closest("[data-pool-drawer-backdrop]")) return setPlacePoolDrawerOpen(false);
+
+  if (event.target.closest("[data-pool-cta]")) return requestPlacePoolPlan();
+  if (event.target.closest("[data-pool-preview-regenerate]")) return requestPlacePoolPlan({ regenerate: true });
+  if (event.target.closest("[data-pool-preview-back]")) return closePlacePoolPreview();
 
   const poolAdd = event.target.closest("[data-pool-add]");
   if (poolAdd) return canEdit() ? openPlacePoolAddSheet(poolAdd.dataset.poolAdd) : guestOnlyMessage();

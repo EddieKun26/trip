@@ -1,6 +1,16 @@
 import areaTags from "../lib/area-tags.js";
 import PlanningGeography from "../lib/planning-geography.js";
 import areaAudit from "../lib/travel-area-audit.js";
+import {
+  PlannerError,
+  buildPlannerContext,
+  buildPlannerPreview,
+  callPlannerModel,
+  checkPlannerFeasibility,
+  plannerDailyLimit,
+  plannerModelConfig,
+  runPlanner,
+} from "../lib/ai-trip-planner.mjs";
 import { readFileSync } from "node:fs";
 let areaCatalog = null;
 try { areaCatalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8")); }
@@ -12,6 +22,7 @@ const DEFAULT_TRIP_ID = "tokyo-family-2026";
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const INVITE_PREFIX = "tokyo-family-trip:invite:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
+const PLANNER_LIMIT_PREFIX = "tokyo-family-trip:ai-planner:";
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -237,6 +248,63 @@ function cleanTrip(input, previous, member) {
   };
 }
 
+// Same per-member daily counter pattern as the other AI endpoints; only reached right before
+// the first model call, after every configuration, revision and constraint preflight passed.
+async function enforceDailyPlannerLimit(memberId, limit) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `${PLANNER_LIMIT_PREFIX}${memberId}:${day}`;
+  const count = Number(await redisCommand(["INCR", key])) || 0;
+  if (count === 1) await redisCommand(["EXPIRE", key, 86400]);
+  return count <= limit;
+}
+
+/* POST { action: "plan" }: read-only AI Planner Preview over the server-loaded canonical Trip.
+ * The client sends only expectedRevision plus selected Place refs and their dateOptions. This
+ * path never writes the Trip, its revision, its itinerary or undo state. */
+async function planTrip(request, response, trip, member) {
+  const config = plannerModelConfig();
+  if (!config) return sendJson(response, 503, { error: "PLANNER_MODEL_NOT_CONFIGURED" });
+  const dailyLimit = plannerDailyLimit();
+  if (!dailyLimit) return sendJson(response, 503, { error: "PLANNER_QUOTA_NOT_CONFIGURED" });
+  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  if (!apiKey) return sendJson(response, 503, { error: "AI_PLANNER_NOT_CONFIGURED" });
+  const body = request.body && typeof request.body === "object" ? request.body : {};
+  const expectedRevision = Number(body.expectedRevision);
+  if (body.expectedRevision === undefined || body.expectedRevision === null || !Number.isFinite(expectedRevision) || !Array.isArray(body.selected)) {
+    return sendJson(response, 400, { error: "INVALID_PLANNER_REQUEST" });
+  }
+  const revision = Number(trip.revision) || 0;
+  if (expectedRevision !== revision) return sendJson(response, 409, { error: "TRIP_STALE", revision });
+  try {
+    const places = (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog));
+    const context = buildPlannerContext({ trip, places, selected: body.selected });
+    const feasibility = checkPlannerFeasibility(context);
+    if (!feasibility.feasible) {
+      return sendJson(response, 422, { error: "PLANNER_CONSTRAINTS_INFEASIBLE", reason: feasibility.reason, placeKeys: feasibility.placeKeys });
+    }
+    if (!(await enforceDailyPlannerLimit(member.id, dailyLimit))) return sendJson(response, 429, { error: "DAILY_PLANNER_LIMIT" });
+    const result = await runPlanner(context, ({ repair }) => callPlannerModel({ apiKey, model: config.model, effort: config.effort, context, repair }));
+    if (!result.ok) {
+      // Codes only: never the refusal text or plan content.
+      console.warn("ai-planner invalid output", { refused: Boolean(result.refused), codes: result.attempts.map(attempt => attempt.errors.map(entry => entry.code)) });
+      return sendJson(response, 422, { error: "PLANNER_INVALID_OUTPUT" });
+    }
+    return sendJson(response, 200, {
+      preview: buildPlannerPreview(context, result.validation),
+      planning: { modelCalls: result.attempts.length, repaired: result.attempts.length > 1 },
+    });
+  } catch (error) {
+    if (!(error instanceof PlannerError)) throw error;
+    if (error.status >= 500 || error.status === 429) console.warn("ai-planner upstream failed", { code: error.code });
+    const detail = error.detail || {};
+    return sendJson(response, error.status, {
+      error: error.code,
+      ...(detail.reason ? { reason: detail.reason } : {}),
+      ...(Array.isArray(detail.refs) ? { placeKeys: detail.refs } : {}),
+    });
+  }
+}
+
 export default async function tripHandler(request, response) {
   try {
     const tripId = requestedTripId(request);
@@ -285,7 +353,12 @@ export default async function tripHandler(request, response) {
       return sendJson(response, 200, { ...updated, writeMode: result.writeMode });
     }
 
-    response.setHeader("Allow", "GET, PUT");
+    if (request.method === "POST" && request.body?.action === "plan") {
+      if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
+      return planTrip(request, response, trip, member);
+    }
+
+    response.setHeader("Allow", "GET, PUT, POST");
     return sendJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "SHARED_DATABASE_ERROR";

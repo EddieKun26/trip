@@ -45,6 +45,23 @@
 - [ ] User production check on a real iPhone/Android device during bulk areaTags editing: the Save/Cancel bar stays visible while scrolling the editor, is not obscured by or fighting the on-screen keyboard, and the last field (photo section) is never hidden behind it. Confirm Save and Cancel on an existing place both return to that same place's detail (not the list), Save shows the freshly saved data, Cancel shows the untouched original, and the underlying Places list's scroll position/filters are exactly as left when the editor is eventually closed.
 
 
+## AI Planner Preview review gate — 2026-09-17
+
+- [x] Real Luna High evaluation: 2A.1 baseline in `../ai-planner-eval-out` and the Phase 2A.3 tuned run in `../ai-planner-eval-out-phase2a3` (21 real runs, `gpt-5.6-luna` / `high`). Planner density/quality tuning is closed and frozen — no further density tuning without new evidence.
+- [ ] One real local E2E through `POST action=plan` with a Trip deep-equal before/after check (never run yet; the eval exercises the lib path, not the endpoint).
+- [ ] Verify the Vercel project's Fluid Compute status and effective max duration for `api/trip.mjs` (initial + repair ≤ 220s model time) before release.
+
+## Phase 2A.4 — Planner Production Readiness / Quality Edge Cases (not started)
+
+- [ ] Flight-day floor: with the 9/24 17:50 NRT return, 2 of 3 Fixture E runs left the whole departure day empty (0 place stops; mean stops on flight days 0.67) while run 3 comfortably fitted 築地 09:00 + 銀座三越 ending 12:30 (320-minute margin). Decide whether an empty final morning is the wanted conservatism or under-scheduling; investigate before adding anything.
+- [ ] Occasional very light day: B run 3 left 9/22 at 2 stops (淺草寺 + 晴空塔) while 上野恩賜公園 / 東京國立博物館 sat unscheduled in the same area. 1 of 15 A–E runs; watch for frequency before acting.
+- [ ] Validator does not check an activity crossing midnight (e.g. 23:30 + 240 minutes); `mockValidPlan` already avoids it but the validator does not reject it.
+- [ ] Fixture E locked itinerary items store no `durationMinutes`, so gaps after a locked item stay unknown and locked→new transition diagnostics are incomplete.
+- [ ] Duplicate-placement first-pass pattern (C run 2 `REQUIRED_DUPLICATED`, G run 3 `SOFT_DUPLICATED`): track its rate in future runs; currently absorbed by the validator plus one repair.
+- [ ] Production observability / rollout criteria for the Planner endpoint (error codes, repair rate, latency, quota) before enabling it in production.
+- [ ] After Luna passes: set `AI_PLANNER_MODEL=gpt-5.6-luna`, `AI_PLANNER_REASONING_EFFORT=high`, optionally `AI_PLANNER_DAILY_LIMIT`, then commit/push/deploy.
+- Next phases (out of scope here): Accept/apply Preview to the itinerary, Place Discovery, free-text preferences.
+
 ## Fullscreen Trip Planning Workspace acceptance — 2026-09-16
 
 - [x] Engineering Gate passed and pushed to `origin/main`/production this round: 行程規劃 rename, fullscreen desktop two-column layout, mobile drawer/handle, planning-constraint wheel sheet, auto-select-on-date-pick, unselect-clears-constraint, scroll-preservation (now real-browser-verified with 36 synthetic Places, not just unit math), and the migration-toast silencing fix all landed together.
