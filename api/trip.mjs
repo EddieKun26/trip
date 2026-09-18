@@ -18,6 +18,14 @@ catch { /* Geometry is optional; address/evidence conversion and trip access sti
 import { createHash, randomBytes } from "node:crypto";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
+/* The AI Planner action makes up to PLANNER_MAX_MODEL_CALLS model calls, so this route declares its
+ * duration explicitly like the other AI routes, which also makes it independent of any project-level
+ * default. This project has no framework, so the authoritative setting is the matching vercel.json
+ * functions entry (kept in sync by a test); the export documents the intent at the call site.
+ * 150s comfortably covers two sequential PLANNER_MODEL_TIMEOUT_MS calls plus preprocessing,
+ * validation and the response, and is well inside the platform's 300s ceiling for this plan. */
+export const maxDuration = 150;
+
 const DEFAULT_TRIP_ID = "tokyo-family-2026";
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const INVITE_PREFIX = "tokyo-family-trip:invite:";
@@ -260,48 +268,60 @@ async function enforceDailyPlannerLimit(memberId, limit) {
 
 /* POST { action: "plan" }: read-only AI Planner Preview over the server-loaded canonical Trip.
  * The client sends only expectedRevision plus selected Place refs and their dateOptions. This
- * path never writes the Trip, its revision, its itinerary or undo state. */
+ * path never writes the Trip, its revision, its itinerary or undo state.
+ * Every exit logs one "ai-planner" line of stable codes and counters — outcome, error code,
+ * elapsed ms, model calls, repair attempted, first-pass validity — so a production failure is
+ * diagnosable by category and repair frequency is monitorable. It never logs Trip content, Place
+ * names, dateOptions, prompts, model output, refusal text or the credential. */
 async function planTrip(request, response, trip, member) {
+  const started = Date.now();
+  let modelCalls = 0;
+  const finish = (outcome, status, payload, extra = {}) => {
+    console.info("ai-planner", { outcome, code: outcome === "success" ? "OK" : String(payload.error || ""), status, ms: Date.now() - started, modelCalls, ...extra });
+    return sendJson(response, status, payload);
+  };
   const config = plannerModelConfig();
-  if (!config) return sendJson(response, 503, { error: "PLANNER_MODEL_NOT_CONFIGURED" });
+  if (!config) return finish("not_configured", 503, { error: "PLANNER_MODEL_NOT_CONFIGURED" });
   const dailyLimit = plannerDailyLimit();
-  if (!dailyLimit) return sendJson(response, 503, { error: "PLANNER_QUOTA_NOT_CONFIGURED" });
+  if (!dailyLimit) return finish("not_configured", 503, { error: "PLANNER_QUOTA_NOT_CONFIGURED" });
   const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) return sendJson(response, 503, { error: "AI_PLANNER_NOT_CONFIGURED" });
+  if (!apiKey) return finish("not_configured", 503, { error: "AI_PLANNER_NOT_CONFIGURED" });
   const body = request.body && typeof request.body === "object" ? request.body : {};
   const expectedRevision = Number(body.expectedRevision);
   if (body.expectedRevision === undefined || body.expectedRevision === null || !Number.isFinite(expectedRevision) || !Array.isArray(body.selected)) {
-    return sendJson(response, 400, { error: "INVALID_PLANNER_REQUEST" });
+    return finish("bad_request", 400, { error: "INVALID_PLANNER_REQUEST" });
   }
   const revision = Number(trip.revision) || 0;
-  if (expectedRevision !== revision) return sendJson(response, 409, { error: "TRIP_STALE", revision });
+  if (expectedRevision !== revision) return finish("stale", 409, { error: "TRIP_STALE", revision });
   try {
     const places = (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog));
     const context = buildPlannerContext({ trip, places, selected: body.selected });
     const feasibility = checkPlannerFeasibility(context);
     if (!feasibility.feasible) {
-      return sendJson(response, 422, { error: "PLANNER_CONSTRAINTS_INFEASIBLE", reason: feasibility.reason, placeKeys: feasibility.placeKeys });
+      return finish("preflight_rejected", 422, { error: "PLANNER_CONSTRAINTS_INFEASIBLE", reason: feasibility.reason, placeKeys: feasibility.placeKeys }, { reason: feasibility.reason });
     }
-    if (!(await enforceDailyPlannerLimit(member.id, dailyLimit))) return sendJson(response, 429, { error: "DAILY_PLANNER_LIMIT" });
-    const result = await runPlanner(context, ({ repair }) => callPlannerModel({ apiKey, model: config.model, effort: config.effort, context, repair }));
+    if (!(await enforceDailyPlannerLimit(member.id, dailyLimit))) return finish("quota_exhausted", 429, { error: "DAILY_PLANNER_LIMIT" });
+    const result = await runPlanner(context, ({ repair }) => {
+      modelCalls += 1;
+      return callPlannerModel({ apiKey, model: config.model, effort: config.effort, context, repair });
+    });
+    const attempts = { repaired: result.attempts.length > 1, firstPassValid: Boolean(result.attempts[0]?.hardValid) };
     if (!result.ok) {
       // Codes only: never the refusal text or plan content.
-      console.warn("ai-planner invalid output", { refused: Boolean(result.refused), codes: result.attempts.map(attempt => attempt.errors.map(entry => entry.code)) });
-      return sendJson(response, 422, { error: "PLANNER_INVALID_OUTPUT" });
+      return finish("invalid_output", 422, { error: "PLANNER_INVALID_OUTPUT" }, { ...attempts, refused: Boolean(result.refused), codes: result.attempts.map(attempt => attempt.errors.map(entry => entry.code)) });
     }
-    return sendJson(response, 200, {
+    return finish("success", 200, {
       preview: buildPlannerPreview(context, result.validation),
       planning: { modelCalls: result.attempts.length, repaired: result.attempts.length > 1 },
-    });
+    }, attempts);
   } catch (error) {
     if (!(error instanceof PlannerError)) throw error;
-    if (error.status >= 500 || error.status === 429) console.warn("ai-planner upstream failed", { code: error.code });
     const detail = error.detail || {};
-    return sendJson(response, error.status, {
+    return finish(error.status >= 500 || error.status === 429 ? "upstream_failed" : "rejected", error.status, {
       error: error.code,
       ...(detail.reason ? { reason: detail.reason } : {}),
       ...(Array.isArray(detail.refs) ? { placeKeys: detail.refs } : {}),
-    });
+    }, detail.reason ? { reason: detail.reason } : {});
   }
 }
 

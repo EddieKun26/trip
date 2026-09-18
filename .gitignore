@@ -1,3 +1,5 @@
 .vercel
 .env*
 __pycache__/
+# Claude Code local settings may hold developer credentials: never track or stage.
+.claude/settings.local.json

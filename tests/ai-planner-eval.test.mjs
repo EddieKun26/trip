@@ -183,3 +183,27 @@ test("diagnostics: density and optional fill over every trip day, AI-leg geograp
   assert.equal(aggregateDiagnostics([]).density.meanStopsPerDay, null);
   assert.equal(percentile([1, 2, 3, 4], 0.5), 2.5);
 });
+
+test("real E2E harness targets the production route and planner contract, never production, and refuses to run without a credential", () => {
+  const e2e = fileURLToPath(new URL("../scripts/ai-planner-e2e.mjs", import.meta.url));
+  const text = readFileSync(e2e, "utf8");
+  // Exercises the real handler and the real model contract.
+  assert.match(text, /const MODEL = "gpt-5\.6-luna";/);
+  assert.match(text, /const EFFORT = "high";/);
+  assert.match(text, /await import\("\.\.\/api\/trip\.mjs"\)/);
+  assert.match(text, /action: "plan"/);
+  assert.doesNotMatch(text, /terra|--models|blind/i);
+  // Never production: the only outbound host is OpenAI; the store is in-memory and outbound
+  // requests to anything else throw instead of being attempted.
+  assert.match(text, /unexpected outbound request/);
+  assert.doesNotMatch(text, /trip-eddie23|trip-snowy-five|vercel\.app|UPSTASH|upstash\.io/i);
+  assert.match(text, /in-memory\.invalid/);
+  // Prints outcome/shape only, never plan content, and writes nothing.
+  assert.doesNotMatch(text, /writeFileSync|mkdirSync|appendFileSync/);
+  assert.match(text, /never names, times or any plan content/);
+  const env = { ...process.env };
+  delete env.OPENAI_API_KEY;
+  const blocked = spawnSync(process.execPath, [e2e], { env, encoding: "utf8" });
+  assert.equal(blocked.status, 3);
+  assert.equal(blocked.stdout.trim(), "REAL_E2E_BLOCKED_MISSING_API_KEY");
+});

@@ -48,10 +48,12 @@
 ## AI Planner Preview review gate — 2026-09-17
 
 - [x] Real Luna High evaluation: 2A.1 baseline in `../ai-planner-eval-out` and the Phase 2A.3 tuned run in `../ai-planner-eval-out-phase2a3` (21 real runs, `gpt-5.6-luna` / `high`). Planner density/quality tuning is closed and frozen — no further density tuning without new evidence.
-- [ ] One real local E2E through `POST action=plan` with a Trip deep-equal before/after check (never run yet; the eval exercises the lib path, not the endpoint).
-- [ ] Verify the Vercel project's Fluid Compute status and effective max duration for `api/trip.mjs` (initial + repair ≤ 220s model time) before release.
+- [x] Real local E2E through `POST action=plan` (Phase 2A.4, `scripts/ai-planner-e2e.mjs`): 200, 1 call, no repair, store unchanged.
+- [x] Vercel runtime verified (Phase 2A.4): `fluid: true`, hobby plan, Fluid Compute default/max 300s. `api/trip.mjs` now declares `maxDuration` 150s (mirrored in `vercel.json`) and the Planner's worst case is 120s of model time (2 × 60s), so no platform kill and no dependence on a dashboard default. The old "≤ 220s model time" budget no longer applies.
+- [x] Phase 2A.4 release gate: real `POST action=plan` E2E PASS, full regression 828/828, released to production via fast-forward to main.
+- [ ] User: one production smoke of the AI Planner Preview on iPhone; then rotate the temporary OpenAI key used for the local E2E (it sat in plaintext in a local settings file) and set the production `AI_PLANNER_MODEL=gpt-5.6-luna` / `AI_PLANNER_REASONING_EFFORT=high` env vars if not already present (the route returns 503 `PLANNER_MODEL_NOT_CONFIGURED` without them).
 
-## Phase 2A.4 — Planner Production Readiness / Quality Edge Cases (not started)
+## AI Planner quality edge cases — monitored/deferred after Phase 2A.4
 
 - [ ] Flight-day floor: with the 9/24 17:50 NRT return, 2 of 3 Fixture E runs left the whole departure day empty (0 place stops; mean stops on flight days 0.67) while run 3 comfortably fitted 築地 09:00 + 銀座三越 ending 12:30 (320-minute margin). Decide whether an empty final morning is the wanted conservatism or under-scheduling; investigate before adding anything.
 - [ ] Occasional very light day: B run 3 left 9/22 at 2 stops (淺草寺 + 晴空塔) while 上野恩賜公園 / 東京國立博物館 sat unscheduled in the same area. 1 of 15 A–E runs; watch for frequency before acting.

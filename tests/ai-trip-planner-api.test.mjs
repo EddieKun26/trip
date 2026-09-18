@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import PlanningGeography from "../lib/planning-geography.js";
 import audit from "../lib/travel-area-audit.js";
-import tripHandler from "../api/trip.mjs";
-import { buildPlannerContext } from "../lib/ai-trip-planner.mjs";
+import tripHandler, { maxDuration } from "../api/trip.mjs";
+import { PLANNER_MAX_MODEL_CALLS, PLANNER_MODEL_TIMEOUT_MS, buildPlannerContext } from "../lib/ai-trip-planner.mjs";
 import { key, plannerFixtures, plannerTrip } from "./fixtures/ai-planner-fixtures.mjs";
 import { mockValidPlan, responsesPayload } from "./helpers/ai-planner-mock.mjs";
 
@@ -330,4 +330,80 @@ test("a 15-minute-step violation is a hard failure: repaired once, and a second 
   assert.equal(response.payload.error, "PLANNER_INVALID_OUTPUT");
   assert.equal(openAiRequests.length, 2);
   assert.ok(openAiRequests[1].input.at(-1).content[0].text.includes("INVALID_DURATION"));
+});
+
+/* Phase 2A.4 production readiness. */
+
+test("the planner route declares its serverless duration in both places, and the planner's own worst case fits inside it", () => {
+  const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const declared = config.functions["api/trip.mjs"].maxDuration;
+  // Same explicit pattern the other AI routes use: vercel.json entry + an export in the route.
+  assert.equal(typeof declared, "number");
+  assert.equal(declared, maxDuration);
+  assert.match(readFileSync(new URL("../api/trip.mjs", import.meta.url), "utf8"), /^export const maxDuration = \d+;$/m);
+  // Existing includeFiles must survive the added duration.
+  assert.equal(config.functions["api/trip.mjs"].includeFiles, "data/area-geometry/travel-area-boundaries.json");
+  // The whole chain must hold: both sequential model calls (worst case, each timing out) finish
+  // inside the route's declared duration, which finishes inside the client's planning timeout. So a
+  // stuck request always ends as this path's own coded error, never a platform kill or a client
+  // giving up first.
+  const worstCaseSeconds = (PLANNER_MAX_MODEL_CALLS * PLANNER_MODEL_TIMEOUT_MS) / 1000;
+  assert.ok(worstCaseSeconds < declared, `planner worst case ${worstCaseSeconds}s must stay under maxDuration ${declared}s`);
+  assert.ok(declared - worstCaseSeconds >= 20, "headroom for preprocessing, validation and the response");
+  const clientTimeoutMs = Number(/const PLACE_POOL_PLANNER_TIMEOUT_MS = (\d+);/.exec(readFileSync(new URL("../app.js", import.meta.url), "utf8"))[1]);
+  assert.ok(declared * 1000 < clientTimeoutMs, `maxDuration ${declared}s must stay under the client timeout ${clientTimeoutMs}ms`);
+});
+
+test("every planner outcome logs one privacy-safe ai-planner record: category, code, ms, model calls, repair and first-pass validity, never trip content or secrets", async () => {
+  const B = plannerFixtures().find((entry) => entry.id === "B");
+  const info = [];
+  const original = console.info;
+  console.info = (...args) => info.push(args);
+  try {
+    // success, no repair
+    let trip = reset({ trip: B.trip, env: baseEnv });
+    const valid = mockValidPlan(contextFor(trip, B.selected));
+    openAiReplies = [{ payload: responsesPayload(valid) }];
+    assert.equal((await post(planBody(B.selected))).statusCode, 200);
+    // success after exactly one repair
+    trip = reset({ trip: B.trip, env: baseEnv });
+    openAiReplies = [{ payload: responsesPayload({ days: [{ dayKey: "9/22", items: [{ candidateRef: "p999", startTime: "09:00", durationMinutes: 60 }] }] }) }, { payload: responsesPayload(valid) }];
+    assert.equal((await post(planBody(B.selected))).statusCode, 200);
+    // upstream failure
+    reset({ trip: B.trip, env: baseEnv });
+    openAiReplies = [{ status: 500, payload: { error: { type: "server_error" } } }];
+    assert.equal((await post(planBody(B.selected))).statusCode, 502);
+    // deterministic preflight rejection: zero model calls
+    const F = plannerFixtures().find((entry) => entry.id === "F");
+    reset({ trip: F.trip, env: baseEnv });
+    assert.equal((await post(planBody(F.selected))).statusCode, 422);
+    // quota exhausted
+    trip = reset({ trip: B.trip, env: baseEnv });
+    store.set(quotaKey(), "20");
+    assert.equal((await post(planBody(B.selected))).statusCode, 429);
+    // missing configuration
+    reset({ trip: B.trip, env: {} });
+    assert.equal((await post(planBody(B.selected))).statusCode, 503);
+  } finally {
+    console.info = original;
+  }
+  const records = info.filter(([label]) => label === "ai-planner").map(([, fields]) => fields);
+  assert.equal(records.length, 6);
+  assert.ok(records.every((record) => record.label === undefined && Number.isInteger(record.ms) && record.ms >= 0 && Number.isInteger(record.modelCalls)));
+  assert.deepEqual(records.map((record) => [record.outcome, record.code, record.status, record.modelCalls]), [
+    ["success", "OK", 200, 1],
+    ["success", "OK", 200, 2],
+    ["upstream_failed", "OPENAI_500_SERVER_ERROR", 502, 1],
+    ["preflight_rejected", "PLANNER_CONSTRAINTS_INFEASIBLE", 422, 0],
+    ["quota_exhausted", "DAILY_PLANNER_LIMIT", 429, 0],
+    ["not_configured", "PLANNER_MODEL_NOT_CONFIGURED", 503, 0],
+  ]);
+  // First-pass validity and repair are observable, so repair frequency can be monitored.
+  assert.deepEqual(records.slice(0, 2).map((record) => [record.firstPassValid, record.repaired]), [[true, false], [false, true]]);
+  assert.equal(records[3].reason, "CAPACITY_EXCEEDED");
+  // Nothing private: no trip/place text, no dateOptions, no prompt/model output, no credential.
+  const serialized = JSON.stringify(records);
+  for (const forbidden of ["淺草寺", "澀谷", "app:fixture", "sk-test", "dateOptions", "preview", "startTime", "Authorization"]) {
+    assert.ok(!serialized.includes(forbidden), forbidden);
+  }
 });
