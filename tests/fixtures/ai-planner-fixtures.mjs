@@ -74,6 +74,55 @@ export function oversupplyPlaces() {
   ];
 }
 
+/* Structured regular opening hours (Phase 2A.5) in the Google Places API (New) period shape:
+ * day 0 = Sunday … 6 = Saturday, place-local wall clock; a close at or before the open time falls
+ * on the next day (overnight); "24:00" closes at the next day's 00:00. */
+const hm = (time) => time.split(":").map(Number);
+export function weeklyPeriods(open, close, days = [0, 1, 2, 3, 4, 5, 6]) {
+  const [openHour, openMinute] = hm(open);
+  const [closeHour, closeMinute] = hm(close);
+  const overnight = closeHour === 24 || closeHour * 60 + closeMinute <= openHour * 60 + openMinute;
+  return days.map((day) => ({
+    open: { day, hour: openHour, minute: openMinute },
+    close: { day: overnight ? (day + 1) % 7 : day, hour: closeHour % 24, minute: closeMinute },
+  }));
+}
+export const alwaysOpenPeriods = () => [{ open: { day: 0, hour: 0, minute: 0 } }];
+export function withHours(place, periods, { status = "known", placeId = place.placeId } = {}) {
+  return { ...place, regularOpeningPeriods: { v: 1, status, placeId, periods: status === "known" ? periods : [], fetchedAt: "2026-09-01T00:00:00.000Z" } };
+}
+
+// 2026-09-22 is a Tuesday (2), 9/23 Wednesday (3), 9/24 Thursday (4).
+const HOURS = {
+  sensoji: alwaysOpenPeriods(),
+  "ueno-park": weeklyPeriods("05:00", "23:00"),
+  tnm: weeklyPeriods("09:30", "17:00", [0, 2, 4, 5, 6]), // closed Monday and Wednesday
+  skytree: weeklyPeriods("10:00", "21:00"),
+  tsukiji: [...weeklyPeriods("11:30", "14:00", [1, 2, 3, 4, 5, 6]), ...weeklyPeriods("17:00", "22:00", [1, 2, 3, 4, 5, 6])],
+  "ginza-mitsukoshi": weeklyPeriods("10:00", "20:00"),
+  "shibuya-sky": weeklyPeriods("10:00", "22:30"),
+  ichiran: weeklyPeriods("10:00", "22:00"),
+  gyoen: weeklyPeriods("09:00", "16:00", [0, 1, 3, 5, 6]), // closed Tuesday and Thursday
+  omoide: weeklyPeriods("17:00", "24:00"),
+  tocho: weeklyPeriods("09:30", "22:00"),
+  sunshine: weeklyPeriods("10:00", "21:00"),
+  "tokyo-tower": weeklyPeriods("09:00", "22:30"),
+  daibutsu: weeklyPeriods("08:00", "16:30"),
+  yebisu: weeklyPeriods("11:00", "18:00", [0, 2, 3, 4, 5, 6]),
+  "golden-gai": weeklyPeriods("19:00", "03:00"),
+  // 明治神宮 and 竹下通 deliberately have no structured hours (hours unknown).
+};
+
+export function hoursPlaces() {
+  return [
+    ...tokyoPlaces(),
+    plannerPlace("golden-gai", "新宿黃金街 酒吧", "shinjuku", 35.6938, 139.7036, { kind: "restaurant", category: "酒吧", restaurantTags: ["居酒屋"] }),
+  ].map((place) => {
+    const periods = HOURS[place.id.slice("fixture-".length)];
+    return periods ? withHours(place, periods) : place;
+  });
+}
+
 export function plannerTrip({ id = "planner-fixture", startDate = "2026-09-22", endDate = "2026-09-24", places = tokyoPlaces(), itinerary = {}, flights = [], votes = {}, revision = 7 } = {}) {
   return {
     id, title: "AI Planner fixture", destination: "東京", startDate, endDate, revision,
@@ -151,6 +200,59 @@ export function plannerFixtures() {
       trip: plannerTrip(),
       selected: ["sensoji", "ueno-park", "tnm", "skytree", "tsukiji", "ginza-mitsukoshi"].map((slug) => ({ ref: key(slug), dateOptions: [none("9/22")] })),
       expectPreflight: "PLANNER_CONSTRAINTS_INFEASIBLE",
+    },
+    // Opening-hours fixtures (Phase 2A.5): structured regular hours on most Places; aggregated as
+    // their own "hours" set, never merged into the A–E comparable set.
+    {
+      id: "I",
+      set: "hours",
+      title: "營業時間：晚間才開的餐廳（思い出横丁 17:00–24:00）、提早關門且週三公休的博物館（東京國立博物館 09:30–17:00）、指定 9/22 12:00 的一蘭（10:00–22:00）+ 有營業時間的 soft 地點",
+      trip: plannerTrip({ places: hoursPlaces() }),
+      selected: [
+        { ref: key("omoide"), dateOptions: [] },
+        { ref: key("tnm"), dateOptions: [] },
+        { ref: key("ichiran"), dateOptions: [exact("9/22", "12:00")] },
+      ],
+    },
+    {
+      id: "J",
+      set: "hours",
+      title: "營業時間：分段營業（築地 11:30–14:00、17:00–22:00，偏好 9/23 下午落在休息空檔）、多日期只有一天營業（新宿御苑只有 9/23 開）、指定時間接近打烊（澀谷 SKY 9/24 21:00，22:30 打烊）",
+      trip: plannerTrip({ places: hoursPlaces() }),
+      selected: [
+        { ref: key("tsukiji"), dateOptions: [preferred("9/23", ["afternoon"])] },
+        { ref: key("gyoen"), dateOptions: [none("9/22"), none("9/23"), none("9/24")] },
+        { ref: key("shibuya-sky"), dateOptions: [exact("9/24", "21:00")] },
+      ],
+    },
+    {
+      id: "K",
+      set: "hours",
+      title: "營業時間：24 小時（淺草寺指定 9/22 06:30）、跨午夜營業（黃金街酒吧 19:00–03:00，偏好 9/23 深夜）、營業時間未知（明治神宮）、既有鎖定行程（含一個在營業時間外的既有項目）",
+      trip: plannerTrip({
+        places: hoursPlaces(),
+        itinerary: {
+          "9/23": [{ id: "place:9/23:思い出横丁", name: "思い出横丁", time: "09:00" }],
+          "9/24": [{ id: "place:9/24:東京國立博物館", name: "東京國立博物館", time: "10:00", durationMinutes: 120 }],
+        },
+      }),
+      selected: [
+        { ref: key("sensoji"), dateOptions: [exact("9/22", "06:30")] },
+        { ref: key("golden-gai"), dateOptions: [preferred("9/23", ["late_night"])] },
+        { ref: key("meiji"), dateOptions: [] },
+      ],
+    },
+    {
+      id: "P",
+      set: "hours",
+      title: "營業時間 preflight：指定時間早於開門（東京國立博物館 9/22 08:00，09:30 開）且新宿御苑只能排在公休的 9/22 → 0 次模型呼叫",
+      trip: plannerTrip({ places: hoursPlaces() }),
+      selected: [
+        { ref: key("tnm"), dateOptions: [exact("9/22", "08:00")] },
+        { ref: key("gyoen"), dateOptions: [none("9/22")] },
+      ],
+      expectPreflight: "PLANNER_CONSTRAINTS_INFEASIBLE",
+      expectReason: "OPENING_HOURS_CONFLICT",
     },
     // Coverage fixtures (Phase 2A.3): reported separately and never merged into the A–E aggregate.
     {

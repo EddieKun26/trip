@@ -5832,12 +5832,27 @@ function openPlaceSheet(name, { refreshDetails = true } = {}) {
   if (refreshDetails) ensurePlaceDetails(place);
 }
 
+// Structured opening hours (Planner data) are fetched once per Google identity: a stored
+// known/unavailable record bound to this placeId means the fetch already completed.
+function structuredHoursFetched(place, placeId = detailGooglePlaceId(place)) {
+  const record = place?.regularOpeningPeriods;
+  return Boolean(record && typeof record === "object" && record.v === 1
+    && (record.status === "known" || record.status === "unavailable") && placeId && record.placeId === placeId);
+}
+
+// At most one hours-only backfill attempt per Google identity per page session.
+const structuredHoursAttempts = new Set();
+
 async function ensurePlaceDetails(place) {
-  if (!place || place.detailsLocked || place.photosLoaded || place.detailsLoading) return;
+  if (!place || place.detailsLocked || place.detailsLoading) return;
   if (isAddressDetailPlace(place)) return;
   const placeId = detailGooglePlaceId(place);
   // A name, destination, CID or short URL alone is not permission to replace identity.
   if (!placeId) return;
+  const needsPhotos = !place.photosLoaded;
+  const needsHours = !structuredHoursFetched(place, placeId) && !structuredHoursAttempts.has(placeId);
+  if (!needsPhotos && !needsHours) return;
+  if (!needsPhotos) structuredHoursAttempts.add(placeId);
   const detailKey = placeDetailKey(place);
   const tripId = state.tripId;
   place.detailsLoading = true;
@@ -5853,6 +5868,16 @@ async function ensurePlaceDetails(place) {
     if (resolved.placeId !== placeId || detailGooglePlaceId(place) !== placeId
       || placeDetailKey(place) !== detailKey || state.tripId !== tripId
       || !state.places.includes(place) || place.detailsLocked || isAddressDetailPlace(place)) return;
+    const hoursRecord = resolved.regularOpeningPeriods?.placeId === placeId ? resolved.regularOpeningPeriods : null;
+    if (!needsPhotos) {
+      // Legacy Place whose photos already loaded: the same exact-details response only
+      // backfills the structured hours; every other stored field is left untouched.
+      if (!hoursRecord) return;
+      place.regularOpeningPeriods = hoursRecord;
+      persist({ recordUndo: false });
+      return;
+    }
+    if (hoursRecord) place.regularOpeningPeriods = hoursRecord;
     Object.assign(place, {
       placeId: resolved.placeId || place.placeId,
       fullName: resolved.name || place.fullName,
@@ -6967,6 +6992,8 @@ async function enrichPlaceImportsFromApi(entries) {
         latitude: Number.isFinite(resolved.latitude) ? resolved.latitude : place.latitude,
         longitude: Number.isFinite(resolved.longitude) ? resolved.longitude : place.longitude,
         openingHours: resolved.openingHours || place.openingHours,
+        // Structured hours belong to the resolved Google identity only; absent until fetched.
+        regularOpeningPeriods: resolved.regularOpeningPeriods?.placeId && resolved.regularOpeningPeriods.placeId === resolved.placeId ? resolved.regularOpeningPeriods : undefined,
         phone: resolved.phone || place.phone,
         photos: resolved.photos || place.photos || [],
         mark: resolved.name.slice(0, 1),
@@ -6978,6 +7005,7 @@ async function enrichPlaceImportsFromApi(entries) {
         isExisting,
         canImport: true,
       };
+      if (!enriched.regularOpeningPeriods) delete enriched.regularOpeningPeriods;
       if (!globalThis.PlanningGeography) return enriched;
       const auto = editorAutoTravelArea(resolved);
       const manual = place.travelAreaSource === "manual" || place.travelAreaManuallySet === true;
@@ -7147,7 +7175,7 @@ function importCandidateIdentity(place) {
 // these at batch-add time, even if a future editor field accidentally touches them.
 const CANDIDATE_DRAFT_IDENTITY_FIELDS = [
   "placeId", "latitude", "longitude", "photos", "sourceUrl", "formattedAddress",
-  "rating", "ratingCount", "phone", "openingHours", "description",
+  "rating", "ratingCount", "phone", "openingHours", "regularOpeningPeriods", "description",
   "addressComponents", "addressComponentsOriginal", "countryCode", "addressProvider",
   "locationApproximate", "coordinateFallback", "coordinateLocation",
 ];
@@ -8912,6 +8940,9 @@ function placePoolPlannerErrorMessage(result, snapshot) {
   if (code === "INVALID_PLANNER_PLACE_REF") return "部分已選地點已變更，請重新整理後再規劃。";
   if (code === "PLANNER_LODGING_SELECTED") return `住宿${names}不會由 AI 排入行程，請先取消選取。`;
   if (code === "PLANNER_CONSTRAINTS_INFEASIBLE") {
+    if (payload.reason === "OPENING_HOURS_CONFLICT") {
+      return `${names || "部分地點"}在目前選擇的日期或指定時間沒有可用的營業時段，請調整日期或時間條件後再規劃。`;
+    }
     return payload.reason === "EXACT_TIME_CONFLICT"
       ? `${names || "部分地點"}的指定時間互相衝突或與既有行程同時間，請調整後再規劃。`
       : `${names || "部分地點"}指定的日期已排滿（每天最多 5 個地點），請多勾選幾天或減少指定地點。`;
@@ -11118,6 +11149,9 @@ document.addEventListener("submit", async (event) => {
       detailsLocked: true,
       photosLoaded: true,
     };
+    // A self-confirmed address Place is no longer a Google Place Details identity: Google's
+    // structured opening hours must not follow it.
+    delete nextPlace.regularOpeningPeriods;
     if (session.dirty.has("contentTags")) nextPlace.contentTags = sanitizeContentTags(nextPlace, session.contentTags);
     if (globalThis.PlanningGeography) {
       if (nextPlace.travelAreaResolutionStatus !== "ambiguous") delete nextPlace.travelAreaCandidateKeys;

@@ -4,6 +4,7 @@ import {
   normalizeAddressComponents,
   resolveTravelArea,
 } from "../lib/planning-region.mjs";
+import { openingPeriodsRecord } from "../lib/opening-hours.mjs";
 
 const ALLOWED_MAP_HOSTS = new Set([
   "maps.app.goo.gl",
@@ -449,6 +450,8 @@ async function localizeArea({ apiKey, placeId, address, latitude, longitude, req
   };
 }
 
+const optionalRecord = (record) => (record ? { regularOpeningPeriods: record } : {});
+
 async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false, latitude = null, longitude = null, destination = "", countryCode = "" }) {
   const requestBody = {
     textQuery: !globalSearch && destination && !String(textQuery).toLocaleLowerCase().includes(String(destination).toLocaleLowerCase())
@@ -519,6 +522,8 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
     longitude: place.location?.longitude ?? null,
     googleMapsUrl: place.googleMapsUri || requestUrl,
     openingHours: place.regularOpeningHours?.weekdayDescriptions?.join("；") || "營業時間未提供",
+    // A search result lacking periods is not authoritative: the field stays absent.
+    ...optionalRecord(openingPeriodsRecord(place.regularOpeningHours, { placeId: place.id })),
     phone: place.nationalPhoneNumber || "電話未提供",
     photos: (place.photos || []).slice(0, 3).map((photo) => ({
       name: photo.name,
@@ -558,6 +563,7 @@ async function exactPlaceDetails({ apiKey, placeId, requestUrl }) {
     longitude: place.location?.longitude ?? null,
     googleMapsUrl: place.googleMapsUri || requestUrl,
     openingHours: place.regularOpeningHours?.weekdayDescriptions?.join("；") || "",
+    regularOpeningPeriods: openingPeriodsRecord(place.regularOpeningHours, { placeId, authoritative: true }),
     phone: place.nationalPhoneNumber || "",
     photos: (place.photos || []).filter((photo) => String(photo.name || "").startsWith(`places/${placeId}/photos/`)).slice(0, 3).map((photo) => ({
       name: photo.name,

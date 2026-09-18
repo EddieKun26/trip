@@ -6,6 +6,7 @@ import {
   resolveTravelArea,
 } from "../lib/planning-region.mjs";
 import { extractStructuredLodgingMetadata } from "../lib/lodging-page.mjs";
+import { openingPeriodsRecord } from "../lib/opening-hours.mjs";
 
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
@@ -1243,6 +1244,8 @@ async function searchGoogleCandidates(apiKey, mention, trip, source, options = {
       latitude: validPlaceCoordinates(place.location?.latitude, place.location?.longitude) ? Number(place.location.latitude) : null,
       longitude: validPlaceCoordinates(place.location?.latitude, place.location?.longitude) ? Number(place.location.longitude) : null,
       openingHours: place.regularOpeningHours?.weekdayDescriptions?.join("；") || "待 Google Maps 同步",
+      // Text Search is not authoritative for missing periods: absent unless usable periods came back.
+      ...(() => { const record = openingPeriodsRecord(place.regularOpeningHours, { placeId: cleanText(place.id, 200) }); return record ? { regularOpeningPeriods: record } : {}; })(),
       phone: cleanText(place.nationalPhoneNumber, 80) || "待 Google Maps 同步",
       rating: Number(place.rating) || 0,
       ratingCount: Number(place.userRatingCount) || 0,

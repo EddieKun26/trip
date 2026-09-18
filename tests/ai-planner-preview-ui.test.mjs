@@ -145,6 +145,7 @@ test('errors show natural Chinese copy without codes, keep the workspace usable,
     [429, { error: 'DAILY_PLANNER_LIMIT' }, '今天的 AI 規劃次數已達上限，請明天再試。'],
     [422, { error: 'PLANNER_CONSTRAINTS_INFEASIBLE', reason: 'CAPACITY_EXCEEDED', placeKeys: [keyOf('ueno')] }, '「上野動物園」指定的日期已排滿'],
     [422, { error: 'PLANNER_CONSTRAINTS_INFEASIBLE', reason: 'EXACT_TIME_CONFLICT', placeKeys: [keyOf('ueno')] }, '「上野動物園」的指定時間互相衝突'],
+    [422, { error: 'PLANNER_CONSTRAINTS_INFEASIBLE', reason: 'OPENING_HOURS_CONFLICT', placeKeys: [keyOf('ueno')] }, '「上野動物園」在目前選擇的日期或指定時間沒有可用的營業時段，請調整日期或時間條件後再規劃。'],
     [422, { error: 'PLANNER_LODGING_SELECTED', placeKeys: [keyOf('ginza')] }, '住宿「銀座飯店」不會由 AI 排入行程'],
     [422, { error: 'PLANNER_INVALID_OUTPUT' }, 'AI 這次沒有排出符合條件的行程，請再試一次。'],
     [422, { error: 'NO_PLANNING_CANDIDATES' }, '目前沒有可規劃的地點'],
@@ -162,6 +163,8 @@ test('errors show natural Chinese copy without codes, keep the workspace usable,
     await pending;
     assert.ok(b.toast.innerHTML.includes(copy), `${payload.error}: ${b.toast.innerHTML}`);
     assert.ok(!b.toast.innerHTML.includes(payload.error), payload.error);
+    // An opening-hours conflict must never read as the daily-capacity ("已排滿") message.
+    if (payload.reason === 'OPENING_HOURS_CONFLICT') assert.ok(!b.toast.innerHTML.includes('已排滿') && !b.toast.innerHTML.includes('每天最多'), b.toast.innerHTML);
     assert.equal(b.run('placePoolPlanner.status'), 'idle');
     assert.equal(planRequests(b).length, 1);
     assert.match(b.app.innerHTML, /data-pool-cta>用已選 2 個地點規劃<\/button>/);

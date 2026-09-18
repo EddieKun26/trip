@@ -57,7 +57,7 @@
 
 - [ ] Flight-day floor: with the 9/24 17:50 NRT return, 2 of 3 Fixture E runs left the whole departure day empty (0 place stops; mean stops on flight days 0.67) while run 3 comfortably fitted 築地 09:00 + 銀座三越 ending 12:30 (320-minute margin). Decide whether an empty final morning is the wanted conservatism or under-scheduling; investigate before adding anything.
 - [ ] Occasional very light day: B run 3 left 9/22 at 2 stops (淺草寺 + 晴空塔) while 上野恩賜公園 / 東京國立博物館 sat unscheduled in the same area. 1 of 15 A–E runs; watch for frequency before acting.
-- [ ] Validator does not check an activity crossing midnight (e.g. 23:30 + 240 minutes); `mockValidPlan` already avoids it but the validator does not reject it.
+- [ ] Validator does not check an activity crossing midnight (e.g. 23:30 + 240 minutes); `mockValidPlan` already avoids it but the validator does not reject it. Phase 2A.5 deliberately kept this unchanged (opening hours only interpret overnight windows on the extended day timeline); it stays a separate future decision.
 - [ ] Fixture E locked itinerary items store no `durationMinutes`, so gaps after a locked item stay unknown and locked→new transition diagnostics are incomplete.
 - [ ] Duplicate-placement first-pass pattern (C run 2 `REQUIRED_DUPLICATED`, G run 3 `SOFT_DUPLICATED`): track its rate in future runs; currently absorbed by the validator plus one repair.
 - [ ] Production observability / rollout criteria for the Planner endpoint (error codes, repair rate, latency, quota) before enabling it in production.
@@ -80,3 +80,9 @@
 - [ ] Deploy this round's `app.js` change to production, then open the real trip in a normal authenticated browser session (this triggers `scheduleTagBackfillMigration()` automatically, once). Afterwards check a few previously-tagless restaurant Places now show a single sensible 類別 chip (and a single 地區 chip where containment/address evidence existed), and that every Place that already had either tag is completely unchanged.
 - [ ] Open the browser devtools console during that first load and report back the `[tag-backfill]` line it logs (mutation counts), and in particular whether it logs the "N restaurant place(s) need an exact Google Place Details lookup; skipping that batch this run (cap is 20)" warning -- if so, the real backlog is bigger than the safe auto-run threshold and needs an explicit follow-up round to design a multi-session batching/resume plan (this round intentionally does not guess at one, since the real count was unknown while building it).
 - [ ] Reload the trip a second time afterwards and confirm no further `[tag-backfill]` mutation log appears (idempotency holds in production, not just in the test suite).
+
+## AI Planner Opening Hours (Phase 2A.5) — 2026-09-18
+
+- [x] Engineering gate + real Luna High eval passed (see project_state.md): structured `regularOpeningPeriods` v1, lazy one-time Detail backfill, HARD validator + conservative preflight, no migration, no plan-time Google call.
+- [ ] User: single iPhone production smoke. Open an older Google Place Detail (the display hours still show; this open may backfill structured hours once), then close and reopen it (should look normal). In the AI Planner, set an exact time clearly outside a known-hours Place's opening hours and confirm the opening-hours conflict copy (not "已排滿") appears before any model call. Adjust to a sensible time, confirm a Preview is produced, and confirm nothing is written to the itinerary.
+- [ ] Future (not scheduled): holiday/special hours (`currentOpeningHours`, special days, temporary closure, `businessStatus`); a freshness/refresh policy for `fetchedAt`; optional hours display or unknown/closed hints in the Preview; hours warnings for existing locked itinerary items.

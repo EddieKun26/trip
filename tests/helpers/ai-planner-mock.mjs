@@ -11,10 +11,15 @@ export function mockValidPlan(context, { softPerDay = 1, durationMinutes = 90 } 
   const starts = new Map(context.days.map((day) => [day.dayKey, new Set((context.existingByDay.get(day.dayKey) || []).map((item) => item.time).filter(Boolean))]));
   const windows = new Map(context.days.map((day) => [day.dayKey, (context.existingByDay.get(day.dayKey) || [])
     .filter((item) => item.time && Number.isInteger(item.durationMinutes)).map((item) => [toMinutes(item.time), toMinutes(item.time) + item.durationMinutes])]));
-  const free = (dayKey, start) => start + durationMinutes <= 24 * 60 && !starts.get(dayKey).has(toTime(start))
-    && windows.get(dayKey).every(([a, b]) => !(start < b && a < start + durationMinutes));
-  const nextFree = (dayKey, from) => {
-    for (let minutes = toMinutes(from); minutes + durationMinutes <= 24 * 60; minutes += 15) if (free(dayKey, minutes)) return toTime(minutes);
+  // Known opening hours (Phase 2A.5): the whole visit must sit inside one of that day's windows.
+  const open = (candidate, dayKey, start) => {
+    const hours = candidate?.openingWindows?.[dayKey];
+    return !hours || hours.some((window) => window.startMinute <= start && start + durationMinutes <= window.endMinute);
+  };
+  const free = (dayKey, start, candidate) => start + durationMinutes <= 24 * 60 && !starts.get(dayKey).has(toTime(start))
+    && windows.get(dayKey).every(([a, b]) => !(start < b && a < start + durationMinutes)) && open(candidate, dayKey, start);
+  const nextFree = (dayKey, from, candidate) => {
+    for (let minutes = toMinutes(from); minutes + durationMinutes <= 24 * 60; minutes += 15) if (free(dayKey, minutes, candidate)) return toTime(minutes);
     return null;
   };
   const place = (candidate, dayKey, time) => {
@@ -30,8 +35,9 @@ export function mockValidPlan(context, { softPerDay = 1, durationMinutes = 90 } 
     const options = candidate.dateOptions.length ? candidate.dateOptions : context.days.map((day) => ({ dayKey: day.dayKey, mode: "none" }));
     for (const option of options) {
       if (used.get(option.dayKey) >= context.capacityByDay.get(option.dayKey)) continue;
-      const time = option.mode === "exact" ? (free(option.dayKey, toMinutes(option.exactTime)) ? option.exactTime : null)
-        : nextFree(option.dayKey, option.mode === "preferred" ? PLANNER_PERIOD_RANGES[option.preferredPeriods[0]][0] : "10:00");
+      const time = option.mode === "exact" ? (free(option.dayKey, toMinutes(option.exactTime), candidate) ? option.exactTime : null)
+        : nextFree(option.dayKey, option.mode === "preferred" ? PLANNER_PERIOD_RANGES[option.preferredPeriods[0]][0] : "10:00", candidate)
+          ?? nextFree(option.dayKey, "00:00", candidate);
       if (time) { place(candidate, option.dayKey, time); break; }
     }
   }
@@ -40,8 +46,8 @@ export function mockValidPlan(context, { softPerDay = 1, durationMinutes = 90 } 
     for (const candidate of context.candidates.filter((entry) => !entry.required)) {
       if (added >= softPerDay || used.get(day.dayKey) >= context.capacityByDay.get(day.dayKey)) break;
       if ([...days.values()].flat().some((item) => item.candidateRef === candidate.ref)) continue;
-      const time = nextFree(day.dayKey, "13:00");
-      if (!time) break;
+      const time = nextFree(day.dayKey, "13:00", candidate);
+      if (!time) continue;
       place(candidate, day.dayKey, time);
       added += 1;
     }

@@ -5,12 +5,15 @@
 //   node scripts/ai-planner-eval.mjs --runs 3 --out ../ai-planner-eval-out
 //   node scripts/ai-planner-eval.mjs --mock --out <dir>      # pipeline check, zero network
 //   node scripts/ai-planner-eval.mjs --rescore <eval-runs.json> --out <dir>   # zero network
+//   node scripts/ai-planner-eval.mjs --runs 1 --hours-runs 3 --out <dir>      # Phase 2A.5 release set
+//   node scripts/ai-planner-eval.mjs --only I,J,K --runs 1 --out <dir>         # a subset of fixtures
 //
 // Reads OPENAI_API_KEY from the environment only; it is never printed, logged or written. Without
 // it a real run stops with REAL_LUNA_EVAL_BLOCKED_NO_CREDENTIALS. Each run is one planner request
 // through the production lib path: at most two model calls (initial + one repair). Output belongs
 // outside the repository. Fixtures A–E form the comparable set ("overall"); coverage fixtures (G,
-// H) are aggregated separately ("coverage") and never merged into it. --rescore recomputes the
+// H) are aggregated separately ("coverage") and never merged into it; opening-hours fixtures (I–K,
+// P) form their own "hours" set, run --hours-runs times (default --runs). --rescore recomputes the
 // current diagnostics for an earlier eval-runs.json without any model call.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -34,16 +37,18 @@ import { aggregateDiagnostics, percentile, planDiagnostics, planFromPreview } fr
 const MODEL = "gpt-5.6-luna";
 const EFFORT = "high";
 const MAX_RUNS = 5;
-const ARTIFACT_FIXTURES = ["B", "C", "E", "G", "H"];
+const ARTIFACT_FIXTURES = ["B", "C", "E", "G", "H", "I", "J", "K"];
 // Review thresholds for soft quality (flags for human review, never hard validity).
 const CONCERN = { repairRate: 0.34, preferenceAdherence: 0.5, meanLegKm: 8, maxLegKm: 20 };
 
 function args(argv) {
-  const options = { runs: 3, out: "", mock: false, rescore: "" };
+  const options = { runs: 3, hoursRuns: 0, only: null, out: "", mock: false, rescore: "" };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--mock") options.mock = true;
     else if (flag === "--runs") options.runs = Math.min(MAX_RUNS, Math.max(1, Number(argv[++index]) || 1));
+    else if (flag === "--hours-runs") options.hoursRuns = Math.min(MAX_RUNS, Math.max(1, Number(argv[++index]) || 1));
+    else if (flag === "--only") options.only = new Set(String(argv[++index] || "").split(",").map((id) => id.trim()).filter(Boolean));
     else if (flag === "--out") options.out = argv[++index];
     else if (flag === "--rescore") options.rescore = argv[++index];
   }
@@ -123,6 +128,8 @@ async function evaluateRun({ fixture, apiKey, mock, run, contract }) {
     });
     const record = {
       fixture: fixture.id, set: fixture.set || "comparable", model: MODEL, effort: EFFORT, run, calls,
+      // First-pass opening-hours violations (OUTSIDE_OPENING_HOURS) before any repair.
+      initialHoursViolations: first.errors.filter((entry) => entry.code === "OUTSIDE_OPENING_HOURS").length,
       initialSchemaValid: first.schemaValid,
       initialHardValid: first.hardValid,
       repairNeeded: !first.hardValid && !first.refused,
@@ -180,6 +187,16 @@ function aggregate(records) {
     allowedDateCompliance: mean(metrics.map((entry) => entry.allowedDateCompliance)),
     exactTimeCompliance: mean(metrics.map((entry) => entry.exactTimeCompliance)),
     durationStepCompliance: finalOr("durationStepCompliance"),
+    // Final opening-hours compliance over AI additions on known-hours days; a final-invalid run
+    // counts 0 so 100% means every run's final plan kept every known-hours visit inside a window.
+    openingHoursCompliance: mean(completed.filter((record) => (record.finalHardValid ? record.metrics.openingHoursChecked > 0 : record.set === "hours"))
+      .map((record) => (record.finalHardValid ? record.metrics.openingHoursCompliance : 0))),
+    openingHoursCheckedItems: sum(metrics.map((entry) => entry.openingHoursChecked)),
+    hoursViolationFirstPassRuns: completed.filter((record) => record.initialHoursViolations > 0).length,
+    hoursViolationFirstPassItems: sum(completed.map((record) => record.initialHoursViolations)),
+    finalHoursViolationRuns: completed.filter((record) => !record.finalHardValid && record.finalErrorCodes.includes("OUTSIDE_OPENING_HOURS")).length,
+    modelCallsDistribution: Object.fromEntries([...new Set(completed.map((record) => record.calls))].sort().map((calls) => [calls, completed.filter((record) => record.calls === calls).length])),
+    totalModelCalls: sum(completed.map((record) => record.calls)),
     timeOverlapViolationRuns: completed.filter((record) => !record.finalHardValid && record.finalErrorCodes.includes("TIME_OVERLAP")).length,
     initialTimeOverlapRuns: completed.filter((record) => record.initialErrorCodes.includes("TIME_OVERLAP")).length,
     initialDurationStepRuns: completed.filter((record) => record.initialErrorCodes.includes("INVALID_DURATION")).length,
@@ -307,7 +324,7 @@ async function main() {
     return;
   }
   mkdirSync(options.out, { recursive: true });
-  const fixtures = plannerFixtures();
+  const fixtures = plannerFixtures().filter((fixture) => !options.only || options.only.has(fixture.id));
   const preflight = [];
   const records = [];
   const contract = [];
@@ -317,10 +334,12 @@ async function main() {
       const context = contextFor(fixture);
       const feasibility = checkPlannerFeasibility(context);
       if (feasibility.feasible) await runPlanner(context, async () => { calls += 1; return { plan: null }; });
-      preflight.push({ fixture: fixture.id, rejected: !feasibility.feasible, reason: feasibility.reason || null, modelCalls: calls });
+      preflight.push({ fixture: fixture.id, rejected: !feasibility.feasible, reason: feasibility.reason || null, modelCalls: calls,
+        expectedReason: fixture.expectReason || null, reasonMatches: fixture.expectReason ? feasibility.reason === fixture.expectReason : null });
       continue;
     }
-    for (let run = 1; run <= options.runs; run += 1) {
+    const runs = fixture.set === "hours" && options.hoursRuns ? options.hoursRuns : options.runs;
+    for (let run = 1; run <= runs; run += 1) {
       const record = await evaluateRun({ fixture, apiKey, mock: options.mock, run, contract });
       records.push(record);
       console.log(`${fixture.id} run ${run}: ${record.upstreamError ? `upstream ${record.upstreamError}` : `initial=${record.initialHardValid} final=${record.finalHardValid} calls=${record.calls} ${record.latencyMs}ms`}`);
@@ -333,14 +352,17 @@ async function main() {
   const planned = fixtures.filter((fixture) => !fixture.expectPreflight);
   const overall = aggregate(records.filter((record) => record.set === "comparable"));
   const coverage = aggregate(records.filter((record) => record.set === "coverage"));
+  const hours = aggregate(records.filter((record) => record.set === "hours"));
   const summary = {
     generatedAt: new Date().toISOString(),
     mode: options.mock ? "mock" : "real",
     model: MODEL,
     effort: EFFORT,
-    expectedRuns: planned.length * options.runs,
+    expectedRuns: planned.reduce((total, fixture) => total + (fixture.set === "hours" && options.hoursRuns ? options.hoursRuns : options.runs), 0),
+    all: aggregate(records),
     comparableFixtures: planned.filter((fixture) => !fixture.set).map((fixture) => fixture.id),
     coverageFixtures: planned.filter((fixture) => fixture.set === "coverage").map((fixture) => fixture.id),
+    hoursFixtures: planned.filter((fixture) => fixture.set === "hours").map((fixture) => fixture.id),
     requestContract: {
       calls: contract.length,
       allModelLuna: contract.every((entry) => entry.model === MODEL),
@@ -351,6 +373,7 @@ async function main() {
     preflight,
     overall,
     coverage,
+    hours,
     byFixture: Object.fromEntries(planned.map((fixture) => [fixture.id, aggregate(records.filter((record) => record.fixture === fixture.id))])),
     qualityConcerns: qualityConcerns(overall),
   };
@@ -359,9 +382,10 @@ async function main() {
   for (const fixtureId of ARTIFACT_FIXTURES) {
     const fixture = fixtures.find((entry) => entry.id === fixtureId);
     const record = records.find((entry) => entry.fixture === fixtureId && entry.run === 1);
+    if (!fixture) continue;
     writeFileSync(join(options.out, `fixture-${fixtureId}-run-1.md`), planMarkdown(fixture, record));
   }
-  console.log(JSON.stringify({ ...summary, overall: { ...overall, initialErrorCodes: undefined }, coverage: { ...coverage, initialErrorCodes: undefined }, byFixture: undefined }, null, 2));
+  console.log(JSON.stringify({ ...summary, all: { ...summary.all, initialErrorCodes: undefined, diagnostics: undefined }, overall: { ...overall, initialErrorCodes: undefined }, coverage: { ...coverage, initialErrorCodes: undefined }, hours: { ...hours, initialErrorCodes: undefined }, byFixture: undefined }, null, 2));
 }
 
 main().catch((error) => {

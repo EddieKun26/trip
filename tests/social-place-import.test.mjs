@@ -182,7 +182,7 @@ globalThis.fetch = async (url, options = {}) => {
           primaryTypeDisplayName: { text: returnsNamedLodging || forceNearbyLodgings ? "住宿" : "咖啡廳" },
           location: { latitude: 35.69, longitude: 139.70 },
           googleMapsUri: "https://www.google.com/maps/search/?api=1&query=Cafe+Mugi",
-          regularOpeningHours: { weekdayDescriptions: ["星期一: 10:00-20:00"] },
+          regularOpeningHours: { weekdayDescriptions: ["星期一: 10:00-20:00"], periods: [{ open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 20, minute: 0 } }] },
           nationalPhoneNumber: "03-1234-5678",
           rating: 4.6,
           userRatingCount: 280,
@@ -590,6 +590,13 @@ test("social place import requires membership and returns Google candidates for 
   assert.equal(response.payload.groups[0].candidates[0].countryCode, "JP");
   assert.match(response.payload.source.originalText, /新宿一定要去 Cafe Mugi/);
   assert.equal(response.payload.groups[0].candidates[0].sourceUrl.includes("google.com/maps"), true);
+  // Structured regular hours (Phase 2A.5): Text Search periods are stored as known and bound to the
+  // Google identity; a candidate returned without periods gets no marker (not authoritative).
+  const hours = response.payload.groups[0].candidates[0].regularOpeningPeriods;
+  assert.deepEqual({ ...hours, fetchedAt: "t" }, { v: 1, status: "known", placeId: "place-cafe-mugi", fetchedAt: "t",
+    periods: [{ open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 20, minute: 0 } }] });
+  assert.equal(response.payload.groups[0].candidates[0].openingHours, "星期一: 10:00-20:00");
+  assert.equal("regularOpeningPeriods" in response.payload.groups[0].candidates[1], false);
 
   assert.equal(openAiRequests.length, 1);
   assert.equal(openAiRequests[0].model, "gpt-5.6-luna");

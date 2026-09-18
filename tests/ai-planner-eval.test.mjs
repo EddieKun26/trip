@@ -40,12 +40,23 @@ test("eval harness mock mode: F rejected with zero calls, A–E overall kept sep
   delete env.OPENAI_API_KEY;
   execFileSync(process.execPath, [script, "--mock", "--runs", "3", "--out", out], { env, encoding: "utf8" });
   const summary = JSON.parse(readFileSync(join(out, "eval-summary.json"), "utf8"));
-  assert.deepEqual(summary.preflight, [{ fixture: "F", rejected: true, reason: "CAPACITY_EXCEEDED", modelCalls: 0 }]);
+  assert.deepEqual(summary.preflight, [
+    { fixture: "F", rejected: true, reason: "CAPACITY_EXCEEDED", modelCalls: 0, expectedReason: null, reasonMatches: null },
+    { fixture: "P", rejected: true, reason: "OPENING_HOURS_CONFLICT", modelCalls: 0, expectedReason: "OPENING_HOURS_CONFLICT", reasonMatches: true },
+  ]);
   assert.equal(summary.model, "gpt-5.6-luna");
   assert.equal(summary.effort, "high");
-  assert.equal(summary.expectedRuns, 21);
+  assert.equal(summary.expectedRuns, 30);
   assert.deepEqual(summary.comparableFixtures, ["A", "B", "C", "D", "E"]);
   assert.deepEqual(summary.coverageFixtures, ["G", "H"]);
+  // Opening-hours fixtures (Phase 2A.5) are their own set and never leak into overall/coverage.
+  assert.deepEqual(summary.hoursFixtures, ["I", "J", "K"]);
+  assert.equal(summary.hours.runs, 9);
+  assert.equal(summary.hours.finalHardValidRate, 1);
+  assert.equal(summary.hours.openingHoursCompliance, 1);
+  assert.ok(summary.hours.openingHoursCheckedItems > 0);
+  assert.equal(summary.hours.finalHoursViolationRuns, 0);
+  assert.equal(summary.overall.openingHoursCompliance, null, "A–E have no structured hours");
   // overall is the A–E comparable set only; coverage fixtures never leak into it.
   assert.equal(summary.overall.runs, 15);
   assert.equal(summary.coverage.runs, 6);
@@ -75,7 +86,7 @@ test("eval harness mock mode: F rejected with zero calls, A–E overall kept sep
   assert.equal(repair.hardValid, true);
   assert.deepEqual(repaired.finalPlan, repair.normalizedPlan);
   assert.ok(runs.filter((run) => run.finalHardValid).every((run) => run.diagnostics && run.finalPlan));
-  assert.deepEqual(readdirSync(out).sort(), ["eval-runs.json", "eval-summary.json", "fixture-B-run-1.md", "fixture-C-run-1.md", "fixture-E-run-1.md", "fixture-G-run-1.md", "fixture-H-run-1.md"]);
+  assert.deepEqual(readdirSync(out).sort(), ["eval-runs.json", "eval-summary.json", "fixture-B-run-1.md", "fixture-C-run-1.md", "fixture-E-run-1.md", "fixture-G-run-1.md", "fixture-H-run-1.md", "fixture-I-run-1.md", "fixture-J-run-1.md", "fixture-K-run-1.md"]);
   const artifact = readFileSync(join(out, "fixture-C-run-1.md"), "utf8");
   for (const section of ["## 硬性條件", "## 行程", "## 指標", "指定 18:30", "時間重疊", "每日密度", "相鄰站距離 vs 空檔"]) assert.ok(artifact.includes(section), section);
   assert.ok(readFileSync(join(out, "fixture-G-run-1.md"), "utf8").includes("偏好時段選擇："));
