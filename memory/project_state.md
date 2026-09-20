@@ -428,3 +428,17 @@
 ## Places list card vertical rhythm — 2026-09-12
 
 - `.place-row` (Places list card grid) now has `padding: 14px 0`, so content no longer touches the divider above/below. A `.place-row .place-copy`-scoped rhythm replaces the old flat spacing: name->tag/meta 4px, tag->meta 6px, meta->marker 7px; tagless places collapse cleanly (the tag element just isn't rendered, no reserved gap). Multi-row tag wrapping is no longer clipped and long names wrap instead of ellipsis-truncating, both scoped to this card only (itinerary timeline / import-candidate card unaffected). CSS-only; no markup, data, or JS behavior changed. API functions remain 12.
+
+## Phase 2B — Interactive Planner Draft + Apply (2026-09-20)
+
+Engineering implementation passed 892/892 tests (0 failures/skips); see documentation/planner-draft-apply-gate.md. Baseline 9461321360146a776792078e2279fdf8e10c7ff6; release branch feat/planner-draft-apply.
+
+Preview becomes an in-memory editable Draft. AI cannot rewrite existing itinerary; humans can edit normal existing items. Flights retain canonical fixed day/time/duration rules, while same-day ordering remains permitted by the normal editor. Drag uses canonical array order; explicit day selection appends without changing time. Time uses the existing wheel; durations remain absent unless explicitly set. No Draft localStorage/IndexedDB/server storage. Footer: 套用此行程 / 重新規劃 / 修改規劃條件. Dirty discard requires confirmation; Replan uses original request snapshot.
+
+POST action=applyPlan reloads canonical Trip, checks revision, resolves canonical Saved Place keys and revision/day/index existing refs, reconstructs metadata server-side, validates deterministic legality and uses one atomic Redis CAS write with one revision increment. No scripting means fail closed, no GET+SET fallback. Rejected Apply writes zero. Existing one-level memory Undo restores the entire Apply through revision-bound atomic PUT; stale Undo fails closed. Undo is session-only and expires on reload, consistent with existing history.
+
+Known structured opening hours are revalidated; unknown hours do not block. Persistent readable Planner error cards preserve correctable Drafts. Human edits override original AI preferred/exact/date constraints; generation's five-place limit is not a manual itinerary limit. Plan remains no-write; Apply calls neither OpenAI nor Google. Model generation contract unchanged; no real Luna reevaluation, migration or new history store.
+
+Workflow: Agent does not operate local or production App UI. User owns all UI/UX/manual interaction smoke. Engineering validation is code/test/static/API based; one production user smoke occurs after READY. Earlier browser observations are historical only, not the final engineering gate. USER_UI_SMOKE_REQUIRED=YES.
+
+NEXT: Phase 2C — Discovery / Tourist Recommendations. NOT IMPLEMENTED in Phase 2B. Future unsaved recommendations must be marked and explicitly accepted/skipped; recommendations must not silently write Saved Places or itinerary.

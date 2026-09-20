@@ -319,6 +319,7 @@ let pendingShoppingBatchDeleteIds = [];
 let pendingManualShoppingPhoto = "";
 let removeManualShoppingPhoto = false;
 let undoSnapshot = null;
+let undoExpectedRevision = null;
 let undoBaseline = "";
 let offerUndoWithNextToast = false;
 
@@ -415,12 +416,15 @@ function resetUndoBaseline({ clear = false } = {}) {
   undoBaseline = JSON.stringify(reversibleTripSnapshot());
   if (clear) {
     undoSnapshot = null;
+    undoExpectedRevision = null;
     offerUndoWithNextToast = false;
   }
 }
 
 function restoreLastAction() {
   if (!undoSnapshot || !canEdit()) return false;
+  if (typeof placePoolPlanner !== "undefined" && placePoolPlanner.draft) return false;
+  if (typeof undoExpectedRevision === "number") return restoreRevisionBoundUndo();
   const snapshot = cloneValue(undoSnapshot);
   state.flights = snapshot.flights || [];
   state.places = snapshot.places || [];
@@ -449,6 +453,7 @@ function persist({ sync = true, recordUndo = sync, resetUndo = false } = {}) {
     offerUndoWithNextToast = false;
   } else if (recordUndo && canEdit() && undoBaseline && nextBaseline !== undoBaseline) {
     undoSnapshot = JSON.parse(undoBaseline);
+    undoExpectedRevision = null;
     offerUndoWithNextToast = true;
   }
   undoBaseline = nextBaseline;
@@ -1949,6 +1954,7 @@ function safeMainTab(value) {
 }
 
 function saveUiPreference() {
+  if (typeof placePoolPlanner !== "undefined" && (placePoolPlanner.draft || placePoolPlanner.status === "loading")) return;
   if (!tripIsHydrated() || !currentMemberId() || !state.tripId) return;
   try {
     localStorage.setItem(activeTripPreferenceKey(), JSON.stringify(state.tripId));
@@ -5521,6 +5527,7 @@ function itineraryScreen() {
               : `<span class="time-button readonly-time">${escapeHtml(item.time)}</span>`}
             <button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
               <strong>${escapeHtml(item.name)}</strong>
+              ${Number.isInteger(item.durationMinutes) && item.durationMinutes > 0 ? `<span class="duration-line">停留 ${item.durationMinutes} 分鐘</span>` : ""}
               <span class="opening-line"><b>營業</b>${formatOpeningHoursForDay(place?.openingHours, selectedWeekday)}</span>
               <span class="phone-line"><b>電話</b>${escapeHtml(place?.phone || "待 Google Maps 同步")}</span>
             </button>
@@ -5568,6 +5575,7 @@ function itineraryScreen() {
 }
 
 function render({ preserveScroll = false, filterOnly = false } = {}) {
+  const draftScrollTop = document.querySelector("[data-place-pool-preview]")?.scrollTop;
   if (state.hydrationStatus === "loading" || (state.hydrationStatus === "ready" && !tripIsHydrated())) {
     app.innerHTML = appLoadingMarkup();
     return;
@@ -5595,6 +5603,8 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
   else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
   else if (state.activeTab === "shopping") app.innerHTML = shoppingScreen();
   app.scrollTop = preserveScroll ? previousScrollTop : 0;
+  const draftScroll = document.querySelector("[data-place-pool-preview]");
+  if (draftScroll && preserveScroll && draftScrollTop != null) draftScroll.scrollTop = draftScrollTop;
   if (preserveScroll) {
     restorePlacePoolAnchor(poolCandidateAnchor);
     restorePlacePoolAnchor(poolSelectedAnchor);
@@ -8621,11 +8631,13 @@ function syncPendingTimeFromWheel() {
   document.querySelectorAll("[data-wheel-part]").forEach(updateTimeWheelColumn);
 }
 
-function openTimeWheel(name) {
-  const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === name);
+function openTimeWheel(name, draftRef = "") {
+  const item = draftRef ? placePoolPlanner.draft?.days.flatMap(day => day.items).find(item => item.ref === draftRef)
+    : (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === name);
   if (!item) return;
-  const [hour = "00", minute = "00"] = String(item.time || "00:00").split(":");
-  pendingTimePicker = { name, hour, minute };
+  if (draftRef && (item.protected || item.itemType === "flight" || placePoolPlanner.status !== "preview")) return;
+  const [hour = "00", minute = "00"] = String(item.startTime || item.time || "00:00").split(":");
+  pendingTimePicker = { name, hour, minute, draftRef };
   sheetRoot.innerHTML = `
     <div class="modal-backdrop time-wheel-backdrop" data-dismiss-sheet>
       <section class="modal-sheet time-wheel-sheet" role="dialog" aria-modal="true" aria-label="調整${escapeHtml(name)}時間">
@@ -8878,7 +8890,7 @@ function placePoolScrollSessionState() {
  * Same trip-scoped lazy-reset pattern as placePoolSelection, and every response is dropped
  * unless its request sequence, trip, member and trip context are still current. */
 const PLACE_POOL_PLANNER_TIMEOUT_MS = 240000;
-const placePoolPlanner = { tripId: "", status: "idle", preview: null, snapshot: null, sequence: 0, editScrollTop: 0 };
+const placePoolPlanner = { tripId: "", status: "idle", preview: null, draft: null, draftDirty: false, error: null, snapshot: null, sequence: 0, editScrollTop: 0 };
 
 function placePoolPlannerState() {
   if (placePoolPlanner.tripId !== state.tripId) resetPlacePoolPlanner();
@@ -8886,7 +8898,7 @@ function placePoolPlannerState() {
 }
 
 function resetPlacePoolPlanner() {
-  Object.assign(placePoolPlanner, { tripId: state.tripId, status: "idle", preview: null, snapshot: null, editScrollTop: 0 });
+  Object.assign(placePoolPlanner, { tripId: state.tripId, status: "idle", preview: null, draft: null, draftDirty: false, discardApproved: false, error: null, snapshot: null, editScrollTop: 0 });
   placePoolPlanner.sequence += 1;
 }
 
@@ -8957,7 +8969,8 @@ function placePoolPlannerErrorMessage(result, snapshot) {
 // selection; 重新規劃 replays the Preview's own snapshot so later edits can never leak in.
 async function requestPlacePoolPlan({ regenerate = false } = {}) {
   const planner = placePoolPlannerState();
-  if (planner.status === "loading") return;
+  if (["loading", "applying"].includes(planner.status)) return;
+  if (regenerate && !confirmPlannerDiscard(() => requestPlacePoolPlan({ regenerate: true }))) return;
   if (!canEdit()) return guestOnlyMessage();
   if (regenerate && !planner.snapshot) return;
   if (!regenerate && !placePoolSelectedEntries().length && !placePoolPlannerCandidateCount(getFilteredPlacePool())) {
@@ -8970,7 +8983,8 @@ async function requestPlacePoolPlan({ regenerate = false } = {}) {
     const list = document.querySelector("[data-place-pool-list]");
     planner.editScrollTop = list ? list.scrollTop : 0;
   }
-  Object.assign(planner, { status: "loading", snapshot });
+  Object.assign(planner, { status: "loading", snapshot, error: null });
+  if (regenerate) Object.assign(planner, { draft: null, draftDirty: false });
   render({ preserveScroll: true, filterOnly: true });
   const result = await postPlacePoolPlan(snapshot);
   const current = () => placePoolPlanner.sequence === sequence && placePoolPlanner.tripId === snapshot.tripId && state.tripId === snapshot.tripId
@@ -8982,7 +8996,7 @@ async function requestPlacePoolPlan({ regenerate = false } = {}) {
     return showToast("登入已過期，請重新輸入暱稱與 PIN");
   }
   if (result.ok && result.payload?.preview?.tripId === snapshot.tripId && Array.isArray(result.payload.preview.days)) {
-    Object.assign(planner, { status: "preview", preview: result.payload.preview });
+    Object.assign(planner, { status: "preview", preview: result.payload.preview, draft: cloneValue(result.payload.preview), draftDirty: false });
     render({ preserveScroll: true, filterOnly: true });
     const previewList = document.querySelector("[data-place-pool-preview]");
     if (previewList) previewList.scrollTop = 0;
@@ -8991,13 +9005,153 @@ async function requestPlacePoolPlan({ regenerate = false } = {}) {
   planner.status = planner.preview ? "preview" : "idle";
   if (!planner.preview) planner.snapshot = null;
   render({ preserveScroll: true, filterOnly: true });
-  showToast(placePoolPlannerErrorMessage(result, snapshot));
+  planner.error = { ...result.payload, message: placePoolPlannerErrorMessage(result, snapshot) };
+  render({ preserveScroll: true, filterOnly: true });
+}
+
+let pendingPlannerDiscard = null;
+function confirmPlannerDiscard(action) {
+  if (!placePoolPlanner.draftDirty) return true;
+  if (placePoolPlanner.discardApproved) { placePoolPlanner.discardApproved = false; return true; }
+  pendingPlannerDiscard = { action, sequence: placePoolPlanner.sequence, tripId: state.tripId };
+  sheetRoot.innerHTML = `<div class="modal-backdrop" data-dismiss-sheet><section class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="planner-discard-title"><h2 id="planner-discard-title">捨棄手動修改？</h2><p>目前在預覽中手動修改的內容會被捨棄。</p><div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>保留草稿</button><button class="primary-button" type="button" data-pool-confirm-discard>捨棄並繼續</button></div></section></div>`;
+  return false;
+}
+
+async function restoreRevisionBoundUndo() {
+  if (sharedSyncBusy || sharedSaveTimer || !undoSnapshot) return false;
+  const revision = undoExpectedRevision, tripId = state.tripId, memberId = currentMemberId();
+  const payload = { ...sharedTripPayload(), ...cloneValue(undoSnapshot), expectedRevision: revision, requireAtomic: true };
+  sharedSyncBusy = true;
+  try {
+    const response = await fetch(`/api/trip?id=${encodeURIComponent(tripId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const result = await response.json();
+    if (state.tripId !== tripId || currentMemberId() !== memberId) return false;
+    if (!response.ok) {
+      showToast(response.status === 409 ? "行程已在其他地方被修改，請重新載入。" : "暫時無法復原，請稍後再試。", { allowUndo: false });
+      return false;
+    }
+    applySharedTrip(result);
+    render({ preserveScroll: true });
+    showToast("已復原上一個動作", { allowUndo: false });
+    return true;
+  } catch {
+    showToast("暫時無法確認復原結果，請重新載入行程確認。", { allowUndo: false });
+    return false;
+  } finally { sharedSyncBusy = false; }
+}
+
+function plannerErrorCard() {
+  const error = placePoolPlanner.error;
+  if (!error) return "";
+  const hours = error.error === "OPENING_HOURS_CONFLICT" || error.reason === "OPENING_HOURS_CONFLICT";
+  const stale = error.error === "TRIP_STALE";
+  const detail = error.detail || {};
+  const correction = { TIME_OVERLAP: "行程時間重疊，請調整開始時間或停留時間。", INVALID_START_TIME: "請使用有效的 HH:MM 開始時間。", INVALID_DURATION: "請檢查停留時間；AI 規劃項目需為 30–240 分鐘，每次調整 15 分鐘。", ATOMIC_WRITE_UNAVAILABLE: "目前無法安全儲存，草稿已保留，請稍後再試。" }[error.error];
+  return `<section class="planner-error-card" role="alert" aria-live="polite"><strong>${hours ? "營業時間不符合" : stale ? "行程已更新" : "請確認行程"}</strong>
+    ${detail.name ? `<p>${escapeHtml(detail.name)}</p>` : ""}${detail.dayKey ? `<p>${escapeHtml(detail.dayKey)}</p>` : ""}
+    ${detail.startTime ? `<p>你指定：${escapeHtml(detail.startTime)}</p>` : ""}${detail.openingWindows ? `<p>當日營業：${escapeHtml(detail.openingWindows.join("、") || "休息")}</p>` : ""}
+    ${(error.details || []).map(entry => `<div><p>${escapeHtml(entry.name)} · ${escapeHtml(entry.dayKey)}</p>${entry.startTime ? `<p>你指定：${escapeHtml(entry.startTime)}</p>` : ""}<p>當日營業：${escapeHtml(entry.openingWindows.join("、") || "休息")}</p></div>`).join("")}
+    <p>${escapeHtml(stale ? "行程已在其他地方被修改，請重新載入或重新規劃。" : error.message || correction || (hours ? "請調整日期、時間或停留時間後再套用。" : "請修正行程後再套用。"))}</p>
+    <button class="secondary-button" type="button" data-dismiss-planner-error>關閉訊息</button></section>`;
+}
+
+function editPlannerDraft(ref, field, value) {
+  const planner = placePoolPlannerState();
+  if (!planner.draft || planner.status !== "preview") return false;
+  const day = planner.draft.days.find(day => day.items.some(item => item.ref === ref));
+  const item = day?.items.find(item => item.ref === ref);
+  if (!item || item.protected || item.itemType === "flight") return false;
+  if (field === "dayKey") {
+    const target = planner.draft.days.find(day => day.dayKey === value);
+    if (!target || target === day) return false;
+    day.items.splice(day.items.indexOf(item), 1);
+    target.items.push(item); // Canonical by-day arrays: preserve time, append at destination.
+    planner.draftDirty = true;
+    planner.error = null;
+    render({ preserveScroll: true, filterOnly: true });
+    return true;
+  }
+  if (field === "durationMinutes") value = value === "" ? null : Number(value);
+  if (!["startTime", "durationMinutes"].includes(field)) return false;
+  if ((field === "startTime" ? item.startTime || item.time : item[field]) === value) return false;
+  item[field] = value;
+  if (field === "startTime") {
+    item.time = value;
+    // Same stable time-sort semantics as the normal itinerary's confirmed time editor.
+    day.items.sort((a, b) => String(a.startTime || a.time || "").localeCompare(String(b.startTime || b.time || "")));
+  }
+  planner.draftDirty = true;
+  planner.error = null;
+  render({ preserveScroll: true, filterOnly: true });
+  return true;
+}
+
+function reorderPlannerDraft(ref, targetRef) {
+  const planner = placePoolPlannerState();
+  if (!planner.draft || planner.status !== "preview" || ref === targetRef) return false;
+  const day = planner.draft.days.find(day => day.items.some(item => item.ref === ref));
+  const from = day?.items.findIndex(item => item.ref === ref), to = day?.items.findIndex(item => item.ref === targetRef);
+  if (!(from >= 0 && to >= 0)) return false;
+  const [item] = day.items.splice(from, 1);
+  day.items.splice(to, 0, item);
+  planner.draftDirty = true;
+  planner.error = null;
+  render({ preserveScroll: true, filterOnly: true });
+  return true;
+}
+
+async function applyPlannerDraft() {
+  const planner = placePoolPlannerState();
+  if (!canEdit() || planner.status !== "preview" || !planner.draft) return;
+  if (sharedSyncBusy || sharedSaveTimer) {
+    planner.error = { message: "行程正在同步，請稍後再套用。" };
+    render({ preserveScroll: true, filterOnly: true });
+    return;
+  }
+  const snapshot = planner.snapshot, sequence = planner.sequence;
+  const before = reversibleTripSnapshot();
+  const body = { action: "applyPlan", expectedRevision: planner.draft.revision, days: planner.draft.days.map(day => ({ dayKey: day.dayKey,
+    items: day.items.map(item => ({ ref: item.ref, startTime: item.startTime || item.time || "", durationMinutes: item.durationMinutes ?? null })) })) };
+  planner.status = "applying";
+  planner.error = null;
+  sharedSyncBusy = true;
+  render({ preserveScroll: true, filterOnly: true });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`/api/trip?id=${encodeURIComponent(snapshot.tripId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    const payload = await response.json();
+    if (sequence !== planner.sequence || state.tripId !== snapshot.tripId || currentMemberId() !== snapshot.memberId) return;
+    if (!response.ok) {
+      planner.error = payload;
+      return;
+    }
+    if (payload.id !== snapshot.tripId || payload.revision !== body.expectedRevision + 1 || !Array.isArray(payload.places)) throw new Error("INVALID_APPLY_RESPONSE");
+    applySharedTrip(payload);
+    undoSnapshot = before;
+    undoExpectedRevision = payload.revision;
+    offerUndoWithNextToast = true;
+    resetPlacePoolPlanner();
+    state.placePool.open = false;
+    state.activeTab = "itinerary";
+    showToast("已套用行程");
+  } catch {
+    planner.error = { message: "暫時無法確認套用結果，請重新載入行程確認。草稿仍保留。" };
+  } finally {
+    clearTimeout(timer);
+    sharedSyncBusy = false;
+    if (planner.status === "applying") planner.status = "preview";
+    render({ preserveScroll: true, filterOnly: true });
+    if (planner.error) { const list = document.querySelector("[data-place-pool-preview]"); if (list) list.scrollTop = 0; }
+  }
 }
 
 // 返回調整: discard the Preview (never patched later) and return to the untouched selection,
 // dateOptions and drawer state, at the list position the user planned from.
 function closePlacePoolPreview() {
   const planner = placePoolPlannerState();
+  if (planner.status === "applying" || !confirmPlannerDiscard(closePlacePoolPreview)) return;
   const editScrollTop = planner.editScrollTop;
   resetPlacePoolPlanner();
   render({ preserveScroll: true, filterOnly: true });
@@ -9053,6 +9207,7 @@ function normalizePoolDateOption(option) {
 // dates were checked in. Fails closed against a stale/no-longer-pooled or unselected key, like
 // togglePlacePoolSelection.
 function applyPlacePoolConstraint(key, dateOptions) {
+  placePoolPlanner.error = null;
   if (!getUnscheduledPlaces().entries.some((entry) => entry.key === key)) return false;
   if (!placePoolSelectedKeys().has(key)) return false;
   const dayOrder = new Map(dateMeta.map(([date], index) => [date, index]));
@@ -9077,6 +9232,7 @@ function placePoolSelectedEntries(pool = getUnscheduledPlaces()) {
 }
 
 function togglePlacePoolSelection(key) {
+  placePoolPlanner.error = null;
   if (!getUnscheduledPlaces().entries.some((entry) => entry.key === key)) {
     render({ preserveScroll: true });
     return showToast("這個地點已不在行程規劃中");
@@ -9242,60 +9398,36 @@ function placePoolCtaMarkup(pool) {
 const PLACE_POOL_PREVIEW_KIND_LABELS = { attraction: "景點", restaurant: "餐廳", shopping: "購物", lodging: "住宿", flight: "航班", custom: "行程" };
 
 function placePoolPreviewItemMarkup(item) {
-  if (item.source === "existing") {
-    const kind = PLACE_POOL_PREVIEW_KIND_LABELS[item.kind] || "行程";
-    return `
-                <li class="place-pool-preview-item is-existing">
-                  <span class="place-pool-preview-time">${escapeHtml(item.time || "--:--")}</span>
-                  <span class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><small><span class="place-pool-preview-badge is-existing">🔒 既有行程</span>${escapeHtml(kind)}</small></span>
-                </li>`;
-  }
-  const badge = item.source === "required"
-    ? `<span class="place-pool-preview-badge is-required">我指定想去</span>`
-    : `<span class="place-pool-preview-badge is-saved">已在我的清單</span>`;
-  const meta = [PLACE_POOL_PREVIEW_KIND_LABELS[item.kind] || "地點", item.area, `${item.durationMinutes} 分鐘`].filter(Boolean).map(escapeHtml).join(" · ");
-  const notes = [
-    item.exactTime ? `<span class="place-pool-preview-note is-exact">指定時間</span>` : "",
-    item.preferenceMiss ? `<span class="place-pool-preview-note is-warning">偏好時段未完全符合</span>` : "",
-  ].join("");
-  return `
-                <li class="place-pool-preview-item is-${item.source === "required" ? "required" : "saved"}">
-                  <span class="place-pool-preview-time">${escapeHtml(item.startTime)}</span>
-                  <span class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><small>${badge}${meta}</small>${notes ? `<span class="place-pool-preview-notes">${notes}</span>` : ""}</span>
-                </li>`;
+  const fixed = item.protected || item.itemType === "flight";
+  const existing = item.source === "existing";
+  const busy = placePoolPlanner.status !== "preview";
+  const disabled = fixed || busy ? " disabled" : "";
+  const ref = escapeHtml(item.ref || "");
+  const time = escapeHtml(item.startTime || item.time || "");
+  const duration = item.durationMinutes;
+  const currentDay = placePoolPlanner.draft?.days.find(day => day.items.includes(item))?.dayKey;
+  return `<li class="place-pool-preview-item planner-draft-item" data-draft-ref="${ref}">
+    <div class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><span class="place-pool-preview-badge">${fixed ? "固定項目" : existing ? "原有行程" : "AI 規劃"}</span>
+    <div class="planner-draft-fields"><label>開始時間<button class="time-button" type="button" aria-label="修改${escapeHtml(item.name)}草稿時間 ${time}" data-draft-time="${ref}"${disabled}>${time || "--:--"}</button></label>
+    <label>${duration == null ? "停留時間未設定" : `停留 ${escapeHtml(duration)} 分鐘`}<input type="number" inputmode="numeric" min="${existing ? 1 : 30}" max="${existing ? 1440 : 240}" step="${existing ? 1 : 15}" value="${duration ?? ""}" placeholder="未設定" data-draft-duration="${ref}"${disabled}></label>
+    <label class="planner-draft-date">日期<select data-draft-day="${ref}"${disabled}>${(placePoolPlanner.draft?.days || []).map(day => `<option value="${escapeHtml(day.dayKey)}"${day.dayKey === currentDay ? " selected" : ""}>${escapeHtml(day.dayKey)}</option>`).join("")}</select></label></div></div>
+    ${`<button class="drag-handle planner-draft-handle" type="button" data-draft-drag="${ref}" aria-label="拖曳調整${escapeHtml(item.name)}順序"${busy ? " disabled" : ""}>☰</button>`}</li>`;
 }
 
-// 行程預覽 inside the same fullscreen workspace. Everything displayed comes from the server's
-// canonical Preview; it has no Accept/apply action in this phase — only 返回調整 and 重新規劃.
 function placePoolPreviewMarkup(planner) {
-  const { preview } = planner;
-  const loading = planner.status === "loading";
-  const days = preview.days.map((day) => `
-            <li class="place-pool-preview-day">
-              <h3>${escapeHtml(day.dayKey)} <small>${escapeHtml(day.weekday || "")}</small></h3>
-              ${day.items.length
-                ? `<ol class="place-pool-preview-items">${day.items.map(placePoolPreviewItemMarkup).join("")}</ol>`
-                : `<p class="place-pool-preview-empty">這天沒有安排</p>`}
-            </li>`).join("");
-  const summary = [`指定 ${preview.summary.requiredCount} 個`, `從清單安排 ${preview.summary.savedCount} 個`].join("・");
-  return `
-      <div class="place-pool" id="place-pool-panel"${state.placePool.open ? "" : " hidden"}>
-        <div class="place-pool-workspace is-preview" role="dialog" aria-modal="true" aria-labelledby="place-pool-title">
-          <div class="place-pool-head">
-            <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉行程規劃">×</button>
-            <div class="place-pool-head-copy"><h2 id="place-pool-title">AI 行程預覽</h2><p>${escapeHtml(summary)}</p></div>
-          </div>
-          <div class="place-pool-preview" data-place-pool-preview>
-            <p class="place-pool-preview-banner" role="note">這是預覽，不會變更目前行程。</p>
-            ${preview.summary.unscheduledSavedCount > 0 ? `<p class="place-pool-preview-hint">另有 ${preview.summary.unscheduledSavedCount} 個已存地點這次沒有排入</p>` : ""}
-            <ol class="place-pool-preview-days">${days}</ol>
-          </div>
-          <div class="place-pool-cta place-pool-preview-actions">
-            <button class="place-pool-preview-back" type="button" data-pool-preview-back${loading ? " disabled" : ""}>返回調整</button>
-            <button class="place-pool-cta-button" type="button" data-pool-preview-regenerate${loading ? ' disabled aria-disabled="true" aria-busy="true"' : ""}>${loading ? "正在重新規劃…" : "重新規劃"}</button>
-          </div>
-        </div>
-      </div>`;
+  const preview = planner.draft || planner.preview;
+  const loading = planner.status === "loading", applying = planner.status === "applying", busy = loading || applying;
+  const days = preview.days.map(day => `<li class="place-pool-preview-day"><h3>${escapeHtml(day.dayKey)} <small>${escapeHtml(day.weekday || "")}</small></h3>
+    <ol class="place-pool-preview-items">${day.items.map(placePoolPreviewItemMarkup).join("")}</ol></li>`).join("");
+  return `<div class="place-pool" id="place-pool-panel"${state.placePool.open ? "" : " hidden"}>
+    <div class="place-pool-workspace is-preview" role="dialog" aria-modal="true" aria-labelledby="place-pool-title">
+    <div class="place-pool-head"><button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉行程規劃"${busy ? " disabled" : ""}>×</button>
+    <div class="place-pool-head-copy"><h2 id="place-pool-title">AI 行程預覽</h2><p>${planner.draftDirty ? "已手動修改・尚未套用" : "可調整行程，確認後再套用"}</p></div></div>
+    <div class="place-pool-preview" data-place-pool-preview><p class="place-pool-preview-banner" role="note">修改只保留在此草稿，按下「套用此行程」才會儲存。</p>${plannerErrorCard()}<ol class="place-pool-preview-days">${days}</ol></div>
+    <div class="place-pool-cta place-pool-preview-actions planner-draft-actions">
+    <button class="place-pool-cta-button" type="button" data-pool-apply${busy || !planner.draft ? " disabled" : ""}${applying ? ' aria-busy="true"' : ""}>${applying ? "正在套用…" : "套用此行程"}</button>
+    <button class="secondary-button" type="button" data-pool-preview-regenerate${busy ? " disabled" : ""}>${loading ? "正在重新規劃…" : "重新規劃"}</button>
+    <button class="place-pool-preview-back" type="button" data-pool-preview-back${busy ? " disabled" : ""}>修改規劃條件</button></div></div></div>`;
 }
 
 // The full-viewport 行程規劃 workspace: a header, then a two-column layout on desktop (left:
@@ -9326,6 +9458,7 @@ function placePoolMarkup(rawPool) {
             ${placePoolSelectedColumnMarkup(pool)}
             <div class="place-pool-drawer-backdrop" data-pool-drawer-backdrop aria-hidden="true"></div>
             <section class="place-pool-candidates-column" aria-label="全部可規劃地點">
+              ${plannerErrorCard()}
               <div class="places-filter-bar place-pool-filters" role="group" aria-label="行程規劃篩選">
                 ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
                 ${field("kind", "地點類型", filters.kind, pool.kinds)}
@@ -9343,6 +9476,7 @@ function placePoolMarkup(rawPool) {
 }
 
 function setPlacePoolOpen(open) {
+  if (!open && (placePoolPlanner.status === "applying" || !confirmPlannerDiscard(() => setPlacePoolOpen(false)))) return;
   const session = placePoolScrollSessionState();
   // Capture the visible list's current position before it's hidden, so a same-session reopen can
   // restore it; a first-ever open leaves savedScrollTop at its 0 default.
@@ -10075,6 +10209,18 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("[data-pool-drawer-backdrop]")) return setPlacePoolDrawerOpen(false);
 
+  const draftTime = event.target.closest("[data-draft-time]");
+  if (draftTime) { const item = placePoolPlanner.draft?.days.flatMap(day => day.items).find(item => item.ref === draftTime.dataset.draftTime); if (item) return openTimeWheel(item.name, item.ref); }
+  if (event.target.closest("[data-pool-confirm-discard]")) {
+    const pending = pendingPlannerDiscard;
+    pendingPlannerDiscard = null;
+    closeSheet();
+    if (!pending || pending.sequence !== placePoolPlanner.sequence || pending.tripId !== state.tripId) return;
+    placePoolPlanner.discardApproved = true;
+    return pending.action();
+  }
+  if (event.target.closest("[data-pool-apply]")) return applyPlannerDraft();
+  if (event.target.closest("[data-dismiss-planner-error]")) { placePoolPlanner.error = null; render({ preserveScroll: true, filterOnly: true }); return; }
   if (event.target.closest("[data-pool-cta]")) return requestPlacePoolPlan();
   if (event.target.closest("[data-pool-preview-regenerate]")) return requestPlacePoolPlan({ regenerate: true });
   if (event.target.closest("[data-pool-preview-back]")) return closePlacePoolPreview();
@@ -10454,6 +10600,11 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-confirm-time]")) {
     if (!pendingTimePicker) return closeSheet();
     syncPendingTimeFromWheel();
+    if (pendingTimePicker.draftRef) {
+      const { draftRef, hour, minute } = pendingTimePicker;
+      closeSheet();
+      return editPlannerDraft(draftRef, "startTime", `${hour}:${minute}`);
+    }
     const { name, hour, minute } = pendingTimePicker;
     const item = (state.itinerary[state.selectedDate] || []).find((entry) => entry.name === name);
     if (!item) return showToast("找不到這個行程項目");
@@ -11708,3 +11859,31 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => stopLiveLocation());
 window.visualViewport?.addEventListener("resize", syncPlaceEditorViewport);
 window.visualViewport?.addEventListener("scroll", syncPlaceEditorViewport);
+
+// Pointer dragging starts only on the dedicated handle; card scrolling remains native.
+let plannerDraftDrag = null;
+document.addEventListener("change", event => {
+  const duration = event.target.closest("[data-draft-duration]");
+  const day = event.target.closest("[data-draft-day]");
+  if (duration) editPlannerDraft(duration.dataset.draftDuration, "durationMinutes", duration.value);
+  if (day) editPlannerDraft(day.dataset.draftDay, "dayKey", day.value);
+});
+document.addEventListener("pointerdown", event => {
+  const handle = event.target.closest("[data-draft-drag]");
+  if (!handle || handle.disabled || placePoolPlanner.status !== "preview") return;
+  plannerDraftDrag = { ref: handle.dataset.draftDrag, pointerId: event.pointerId, y: event.clientY, target: null };
+  handle.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+document.addEventListener("pointermove", event => {
+  if (!plannerDraftDrag || event.pointerId !== plannerDraftDrag.pointerId || Math.abs(event.clientY - plannerDraftDrag.y) < 8) return;
+  const row = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-draft-ref]");
+  plannerDraftDrag.target = row?.dataset.draftRef || null;
+});
+document.addEventListener("pointerup", event => {
+  if (!plannerDraftDrag || event.pointerId !== plannerDraftDrag.pointerId) return;
+  const drag = plannerDraftDrag;
+  plannerDraftDrag = null;
+  if (drag.target) reorderPlannerDraft(drag.ref, drag.target);
+});
+document.addEventListener("pointercancel", () => { plannerDraftDrag = null; });

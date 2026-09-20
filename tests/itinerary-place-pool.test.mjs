@@ -531,10 +531,10 @@ test('no AI, network or API surface is added by the Place Pool', async () => {
   for (const code of [pool, dragCode]) {
     assert.doesNotMatch(code, /openai|anthropic|gemini|fetch\(|\/api\/|localStorage|sessionStorage|expectedRevision/i);
   }
-  assert.equal(planner.match(/fetch\(/g).length, 1);
+  assert.equal(planner.match(/fetch\(/g).length, 3); // plan, explicit Apply, revision-bound Undo
   assert.match(planner, /fetch\(`\/api\/trip\?id=\$\{encodeURIComponent\(snapshot\.tripId\)\}`, \{\s*method: "POST",/);
   assert.match(planner, /action: "plan",/);
-  assert.doesNotMatch(planner, /openai|anthropic|gemini|"PUT"|persist\(|saveSharedTrip|localStorage|sessionStorage|state\.itinerary/i);
+  assert.doesNotMatch(planner, /openai|anthropic|gemini|persist\(|saveSharedTrip|localStorage|sessionStorage|state\.itinerary/i);
   const apiFiles = readdirSync(new URL('../api/', import.meta.url)).filter((name) => name.endsWith('.mjs'));
   assert.equal(apiFiles.length, 12);
 });

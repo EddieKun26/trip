@@ -1,6 +1,7 @@
 import areaTags from "../lib/area-tags.js";
 import PlanningGeography from "../lib/planning-geography.js";
 import areaAudit from "../lib/travel-area-audit.js";
+import { enrichApplyPreview, reconstructPlan } from "../lib/ai-trip-planner-apply.mjs";
 import {
   PlannerError,
   buildPlannerContext,
@@ -298,7 +299,9 @@ async function planTrip(request, response, trip, member) {
     const context = buildPlannerContext({ trip, places, selected: body.selected });
     const feasibility = checkPlannerFeasibility(context);
     if (!feasibility.feasible) {
-      return finish("preflight_rejected", 422, { error: "PLANNER_CONSTRAINTS_INFEASIBLE", reason: feasibility.reason, placeKeys: feasibility.placeKeys }, { reason: feasibility.reason });
+      const details = feasibility.reason === "OPENING_HOURS_CONFLICT" ? context.candidates.filter(c => feasibility.placeKeys.includes(c.key)).flatMap(c =>
+        c.dateOptions.map(option => ({ name: c.name, dayKey: option.dayKey, startTime: option.exactTime || "", openingWindows: (c.openingWindows?.[option.dayKey] || []).map(w => `${String(Math.floor(w.startMinute / 60)).padStart(2, "0")}:${String(w.startMinute % 60).padStart(2, "0")}–${String(Math.floor(w.endMinute / 60)).padStart(2, "0")}:${String(w.endMinute % 60).padStart(2, "0")}`) }))) : [];
+      return finish("preflight_rejected", 422, { error: "PLANNER_CONSTRAINTS_INFEASIBLE", reason: feasibility.reason, placeKeys: feasibility.placeKeys, ...(details.length ? { details } : {}) }, { reason: feasibility.reason });
     }
     if (!(await enforceDailyPlannerLimit(member.id, dailyLimit))) return finish("quota_exhausted", 429, { error: "DAILY_PLANNER_LIMIT" });
     const result = await runPlanner(context, ({ repair }) => {
@@ -311,7 +314,7 @@ async function planTrip(request, response, trip, member) {
       return finish("invalid_output", 422, { error: "PLANNER_INVALID_OUTPUT" }, { ...attempts, refused: Boolean(result.refused), codes: result.attempts.map(attempt => attempt.errors.map(entry => entry.code)) });
     }
     return finish("success", 200, {
-      preview: buildPlannerPreview(context, result.validation),
+      preview: enrichApplyPreview(buildPlannerPreview(context, result.validation), trip),
       planning: { modelCalls: result.attempts.length, repaired: result.attempts.length > 1 },
     }, attempts);
   } catch (error) {
@@ -328,7 +331,10 @@ async function planTrip(request, response, trip, member) {
 export default async function tripHandler(request, response) {
   try {
     const tripId = requestedTripId(request);
-    const trip = await readTrip(tripId);
+    // Apply must never trigger legacy migration writes on a rejected request.
+    const applying = request.method === "POST" && request.body?.action === "applyPlan";
+    const atomicUndo = request.method === "PUT" && request.body?.requireAtomic === true;
+    const trip = applying || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
     if (!trip) return sendJson(response, 404, { error: "TRIP_NOT_FOUND" });
     const member = await authenticatedMember(request);
     const isMember = Boolean(member?.id && trip.members?.[member.id]);
@@ -343,8 +349,28 @@ export default async function tripHandler(request, response) {
       return sendJson(response, 200, { ...trip, places: (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog)) });
     }
 
+    if (applying) {
+      if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
+      try {
+        const candidate = reconstructPlan(trip, request.body);
+        // A narrowed race window is insufficient here. Never fall back to GET + SET.
+        if (!(await supportsScripting())) return sendJson(response, 503, { error: "ATOMIC_WRITE_UNAVAILABLE" });
+        const updated = { ...candidate, revision: (Number(trip.revision) || 0) + 1, updatedAt: new Date().toISOString(), updatedBy: member.id };
+        const result = await conditionalSetTrip(`${TRIP_PREFIX}${tripId}`, JSON.stringify(updated), request.body.expectedRevision);
+        if (result.conflict) return sendJson(response, 409, { error: "TRIP_STALE", revision: result.revision });
+        if (!result.ok) return sendJson(response, 409, { error: result.reason });
+        return sendJson(response, 200, updated);
+      } catch (error) {
+        if (!(error instanceof PlannerError)) throw error;
+        return sendJson(response, error.status, { error: error.code, detail: error.detail });
+      }
+    }
+
     if (request.method === "PUT") {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
+      if (request.body?.requireAtomic && (!Number.isInteger(request.body.expectedRevision) || !(await supportsScripting()))) {
+        return sendJson(response, 503, { error: "ATOMIC_WRITE_UNAVAILABLE" });
+      }
       // `expectedRevision` is a request precondition only; it is never stored on the Trip.
       // Omitting it keeps the existing last-write-wins behaviour for ordinary saves.
       const expectedRevision = Number(request.body?.expectedRevision);

@@ -8222,3 +8222,19 @@ body.place-pool-dragging [data-pool-drop-date].is-pool-drop-target { outline: 3p
 .place-pool-constraint-time-wheel { height: 150px; }
 .place-pool-constraint-time-wheel .time-wheel-column { height: 150px; padding-block: 53px; }
 .place-pool-constraint-time-wheel .time-wheel-selection { top: 53px; }
+/* Planner draft: persistent readable errors and handle-only touch dragging. */
+.planner-error-card { padding: 18px; margin: 12px 0; border: 1px solid var(--accent); border-radius: 14px; background: #fff5f1; color: #602f25; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; min-width: 0; }
+.planner-error-card > strong { display: block; font-size: 19px; }
+.planner-error-card p { margin: 8px 0; }
+.place-pool-preview-item.planner-draft-item { grid-template-columns: minmax(0, 1fr) 44px; align-items: center; min-width: 0; }
+.planner-draft-item .place-pool-preview-copy { display: block; min-width: 0; }
+.planner-draft-item .place-pool-preview-copy > strong { display: block; margin-bottom: 6px; }
+.planner-draft-item .time-button { width: 100%; min-width: 0; min-height: 44px; font-size: 17px; padding: 10px 4px; }
+.planner-draft-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.planner-draft-fields label { display: grid; gap: 6px; font-size: 14px; min-width: 0; }
+.planner-draft-fields input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; font-size: 16px; }
+.planner-draft-date { grid-column: 1 / -1; }
+.planner-draft-date select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+.planner-draft-handle { touch-action: none; flex: 0 0 44px; min-height: 44px; }
+.planner-draft-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.planner-draft-actions > :first-child { grid-column: 1 / -1; }

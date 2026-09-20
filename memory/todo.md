@@ -86,3 +86,17 @@
 - [x] Engineering gate + real Luna High eval passed (see project_state.md): structured `regularOpeningPeriods` v1, lazy one-time Detail backfill, HARD validator + conservative preflight, no migration, no plan-time Google call.
 - [ ] User: single iPhone production smoke. Open an older Google Place Detail (the display hours still show; this open may backfill structured hours once), then close and reopen it (should look normal). In the AI Planner, set an exact time clearly outside a known-hours Place's opening hours and confirm the opening-hours conflict copy (not "已排滿") appears before any model call. Adjust to a sensible time, confirm a Preview is produced, and confirm nothing is written to the itinerary.
 - [ ] Future (not scheduled): holiday/special hours (`currentOpeningHours`, special days, temporary closure, `businessStatus`); a freshness/refresh policy for `fetchedAt`; optional hours display or unknown/closed hints in the Preview; hours warnings for existing locked itinerary items.
+
+## Phase 2B — Interactive Planner Draft + Apply (2026-09-20)
+
+Engineering implementation passed 892/892 tests (0 failures/skips); see documentation/planner-draft-apply-gate.md. Baseline 9461321360146a776792078e2279fdf8e10c7ff6; release branch feat/planner-draft-apply.
+
+Preview becomes an in-memory editable Draft. AI cannot rewrite existing itinerary; humans can edit normal existing items. Flights retain canonical fixed day/time/duration rules, while same-day ordering remains permitted by the normal editor. Drag uses canonical array order; explicit day selection appends without changing time. Time uses the existing wheel; durations remain absent unless explicitly set. No Draft localStorage/IndexedDB/server storage. Footer: 套用此行程 / 重新規劃 / 修改規劃條件. Dirty discard requires confirmation; Replan uses original request snapshot.
+
+POST action=applyPlan reloads canonical Trip, checks revision, resolves canonical Saved Place keys and revision/day/index existing refs, reconstructs metadata server-side, validates deterministic legality and uses one atomic Redis CAS write with one revision increment. No scripting means fail closed, no GET+SET fallback. Rejected Apply writes zero. Existing one-level memory Undo restores the entire Apply through revision-bound atomic PUT; stale Undo fails closed. Undo is session-only and expires on reload, consistent with existing history.
+
+Known structured opening hours are revalidated; unknown hours do not block. Persistent readable Planner error cards preserve correctable Drafts. Human edits override original AI preferred/exact/date constraints; generation's five-place limit is not a manual itinerary limit. Plan remains no-write; Apply calls neither OpenAI nor Google. Model generation contract unchanged; no real Luna reevaluation, migration or new history store.
+
+Workflow: Agent does not operate local or production App UI. User owns all UI/UX/manual interaction smoke. Engineering validation is code/test/static/API based; one production user smoke occurs after READY. Earlier browser observations are historical only, not the final engineering gate. USER_UI_SMOKE_REQUIRED=YES.
+
+NEXT: Phase 2C — Discovery / Tourist Recommendations. NOT IMPLEMENTED in Phase 2B. Future unsaved recommendations must be marked and explicitly accepted/skipped; recommendations must not silently write Saved Places or itinerary.
