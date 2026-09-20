@@ -532,21 +532,23 @@ async function searchPlace({ apiKey, textQuery, requestUrl, globalSearch = false
   };
 }
 
-async function exactPlaceDetails({ apiKey, placeId, requestUrl }) {
+export async function exactPlaceDetails({ apiKey, placeId, requestUrl, hoursOnly = false }) {
   if (!/^[A-Za-z0-9_-]{1,180}$/.test(placeId) || /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)) {
     return { requestUrl, error: "DETAIL_IDENTITY_REQUIRED" };
   }
   const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
   url.searchParams.set("languageCode", "zh-TW");
   const response = await fetch(url, {
+    ...(hoursOnly ? { signal: AbortSignal.timeout(15000) } : {}),
     headers: {
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,primaryTypeDisplayName,primaryType,types,location,googleMapsUri,regularOpeningHours,nationalPhoneNumber,photos",
+      "X-Goog-FieldMask": hoursOnly ? "id,regularOpeningHours" : "id,displayName,formattedAddress,addressComponents,primaryTypeDisplayName,primaryType,types,location,googleMapsUri,regularOpeningHours,nationalPhoneNumber,photos",
     },
   });
   if (!response.ok) return { requestUrl, error: `PLACE_DETAILS_${response.status}` };
   const place = await response.json();
   if (place.id !== placeId) return { requestUrl, error: "PLACE_IDENTITY_MISMATCH" };
+  if (hoursOnly) return { placeId, regularOpeningPeriods: openingPeriodsRecord(place.regularOpeningHours, { placeId, authoritative: true }) };
   const localDetails = await placeAreaDetails(apiKey, placeId, localLanguageForCountry(pickCountryCode(place.addressComponents)));
   if (localDetails.id && localDetails.id !== placeId) return { requestUrl, error: "PLACE_IDENTITY_MISMATCH" };
   return {

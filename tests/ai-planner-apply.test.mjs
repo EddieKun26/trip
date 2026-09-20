@@ -5,6 +5,7 @@ import handler from '../api/trip.mjs';
 import { plannerTrip, key } from './fixtures/ai-planner-fixtures.mjs';
 import { plannerTripDays } from '../lib/ai-trip-planner.mjs';
 import { existingRef } from '../lib/ai-trip-planner-apply.mjs';
+import { openingHoursKey } from '../lib/opening-hours-sidecar.mjs';
 
 process.env.KV_REST_API_URL = 'https://apply-redis.invalid';
 process.env.KV_REST_API_TOKEN = 'fixture';
@@ -15,6 +16,7 @@ globalThis.fetch = async (url, options) => {
   const c = JSON.parse(options.body);
   let result;
   if (c[0] === 'GET') result = store.get(c[1]) ?? null;
+  else if (c[0] === 'MGET') result = c.slice(1).map(key => store.get(key) ?? null);
   else if (c[0] === 'EVAL' && c[1] === 'return 1') result = 1;
   else if (c[0] === 'EVAL') {
     beforeCas?.(); beforeCas = null;
@@ -90,6 +92,23 @@ test('known hours reject forged metadata with readable canonical details and zer
   const result = await call(body); assert.equal(result.body.error, 'OPENING_HOURS_CONFLICT');
   assert.equal(result.body.detail.name, place.name); assert.deepEqual(result.body.detail.openingWindows, ['12:00-18:00']);
   assert.equal(writes, 0); assert.equal(store.get(tripKey), before);
+});
+
+test('Apply reads sidecar hours without Google/OpenAI, rejects closed time, and never embeds sidecar on write', async () => {
+  const { trip, body } = fixture();
+  const place = trip.places.find(p => p.id === 'fixture-ueno-park');
+  store.set(openingHoursKey(place.placeId), JSON.stringify({ v: 1, status: 'known', placeId: place.placeId,
+    periods: [{ open: { day: 0, hour: 12, minute: 0 }, close: { day: 0, hour: 18, minute: 0 } }], fetchedAt: '2026-09-20T00:00:00.000Z' }));
+  const before = store.get(tripKey);
+  const rejected = await call(body);
+  assert.equal(rejected.body.error, 'OPENING_HOURS_CONFLICT');
+  assert.equal(store.get(tripKey), before);
+  assert.equal(writes, 0); assert.equal(external, 0);
+  body.days[0].items[1].startTime = '12:00';
+  const accepted = await call(body);
+  assert.equal(accepted.code, 200);
+  assert.deepEqual(accepted.body.places, trip.places, 'Apply keeps original embedded Places');
+  assert.equal(external, 0);
 });
 
 for (const mutation of ['time', 'duration', 'day']) test(`protected flight ${mutation} mutation rejects without writing`, async () => {

@@ -1,5 +1,14 @@
 # Decisions
 
+## Phase 2A.6 — Planner Opening Hours Coverage (2026-09-20)
+
+- Saved Places remain embedded in Trip. New exact structured-hours enrichment is stored separately in the existing Redis database under a versioned SHA-256 key for the Google placeId. The value contains only the `regularOpeningPeriods` v1 record; no Trip ID, selection, notes, itinerary, photos or other Place fields enter the sidecar. No migration or batch backfill.
+- `resolveStructuredOpeningPeriods` is the shared deterministic authority: valid matching sidecar known/unavailable takes precedence, valid matching legacy embedded known/unavailable is the fallback, and malformed/foreign identity is unknown. `openingHours` display text is never parsed. `fetchedAt` is informational; no TTL, refresh scheduler or timezone subsystem.
+- Selecting an eligible Google Place triggers a narrow authenticated exact Place Details hours request if no authoritative record exists. Detail-open hours-only backfill shares this path. Requests share a per-session in-flight promise by trip/placeId and use at most three concurrent requests. Successful usable periods write known; a successful exact response without usable periods writes unavailable. Network, timeout, quota, server and sidecar-write failures never write unavailable or fall back to Trip persistence.
+- Server Plan and Apply batch-read sidecar metadata and overlay it on canonical Places for deterministic validation. A sidecar read failure falls back to valid embedded metadata, then unknown. Plan still calls Google zero times and writes Trip zero times. Apply calls Google and OpenAI zero times; after validation it writes the original Places array, preserving Phase 2B's one atomic itinerary write/revision increment.
+- Client state receives only the server-returned record and keeps the prior embedded value for ordinary Trip saves. Planner waits for active selected-candidate hydration to settle; a transient failure leaves hours unknown and lets planning proceed with a concise warning. Selection itself writes no Trip, changes no revision, and creates no Undo entry. User owns all App/browser UI smoke; the Agent performs no UI interaction.
+- Weekly regular hours do not guarantee holiday, temporary or seasonal exceptions. Phase 2C Discovery / Tourist Recommendations remains NOT IMPLEMENTED.
+
 ## Identity and sharing
 
 - Identity is nickname plus four-digit PIN, not email/OAuth.

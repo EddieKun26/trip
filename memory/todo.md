@@ -1,5 +1,11 @@
 # Todo
 
+## Phase 2A.6 — Planner Opening Hours Coverage (2026-09-20)
+
+- [x] Narrow Redis sidecar, legacy embedded fallback, authenticated selected-Place exact hydration, Detail hours-only compatibility, client request deduplication/concurrency cap, Planner waiting, Plan/Apply read overlay and non-GUI engineering regression.
+- [ ] User iPhone production smoke after READY: without opening Detail, select an old Google Place previously missed by Planner; after 確認營業時間 settles, an exact time clearly outside regular hours must show 營業時間不符合 before Preview, then an inside time should produce Preview/Draft.
+- [ ] Phase 2C — Discovery / Tourist Recommendations. NOT IMPLEMENTED.
+
 ## Completed
 
 - [x] Travel Area v5 was deployed to production and the full 31-place `東京 7 日` production smoke test passed on 2026-09-04. The feature is complete; no deployment, migration, or formal acceptance remains pending.

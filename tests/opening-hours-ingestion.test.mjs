@@ -97,12 +97,14 @@ test("regularOpeningPeriods survives Trip PUT → GET unchanged, alongside the d
 });
 
 const RECORD = (placeId, status = "known") => ({ v: 1, status, placeId, periods: status === "known" ? PERIODS : [], fetchedAt: "2026-09-18T00:00:00.000Z" });
-const detailRequests = (b) => b.requests.filter((request) => request.url === "/api/places");
+const detailRequests = (b) => b.requests.filter((request) => request.url === "/api/places"
+  || (request.url.startsWith('/api/trip?') && JSON.parse(request.options.body || '{}').action === 'hydrateOpeningHours'));
 async function openDetails(b, resolved) {
   const before = detailRequests(b).length;
   const pending = b.run("ensurePlaceDetails(state.places[0])");
   const request = detailRequests(b)[before];
-  if (request) await b.reply(request, { places: [resolved] });
+  if (request) await b.reply(request, request.url === '/api/places' ? { places: [resolved] }
+    : resolved?.error ? { error: resolved.error } : { status: resolved.regularOpeningPeriods?.status, regularOpeningPeriods: resolved.regularOpeningPeriods }, resolved?.error ? 502 : 200);
   await pending;
   return detailRequests(b).length - before;
 }
@@ -123,10 +125,10 @@ test("legacy Place (photos already loaded, no structured hours): first Detail op
   const resolved = { placeId: "google-shinjuku", name: "Google 新名稱", fullName: "x", openingHours: "新字串", phone: "新電話", photos: [], regularOpeningPeriods: RECORD("google-shinjuku") };
   assert.equal(await openDetails(b, resolved), 1);
   const after = json(b.state.places[0]);
-  assert.deepEqual(after.regularOpeningPeriods, RECORD("google-shinjuku"));
+  assert.deepEqual(json(b.state.places[0].regularOpeningPeriods), RECORD("google-shinjuku"));
   // Hours-only backfill touches nothing else (display string, names, phone, area stay as stored).
   assert.deepEqual({ ...after, regularOpeningPeriods: undefined, detailsLoading: undefined }, { ...before, regularOpeningPeriods: undefined, detailsLoading: undefined });
-  assert.equal(persisted(), 1);
+  assert.equal(persisted(), 0, 'hours-only Detail backfill uses the sidecar, not a Trip save');
   assert.equal(await openDetails(b, resolved), 0, "second open: no structured-hours refetch");
   // Also through the real Detail sheet open path.
   b.run("openPlaceSheet(placeDetailKey(state.places[0]))");
@@ -142,17 +144,17 @@ test("completed fetch state (known or unavailable) bound to the same placeId is 
   }
 });
 
-test("unavailable result is stored and ends retries; a failed backfill is not retried again within the session", async () => {
+test("unavailable result ends retries; a transient Detail backfill remains retry-eligible", async () => {
   const b = await boot(trip([place("shinjuku", { photosLoaded: true })]));
   assert.equal(await openDetails(b, { placeId: "google-shinjuku", regularOpeningPeriods: RECORD("google-shinjuku", "unavailable") }), 1);
-  assert.equal(json(b.state.places[0].regularOpeningPeriods).status, "unavailable");
+  assert.equal(b.state.places[0].regularOpeningPeriods.status, "unavailable");
   assert.equal(await openDetails(b, {}), 0);
   const failing = await boot(trip([place("shinjuku", { photosLoaded: true })]));
   const persisted = trackPersist(failing);
   assert.equal(await openDetails(failing, { error: "PLACE_DETAILS_500" }), 1);
   assert.equal("regularOpeningPeriods" in failing.state.places[0], false);
   assert.equal(persisted(), 0);
-  assert.equal(await openDetails(failing, {}), 0, "no loop / no repeated Google call in the same session");
+  assert.equal(await openDetails(failing, { error: "PLACE_DETAILS_500" }), 1, "a later user action may retry a transient failure");
 });
 
 test("a Place still needing photos gets photos and structured hours from one request", async () => {

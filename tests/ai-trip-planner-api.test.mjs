@@ -161,7 +161,7 @@ test("valid plan: one model call, canonical Preview, quota consumed once, and ze
   assert.equal(store.get(quotaKey()), "1");
   assert.equal(store.get(TRIP_KEY), before);
   assert.deepEqual(JSON.parse(store.get(TRIP_KEY)), trip);
-  assert.ok(redisCommands.every((command) => ["GET", "INCR", "EXPIRE"].includes(command)), redisCommands.join(","));
+  assert.ok(redisCommands.every((command) => ["GET", "MGET", "INCR", "EXPIRE"].includes(command)), redisCommands.join(","));
   const { preview, planning } = response.payload;
   assert.deepEqual(planning, { modelCalls: 1, repaired: false });
   assert.equal(preview.revision, 7);

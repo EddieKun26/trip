@@ -1476,7 +1476,15 @@ function sharedTripPayload() {
     startDate: state.startDate,
     endDate: state.endDate,
     flights: state.flights,
-    places: state.places,
+    // Sidecar hours are visible in this session but never copied into the Trip on a normal edit.
+    places: state.places.map((place) => {
+      if (!transientOpeningHours.has(place)) return place;
+      const copy = { ...place };
+      const embedded = transientOpeningHours.get(place);
+      if (embedded === undefined) delete copy.regularOpeningPeriods;
+      else copy.regularOpeningPeriods = embedded;
+      return copy;
+    }),
     votes: state.votes,
     itinerary: state.itinerary,
     transports: state.transports,
@@ -5846,12 +5854,95 @@ function openPlaceSheet(name, { refreshDetails = true } = {}) {
 // known/unavailable record bound to this placeId means the fetch already completed.
 function structuredHoursFetched(place, placeId = detailGooglePlaceId(place)) {
   const record = place?.regularOpeningPeriods;
-  return Boolean(record && typeof record === "object" && record.v === 1
-    && (record.status === "known" || record.status === "unavailable") && placeId && record.placeId === placeId);
+  const plain = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  if (!plain(record) || record.v !== 1 || !placeId || record.placeId !== placeId) return false;
+  if (record.status === "unavailable") return Array.isArray(record.periods) && record.periods.length === 0;
+  if (record.status !== "known" || !Array.isArray(record.periods) || !record.periods.length || record.periods.length > 28) return false;
+  const point = (value) => plain(value) && Number.isInteger(value.day) && value.day >= 0 && value.day <= 6
+    && Number.isInteger(value.hour) && value.hour >= 0 && value.hour <= 23
+    && Number.isInteger(value.minute) && value.minute >= 0 && value.minute <= 59;
+  return record.periods.every((period) => plain(period) && point(period.open) && (point(period.close)
+    ? period.open.day !== period.close.day || period.open.hour !== period.close.hour || period.open.minute !== period.close.minute
+    : period?.close == null && record.periods.length === 1 && period.open.day === 0 && period.open.hour === 0 && period.open.minute === 0));
 }
 
 // At most one hours-only backfill attempt per Google identity per page session.
 const structuredHoursAttempts = new Set();
+// A server response is the only source of newly trusted client metadata. Keep its prior
+// embedded value for any later ordinary Trip save; the sidecar is the persistence owner.
+const transientOpeningHours = new WeakMap();
+const sessionOpeningHours = new Map();
+const plannerHoursRequests = new Map();
+const plannerHoursQueue = [];
+const plannerHoursFailures = new Set();
+let plannerHoursActive = 0;
+const PLANNER_HOURS_CONCURRENCY = 3;
+
+function acceptOpeningHours(placeId, record, tripId) {
+  if (state.tripId !== tripId || record?.placeId !== placeId || !["known", "unavailable"].includes(record.status)) return false;
+  sessionOpeningHours.set(placeId, record);
+  plannerHoursFailures.delete(placeId);
+  for (const place of state.places) {
+    if (String(place.placeId || "").trim() !== placeId) continue;
+    if (!transientOpeningHours.has(place)) transientOpeningHours.set(place, place.regularOpeningPeriods);
+    Object.defineProperty(place, "regularOpeningPeriods", { value: record, configurable: true, writable: true, enumerable: false });
+  }
+  return true;
+}
+
+function pumpPlannerHoursQueue() {
+  while (plannerHoursActive < PLANNER_HOURS_CONCURRENCY && plannerHoursQueue.length) {
+    const task = plannerHoursQueue.shift();
+    plannerHoursActive += 1;
+    (async () => {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 20000);
+      try {
+        const response = await fetch(`/api/trip?id=${encodeURIComponent(task.tripId)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+          signal: controller.signal,
+          body: JSON.stringify({ action: "hydrateOpeningHours", ref: task.ref }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !acceptOpeningHours(task.placeId, payload.regularOpeningPeriods, task.tripId)) {
+          if (state.tripId === task.tripId) plannerHoursFailures.add(task.placeId);
+        }
+      } catch {
+        if (state.tripId === task.tripId) plannerHoursFailures.add(task.placeId);
+      } finally {
+        window.clearTimeout(timer);
+        plannerHoursActive -= 1;
+        plannerHoursRequests.delete(`${task.tripId}:${task.placeId}`);
+        task.resolve();
+        pumpPlannerHoursQueue();
+        if (state.tripId === task.tripId && state.placePool.open) render({ preserveScroll: true, filterOnly: true });
+      }
+    })();
+  }
+}
+
+function hydratePlannerPlaceHours(entry) {
+  const placeId = String(entry?.place?.placeId || "").trim();
+  if (!placeId || isAddressDetailPlace(entry.place)) return Promise.resolve();
+  const tripId = state.tripId;
+  if (structuredHoursFetched(entry.place, placeId)) return Promise.resolve();
+  const cached = sessionOpeningHours.get(placeId);
+  if (cached) { acceptOpeningHours(placeId, cached, tripId); return Promise.resolve(); }
+  const requestKey = `${tripId}:${placeId}`;
+  if (plannerHoursRequests.has(requestKey)) return plannerHoursRequests.get(requestKey);
+  const promise = new Promise((resolve) => plannerHoursQueue.push({ placeId, ref: entry.key, tripId, resolve }));
+  plannerHoursRequests.set(requestKey, promise);
+  pumpPlannerHoursQueue();
+  return promise;
+}
+
+function selectedPlannerHoursPending() {
+  return placePoolSelectedEntries().some((entry) => plannerHoursRequests.has(`${state.tripId}:${String(entry.place.placeId || "").trim()}`));
+}
+
+function selectedPlannerHoursFailed() {
+  return placePoolSelectedEntries().some((entry) => plannerHoursFailures.has(String(entry.place.placeId || "").trim()));
+}
 
 async function ensurePlaceDetails(place) {
   if (!place || place.detailsLocked || place.detailsLoading) return;
@@ -5862,7 +5953,9 @@ async function ensurePlaceDetails(place) {
   const needsPhotos = !place.photosLoaded;
   const needsHours = !structuredHoursFetched(place, placeId) && !structuredHoursAttempts.has(placeId);
   if (!needsPhotos && !needsHours) return;
-  if (!needsPhotos) structuredHoursAttempts.add(placeId);
+  // The hours-only Detail path and Planner selection share one server-authoritative request.
+  // This reads/writes only the hours sidecar and leaves the Trip revision untouched.
+  if (!needsPhotos) return hydratePlannerPlaceHours({ key: placeDetailKey(place), place });
   const detailKey = placeDetailKey(place);
   const tripId = state.tripId;
   place.detailsLoading = true;
@@ -5887,7 +5980,7 @@ async function ensurePlaceDetails(place) {
       persist({ recordUndo: false });
       return;
     }
-    if (hoursRecord) place.regularOpeningPeriods = hoursRecord;
+    if (needsHours && hoursRecord) place.regularOpeningPeriods = hoursRecord;
     Object.assign(place, {
       placeId: resolved.placeId || place.placeId,
       fullName: resolved.name || place.fullName,
@@ -8970,6 +9063,11 @@ function placePoolPlannerErrorMessage(result, snapshot) {
 async function requestPlacePoolPlan({ regenerate = false } = {}) {
   const planner = placePoolPlannerState();
   if (["loading", "applying"].includes(planner.status)) return;
+  const planningTripId = state.tripId;
+  while (!regenerate && selectedPlannerHoursPending()) {
+    await Promise.allSettled(placePoolSelectedEntries().map((entry) => plannerHoursRequests.get(`${state.tripId}:${String(entry.place.placeId || "").trim()}`)).filter(Boolean));
+    if (state.tripId !== planningTripId || !state.placePool.open) return;
+  }
   if (regenerate && !confirmPlannerDiscard(() => requestPlacePoolPlan({ regenerate: true }))) return;
   if (!canEdit()) return guestOnlyMessage();
   if (regenerate && !planner.snapshot) return;
@@ -9241,7 +9339,12 @@ function togglePlacePoolSelection(key) {
   // Unselecting drops the constraint outright: a Place must never carry a hidden date/time
   // restriction once it stops being a hard commitment. Re-selecting later always starts with an
   // empty dateOptions list again.
-  if (keys.has(key)) { keys.delete(key); clearPlacePoolConstraint(key); } else keys.add(key);
+  if (keys.has(key)) { keys.delete(key); clearPlacePoolConstraint(key); }
+  else {
+    keys.add(key);
+    const entry = getUnscheduledPlaces().entries.find((item) => item.key === key);
+    if (entry && normalizedPlaceKind(entry.place) !== "lodging") void hydratePlannerPlaceHours(entry);
+  }
   return render({ preserveScroll: true, filterOnly: true });
 }
 
@@ -9384,10 +9487,11 @@ function placePoolMobileHandleMarkup(count) {
 function placePoolCtaMarkup(pool) {
   const count = pool.selectedEntries.length;
   const loading = placePoolPlannerState().status === "loading";
+  const checkingHours = selectedPlannerHoursPending();
   const available = count > 0 || placePoolPlannerCandidateCount(pool) > 0;
-  const label = loading ? "正在規劃行程…" : count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
-  const hint = loading ? "AI 正在安排，可能需要一點時間" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
-  const enabled = available && !loading;
+  const label = loading ? "正在規劃行程…" : checkingHours ? "正在確認營業時間…" : count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
+  const hint = checkingHours ? "正在讀取已選地點的營業時間" : selectedPlannerHoursFailed() ? "部分地點的營業時間暫時無法確認，規劃時不會將其營業時間作為硬性限制。" : loading ? "AI 正在安排，可能需要一點時間" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
+  const enabled = available && !loading && !checkingHours;
   return `
           <div class="place-pool-cta">
             <button class="place-pool-cta-button" type="button" data-pool-cta${enabled ? "" : ' disabled aria-disabled="true"'}${loading ? ' aria-busy="true"' : ""}>${label}</button>

@@ -19,7 +19,12 @@ const returnFlights = [
 ];
 
 async function itinerary(extra = {}, placeList = places()) {
-  const b = await boot({ ...trip(placeList), ...extra });
+  // Place Pool interaction tests use authoritative unknown hours; selection hydration is
+  // exercised separately so these assertions remain about transient selection state.
+  const readyPlaces = placeList.map(item => ({ ...item, regularOpeningPeriods: item.regularOpeningPeriods || {
+    v: 1, status: 'unavailable', placeId: item.placeId, periods: [], fetchedAt: '2026-09-20T00:00:00.000Z',
+  } }));
+  const b = await boot({ ...trip(readyPlaces), ...extra });
   b.state.selectedDate = '9/20';
   await b.run('setTab("itinerary")');
   return b;

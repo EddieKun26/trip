@@ -30,6 +30,7 @@ function frontend(places, resolved) {
     isGoogleMapsUrl: (url) => /^https:\/\/(?:maps\.google\.com|www\.google\.com)\//.test(url || ""),
     URL, CSS: { escape: (s) => s }, document: { querySelector: () => null },
     fetch: async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { ok: true, json: async () => ({ places: [resolved] }) }; },
+    hydratePlannerPlaceHours: async () => {},
     normalizedPlaceKind: () => "lodging", applyPlanningRegionResolution: () => {},
     persist: (options) => saves.push(options), sheetRoot: { innerHTML: "" },
     escapeHtml: (s) => String(s || ""), placeReferenceMeta: () => null,

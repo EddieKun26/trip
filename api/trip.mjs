@@ -17,6 +17,10 @@ let areaCatalog = null;
 try { areaCatalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8")); }
 catch { /* Geometry is optional; address/evidence conversion and trip access still work. */ }
 import { createHash, randomBytes } from "node:crypto";
+import { exactPlaceDetails } from "./places.mjs";
+import { placeDetailKey } from "../lib/ai-trip-planner.mjs";
+import { resolveStructuredOpeningPeriods } from "../lib/opening-hours.mjs";
+import { overlayOpeningHours, readOpeningHoursSidecars, writeOpeningHoursSidecar } from "../lib/opening-hours-sidecar.mjs";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
 /* The AI Planner action makes up to PLANNER_MAX_MODEL_CALLS model calls, so this route declares its
@@ -333,11 +337,37 @@ export default async function tripHandler(request, response) {
     const tripId = requestedTripId(request);
     // Apply must never trigger legacy migration writes on a rejected request.
     const applying = request.method === "POST" && request.body?.action === "applyPlan";
+    const hydrating = request.method === "POST" && request.body?.action === "hydrateOpeningHours";
     const atomicUndo = request.method === "PUT" && request.body?.requireAtomic === true;
-    const trip = applying || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
+    const trip = applying || hydrating || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
     if (!trip) return sendJson(response, 404, { error: "TRIP_NOT_FOUND" });
     const member = await authenticatedMember(request);
     const isMember = Boolean(member?.id && trip.members?.[member.id]);
+
+    if (request.method === "POST" && request.body?.action === "hydrateOpeningHours") {
+      if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
+      const ref = String(request.body?.ref || "");
+      const matches = (trip.places || []).filter(place => placeDetailKey(place) === ref);
+      if (matches.length !== 1) return sendJson(response, 422, { error: "INVALID_PLANNER_PLACE_REF" });
+      const place = matches[0];
+      const placeId = String(place.placeId || "").trim();
+      if (!/^[A-Za-z0-9_-]{1,180}$/.test(placeId) || /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)
+        || place.manualLocation || place.coordinateLocation || place.detailsLocked) return sendJson(response, 200, { status: "unknown" });
+      const sidecars = await readOpeningHoursSidecars([place], redisCommand);
+      const effective = resolveStructuredOpeningPeriods(place, sidecars.get(placeId));
+      if (effective) return sendJson(response, 200, { status: effective.status, regularOpeningPeriods: effective });
+      const apiKey = String(process.env.GOOGLE_MAPS_API_KEY || "");
+      if (!apiKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
+      const resolved = await exactPlaceDetails({ apiKey, placeId, requestUrl: "", hoursOnly: true });
+      if (resolved.error || !resolved.regularOpeningPeriods) return sendJson(response, 502, { error: resolved.error || "PLACE_DETAILS_INVALID" });
+      try {
+        const record = await writeOpeningHoursSidecar(resolved.regularOpeningPeriods, redisCommand);
+        return sendJson(response, 200, { status: record.status, regularOpeningPeriods: record });
+      } catch {
+        // Never write the Trip as a fallback for failed metadata persistence.
+        return sendJson(response, 503, { error: "OPENING_HOURS_STORE_UNAVAILABLE" });
+      }
+    }
 
     if (request.method === "GET") {
       if (!isMember && !trip.publicRead) return sendJson(response, member ? 403 : 401, { error: "TRIP_ACCESS_REQUIRED" });
@@ -352,7 +382,10 @@ export default async function tripHandler(request, response) {
     if (applying) {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
       try {
-        const candidate = reconstructPlan(trip, request.body);
+        const effectiveTrip = overlayOpeningHours(trip, await readOpeningHoursSidecars(trip.places || [], redisCommand));
+        const candidate = reconstructPlan(effectiveTrip, request.body);
+        // Apply validates against effective hours, but persists exactly the original Places.
+        candidate.places = trip.places;
         // A narrowed race window is insufficient here. Never fall back to GET + SET.
         if (!(await supportsScripting())) return sendJson(response, 503, { error: "ATOMIC_WRITE_UNAVAILABLE" });
         const updated = { ...candidate, revision: (Number(trip.revision) || 0) + 1, updatedAt: new Date().toISOString(), updatedBy: member.id };
@@ -401,7 +434,7 @@ export default async function tripHandler(request, response) {
 
     if (request.method === "POST" && request.body?.action === "plan") {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
-      return planTrip(request, response, trip, member);
+      return planTrip(request, response, overlayOpeningHours(trip, await readOpeningHoursSidecars(trip.places || [], redisCommand)), member);
     }
 
     response.setHeader("Allow", "GET, PUT, POST");
