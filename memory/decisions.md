@@ -1,5 +1,13 @@
 # Decisions
 
+## Phase 2A.6 — Opening Hours Production Hotfix (2026-09-21)
+
+- The first Phase 2A.6 production smoke failed because the released client waited only for hours requests already started by a selection click. It did not enumerate every currently selected candidate before planning, and it had no persistent client conflict state. A deterministic regression reproduced an already-selected legacy Google Place with missing structured hours and an exact 09:00 constraint reaching `action=plan` without hydration.
+- The final design has three layers: selecting an eligible Google Place starts the existing authenticated hours-only hydration; server-normalized opening windows immediately create or clear a candidate-level `營業時間不符合` state as date/exact time changes; and a mandatory Planner-start barrier repeatedly resolves the current selected set before `action=plan`, including selection changes while hydration is pending. Known conflicts disable Planner and show one summary. The exact-time editor uses immediate warning rather than disabling wheel values, with the existing 30-minute minimum feasibility rule.
+- Client checks consume only server-normalized windows and never parse display `openingHours` or infer hours from Place category. Preferred periods remain soft. The server sidecar/legacy overlay and deterministic preflight remain authoritative; known conflicts still reject before Luna with `modelCalls=0`.
+- The narrow SHA-256 placeId sidecar, request dedupe, three-request concurrency cap, known/unavailable semantics, transient unknown fallback, no TTL and no migration remain unchanged. Hydration writes no Trip, changes no revision/Undo/itinerary, `action=plan` calls Google zero times and writes Trip zero times, and `applyPlan` calls Google/OpenAI zero times. The Agent does not operate App/browser UI; user production smoke is required.
+- Phase 2A.7 Map and Phase 2C Discovery are NOT STARTED. Weekly regular hours still do not guarantee holiday, temporary or seasonal exceptions.
+
 ## Phase 2A.6 — Planner Opening Hours Coverage (2026-09-20)
 
 - Saved Places remain embedded in Trip. New exact structured-hours enrichment is stored separately in the existing Redis database under a versioned SHA-256 key for the Google placeId. The value contains only the `regularOpeningPeriods` v1 record; no Trip ID, selection, notes, itinerary, photos or other Place fields enter the sidecar. No migration or batch backfill.

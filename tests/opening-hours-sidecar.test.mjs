@@ -48,6 +48,23 @@ test('sidecar uses a versioned hashed key and stores only the structured record'
   assert.equal(commands[0][1].includes(id), false);
 });
 
+test('production write helper and batch resolver round-trip the same hashed identity', async () => {
+  const id = 'ChIJ/round-trip?';
+  const store = new Map();
+  const commands = [];
+  const redis = async ([verb, ...args]) => {
+    commands.push([verb, ...args]);
+    if (verb === 'SET') { store.set(args[0], args[1]); return 'OK'; }
+    if (verb === 'MGET') return args.map(key => store.get(key) ?? null);
+    throw new Error('unexpected command');
+  };
+  await writeOpeningHoursSidecar(record(id), redis);
+  const found = await readOpeningHoursSidecars([{ placeId: id }], redis);
+  assert.equal(commands[0][1], commands[1][1]);
+  assert.deepEqual(resolveStructuredOpeningPeriods({ placeId: id }, found.get(id)), record(id));
+  assert.equal(resolveStructuredOpeningPeriods({ placeId: 'different' }, found.get(id)), null);
+});
+
 test('effective resolution prefers valid sidecar, falls back to valid embedded, rejects malformed and foreign IDs', () => {
   const p = { placeId: 'A', openingHours: '星期日: 10:00–18:00', regularOpeningPeriods: record('A') };
   assert.equal(resolveStructuredOpeningPeriods(p, record('A', 'unavailable')).status, 'unavailable');
@@ -74,6 +91,8 @@ test('authorized exact hydration writes sidecar only, preserves Trip bytes and r
   assert.equal(first.statusCode, 200, JSON.stringify(first.payload));
   assert.equal(first.payload.status, 'known');
   assert.equal(first.payload.regularOpeningPeriods.placeId, p.placeId);
+  assert.deepEqual(first.payload.openingWindows['9/20'], [{ startMinute: 600, endMinute: 1080 }]);
+  assert.deepEqual(first.payload.windowCalendar, { startDate: '2026-09-20', endDate: '2026-09-23' });
   assert.equal(s.google.length, 1);
   assert.equal(s.google[0].mask, 'id,regularOpeningHours');
   assert.deepEqual(JSON.parse(s.store.get(openingHoursKey(p.placeId))).periods, periods);

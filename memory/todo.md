@@ -1,5 +1,13 @@
 # Todo
 
+## Phase 2A.6 — Opening Hours Production Hotfix (2026-09-21)
+
+- [x] Reproduce the released current-selection bypass and implement the three-layer correction: selection hydration with immediate candidate conflict, exact-time/date revalidation using the existing 30-minute rule, and a mandatory current-selection Planner-start barrier.
+- [x] Preserve sidecar-only enrichment, server authority, transient unknown behavior, zero Trip/revision/Undo mutation, Plan zero-Google/zero-write, Apply zero-Google/zero-OpenAI, Phase 2A.5 semantics and Phase 2B Draft/Apply. Non-GUI gate 919/919; no skips.
+- [ ] User iPhone production smoke after READY: without opening Detail, select Virtu at exact 09:00; after hours resolution expect `營業時間不符合` and blocked Planner, then choose a clearly valid time and expect the warning to clear and Preview/Draft to generate.
+- [ ] Phase 2A.7 Map — NOT STARTED.
+- [ ] Phase 2C Discovery / Tourist Recommendations — NOT STARTED.
+
 ## Phase 2A.6 — Planner Opening Hours Coverage (2026-09-20)
 
 - [x] Narrow Redis sidecar, legacy embedded fallback, authenticated selected-Place exact hydration, Detail hours-only compatibility, client request deduplication/concurrency cap, Planner waiting, Plan/Apply read overlay and non-GUI engineering regression.

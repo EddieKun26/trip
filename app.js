@@ -1513,6 +1513,11 @@ function applySharedTrip(payload) {
   if (state.profile) state.members[state.profile.id] = state.profile.nickname;
   state.sharedRevision = Number(payload.revision) || state.sharedRevision;
   dateMeta = buildDateMeta(state.startDate, state.endDate);
+  // Ordinary Trip synchronization replaces Place objects. Restore only server-returned
+  // session hours as non-persisted metadata so active Planner candidates stay current.
+  if (typeof sessionOpeningHours !== "undefined" && typeof acceptOpeningHours === "function") {
+    for (const [placeId, record] of sessionOpeningHours) acceptOpeningHours(placeId, record, state.tripId);
+  }
   syncFlightItineraryItems();
   if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
   resetUndoBaseline({ clear: true });
@@ -5872,15 +5877,24 @@ const structuredHoursAttempts = new Set();
 // embedded value for any later ordinary Trip save; the sidecar is the persistence owner.
 const transientOpeningHours = new WeakMap();
 const sessionOpeningHours = new Map();
+// Server-normalized windows share the Planner's exact weekly-hours semantics. They are scoped
+// to Trip dates, so changing dates never reuses windows computed for a different calendar week.
+const sessionOpeningWindows = new Map();
 const plannerHoursRequests = new Map();
 const plannerHoursQueue = [];
 const plannerHoursFailures = new Set();
 let plannerHoursActive = 0;
 const PLANNER_HOURS_CONCURRENCY = 3;
 
-function acceptOpeningHours(placeId, record, tripId) {
+function plannerHoursScope() { return `${state.tripId}:${state.startDate}:${state.endDate}`; }
+
+function acceptOpeningHours(placeId, record, tripId, windows, calendar, scope = plannerHoursScope()) {
   if (state.tripId !== tripId || record?.placeId !== placeId || !["known", "unavailable"].includes(record.status)) return false;
   sessionOpeningHours.set(placeId, record);
+  if (record.status === "known" && windows && typeof windows === "object" && !Array.isArray(windows)
+    && scope === plannerHoursScope() && calendar?.startDate === state.startDate && calendar?.endDate === state.endDate) {
+    sessionOpeningWindows.set(`${tripId}:${placeId}`, { scope, windows });
+  } else if (record.status === "unavailable") sessionOpeningWindows.delete(`${tripId}:${placeId}`);
   plannerHoursFailures.delete(placeId);
   for (const place of state.places) {
     if (String(place.placeId || "").trim() !== placeId) continue;
@@ -5904,7 +5918,7 @@ function pumpPlannerHoursQueue() {
           body: JSON.stringify({ action: "hydrateOpeningHours", ref: task.ref }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !acceptOpeningHours(task.placeId, payload.regularOpeningPeriods, task.tripId)) {
+        if (!response.ok || !acceptOpeningHours(task.placeId, payload.regularOpeningPeriods, task.tripId, payload.openingWindows, payload.windowCalendar, task.scope)) {
           if (state.tripId === task.tripId) plannerHoursFailures.add(task.placeId);
         }
       } catch {
@@ -5915,22 +5929,30 @@ function pumpPlannerHoursQueue() {
         plannerHoursRequests.delete(`${task.tripId}:${task.placeId}`);
         task.resolve();
         pumpPlannerHoursQueue();
-        if (state.tripId === task.tripId && state.placePool.open) render({ preserveScroll: true, filterOnly: true });
+        if (state.tripId === task.tripId && state.placePool.open) {
+          refreshPlacePoolHoursConflicts();
+          render({ preserveScroll: true, filterOnly: true });
+          if (pendingPoolConstraint?.key === task.ref) rerenderPoolConstraintDialog();
+        }
       }
     })();
   }
 }
 
-function hydratePlannerPlaceHours(entry) {
+function hydratePlannerPlaceHours(entry, requireWindows = false) {
   const placeId = String(entry?.place?.placeId || "").trim();
   if (!placeId || isAddressDetailPlace(entry.place)) return Promise.resolve();
   const tripId = state.tripId;
-  if (structuredHoursFetched(entry.place, placeId)) return Promise.resolve();
+  const currentWindows = sessionOpeningWindows.get(`${tripId}:${placeId}`);
+  const hasCurrentWindows = currentWindows?.scope === plannerHoursScope();
+  if (structuredHoursFetched(entry.place, placeId) && (!requireWindows || entry.place.regularOpeningPeriods.status === "unavailable" || hasCurrentWindows)) return Promise.resolve();
   const cached = sessionOpeningHours.get(placeId);
-  if (cached) { acceptOpeningHours(placeId, cached, tripId); return Promise.resolve(); }
+  if (cached && (!requireWindows || cached.status === "unavailable" || hasCurrentWindows)) {
+    acceptOpeningHours(placeId, cached, tripId); return Promise.resolve();
+  }
   const requestKey = `${tripId}:${placeId}`;
   if (plannerHoursRequests.has(requestKey)) return plannerHoursRequests.get(requestKey);
-  const promise = new Promise((resolve) => plannerHoursQueue.push({ placeId, ref: entry.key, tripId, resolve }));
+  const promise = new Promise((resolve) => plannerHoursQueue.push({ placeId, ref: entry.key, tripId, scope: plannerHoursScope(), resolve }));
   plannerHoursRequests.set(requestKey, promise);
   pumpPlannerHoursQueue();
   return promise;
@@ -5942,6 +5964,70 @@ function selectedPlannerHoursPending() {
 
 function selectedPlannerHoursFailed() {
   return placePoolSelectedEntries().some((entry) => plannerHoursFailures.has(String(entry.place.placeId || "").trim()));
+}
+
+function plannerHoursWindows(entry) {
+  const placeId = String(entry?.place?.placeId || "").trim();
+  const cached = sessionOpeningWindows.get(`${state.tripId}:${placeId}`);
+  return cached?.scope === plannerHoursScope() && structuredHoursFetched(entry.place, placeId)
+    && entry.place.regularOpeningPeriods.status === "known" ? cached.windows : null;
+}
+
+function plannerHoursNeedsResolution(entry) {
+  const placeId = String(entry?.place?.placeId || "").trim();
+  if (!placeId || isAddressDetailPlace(entry.place)) return false;
+  if (plannerHoursRequests.has(`${state.tripId}:${placeId}`)) return true;
+  if (!structuredHoursFetched(entry.place, placeId)) return true;
+  return entry.place.regularOpeningPeriods.status === "known" && placePoolConstraintFor(entry.key).length > 0 && !plannerHoursWindows(entry);
+}
+
+function plannerHoursOptionFits(windows, option) {
+  const day = windows?.[option.dayKey];
+  if (!Array.isArray(day)) return true; // Unknown is never a hard closed-hours assertion.
+  if (option.mode === "exact") {
+    if (!POOL_CONSTRAINT_TIME_PATTERN.test(option.exactTime || "")) return true;
+    const [hour, minute] = option.exactTime.split(":").map(Number);
+    const start = hour * 60 + minute;
+    return day.some(window => start >= window.startMinute && start + 30 <= window.endMinute);
+  }
+  return day.some(window => window.endMinute - window.startMinute >= 30);
+}
+
+// This is a feasibility projection over server-normalized windows, not a Google-period parser.
+// A selected Place with multiple allowed days conflicts only when none can hold a visit.
+function plannerHoursConflict(entry, options = placePoolConstraintFor(entry.key)) {
+  const windows = plannerHoursWindows(entry);
+  if (!windows || !options.length || options.some(option => plannerHoursOptionFits(windows, option))) return null;
+  const option = options[0];
+  return { key: entry.key, dayKey: option.dayKey, exactTime: option.mode === "exact" ? option.exactTime : null,
+    windows: Array.isArray(windows[option.dayKey]) ? windows[option.dayKey] : [] };
+}
+
+const placePoolHoursConflicts = new Map();
+function refreshPlacePoolHoursConflicts() {
+  placePoolHoursConflicts.clear();
+  for (const entry of placePoolSelectedEntries()) {
+    const conflict = plannerHoursConflict(entry);
+    if (conflict) placePoolHoursConflicts.set(entry.key, conflict);
+  }
+  return placePoolHoursConflicts;
+}
+
+async function ensureSelectedPlannerHoursResolved() {
+  const tripId = state.tripId;
+  // Selection or Trip dates can change while an earlier request is in flight. Recheck the
+  // CURRENT set after each batch; an old click/request is never the correctness boundary.
+  for (;;) {
+    const scope = plannerHoursScope();
+    const entries = placePoolSelectedEntries();
+    const identities = entries.map(entry => `${entry.key}:${String(entry.place.placeId || "").trim()}`).join("|");
+    await Promise.allSettled(entries.map(entry => hydratePlannerPlaceHours(entry, placePoolConstraintFor(entry.key).length > 0)));
+    if (state.tripId !== tripId || !state.placePool.open) return false;
+    const current = placePoolSelectedEntries().map(entry => `${entry.key}:${String(entry.place.placeId || "").trim()}`).join("|");
+    if (scope === plannerHoursScope() && identities === current) break;
+  }
+  refreshPlacePoolHoursConflicts();
+  return true;
 }
 
 async function ensurePlaceDetails(place) {
@@ -8936,6 +9022,7 @@ function placePoolPlanningConstraints() {
 
 function clearPlacePoolConstraint(key) {
   placePoolPlanningConstraints().delete(key);
+  placePoolHoursConflicts.delete(key);
 }
 
 // Mobile Selected drawer open/closed: UI-only state, same trip-scoped lazy-reset pattern as
@@ -9060,13 +9147,21 @@ function placePoolPlannerErrorMessage(result, snapshot) {
 
 // One active planning request at most. The CTA plans from a fresh snapshot of the current
 // selection; 重新規劃 replays the Preview's own snapshot so later edits can never leak in.
+let plannerHoursStartBusy = false;
 async function requestPlacePoolPlan({ regenerate = false } = {}) {
   const planner = placePoolPlannerState();
-  if (["loading", "applying"].includes(planner.status)) return;
+  if (plannerHoursStartBusy || ["loading", "applying"].includes(planner.status)) return;
+  plannerHoursStartBusy = true;
   const planningTripId = state.tripId;
-  while (!regenerate && selectedPlannerHoursPending()) {
-    await Promise.allSettled(placePoolSelectedEntries().map((entry) => plannerHoursRequests.get(`${state.tripId}:${String(entry.place.placeId || "").trim()}`)).filter(Boolean));
-    if (state.tripId !== planningTripId || !state.placePool.open) return;
+  let resolved = true;
+  try {
+    if (placePoolSelectedEntries().some(plannerHoursNeedsResolution)) resolved = await ensureSelectedPlannerHoursResolved();
+    else refreshPlacePoolHoursConflicts();
+  } finally { plannerHoursStartBusy = false; }
+  if (!resolved || state.tripId !== planningTripId || !state.placePool.open) return;
+  if (placePoolHoursConflicts.size) {
+    render({ preserveScroll: true, filterOnly: true });
+    return;
   }
   if (regenerate && !confirmPlannerDiscard(() => requestPlacePoolPlan({ regenerate: true }))) return;
   if (!canEdit()) return guestOnlyMessage();
@@ -9316,6 +9411,11 @@ function applyPlacePoolConstraint(key, dateOptions) {
   const constraints = placePoolPlanningConstraints();
   if (!normalized.length) constraints.delete(key);
   else constraints.set(key, normalized);
+  refreshPlacePoolHoursConflicts();
+  const entry = getUnscheduledPlaces().entries.find(item => item.key === key);
+  if (entry && normalized.length && structuredHoursFetched(entry.place, String(entry.place.placeId || "").trim())) {
+    void hydratePlannerPlaceHours(entry, true);
+  }
   return true;
 }
 
@@ -9346,6 +9446,17 @@ function togglePlacePoolSelection(key) {
     if (entry && normalizedPlaceKind(entry.place) !== "lodging") void hydratePlannerPlaceHours(entry);
   }
   return render({ preserveScroll: true, filterOnly: true });
+}
+
+function plannerHoursTimeLabel(minute) {
+  const value = minute % 1440;
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}${minute > 1440 ? "（次日）" : ""}`;
+}
+
+function plannerHoursWarningMarkup(conflict) {
+  if (!conflict) return "";
+  const labels = conflict.windows.map(window => `${plannerHoursTimeLabel(window.startMinute)}–${plannerHoursTimeLabel(window.endMinute)}`);
+  return `<div class="place-pool-hours-warning" role="alert"><strong>營業時間不符合</strong>${conflict.exactTime ? `<p>你指定：${escapeHtml(conflict.exactTime)}</p>` : ""}<p>當日營業：${escapeHtml(labels.join("、") || "休息")}</p><p>請修改日期或時間。</p></div>`;
 }
 
 // mainEntries is the full filtered pool, unchanged by selection: a selected Place is never
@@ -9429,6 +9540,7 @@ function placePoolCardMarkup({ key, place, voteCount }, { docked, selected }) {
               ${handle}
               ${constraintButton}
             </div>
+            ${selected ? plannerHoursWarningMarkup(placePoolHoursConflicts.get(key)) : ""}
           </li>`;
 }
 
@@ -9449,6 +9561,7 @@ function placePoolSelectedCompactCardMarkup({ key, place }) {
               <span class="place-pool-selected-name">${escapeHtml(place.name)}</span>
               <span class="place-pool-selected-constraint">${escapeHtml(placePoolConstraintSummaryText(key, "summary"))}</span>
             </button>
+            ${plannerHoursWarningMarkup(placePoolHoursConflicts.get(key))}
           </li>`;
 }
 
@@ -9488,10 +9601,11 @@ function placePoolCtaMarkup(pool) {
   const count = pool.selectedEntries.length;
   const loading = placePoolPlannerState().status === "loading";
   const checkingHours = selectedPlannerHoursPending();
+  const conflicts = placePoolHoursConflicts.size;
   const available = count > 0 || placePoolPlannerCandidateCount(pool) > 0;
   const label = loading ? "正在規劃行程…" : checkingHours ? "正在確認營業時間…" : count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
-  const hint = checkingHours ? "正在讀取已選地點的營業時間" : selectedPlannerHoursFailed() ? "部分地點的營業時間暫時無法確認，規劃時不會將其營業時間作為硬性限制。" : loading ? "AI 正在安排，可能需要一點時間" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
-  const enabled = available && !loading && !checkingHours;
+  const hint = checkingHours ? "正在讀取已選地點的營業時間" : conflicts ? `有 ${conflicts} 個地點的指定日期或時間不符合營業時間，請先調整。` : selectedPlannerHoursFailed() ? "部分地點的營業時間暫時無法確認，規劃時不會將其營業時間作為硬性限制。" : loading ? "AI 正在安排，可能需要一點時間" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
+  const enabled = available && !loading && !checkingHours && !conflicts;
   return `
           <div class="place-pool-cta">
             <button class="place-pool-cta-button" type="button" data-pool-cta${enabled ? "" : ' disabled aria-disabled="true"'}${loading ? ' aria-busy="true"' : ""}>${label}</button>
@@ -9540,6 +9654,7 @@ function placePoolPreviewMarkup(planner) {
 function placePoolMarkup(rawPool) {
   const planner = placePoolPlannerState();
   if (planner.preview) return placePoolPreviewMarkup(planner);
+  refreshPlacePoolHoursConflicts();
   const filters = state.placePool;
   const docked = placePoolDocked();
   const pool = placePoolViewModel(rawPool);
@@ -9596,6 +9711,7 @@ function setPlacePoolOpen(open) {
   state.placePool.open = Boolean(open);
   render({ preserveScroll: true, filterOnly: true });
   if (open) {
+    for (const entry of placePoolSelectedEntries()) void hydratePlannerPlaceHours(entry, placePoolConstraintFor(entry.key).length > 0);
     // Deliberately synchronous, right after render() — the same completion point
     // capturePlacePoolAnchor/restorePlacePoolAnchor already rely on above — rather than
     // requestAnimationFrame, which a backgrounded/hidden tab can throttle indefinitely and never
@@ -9690,6 +9806,9 @@ function poolConstraintDateRowMarkup(dayKey, pending) {
 
 function placePoolConstraintDialogMarkup(place, pending) {
   const rows = dateMeta.map(([dayKey]) => poolConstraintDateRowMarkup(dayKey, pending)).join("");
+  const entry = getUnscheduledPlaces().entries.find(item => item.key === pending.key);
+  const draftOptions = [...pending.dates.entries()].map(([dayKey, rule]) => ({ dayKey, ...rule }));
+  const conflict = entry ? plannerHoursConflict(entry, draftOptions) : null;
   return `
     <div class="modal-backdrop place-pool-constraint-backdrop" data-dismiss-sheet>
       <section class="modal-sheet place-pool-constraint-dialog" role="dialog" aria-modal="true" aria-label="設定「${escapeHtml(place.name)}」的指定日期">
@@ -9699,6 +9818,7 @@ function placePoolConstraintDialogMarkup(place, pending) {
         </div>
         <p class="place-pool-constraint-hint">未勾選日期時，將交由 AI 自由安排</p>
         <ul class="place-pool-constraint-date-list">${rows}</ul>
+        <div data-pool-wheel-warning>${plannerHoursWarningMarkup(conflict)}</div>
         <div class="modal-actions">
           <button class="secondary-button" type="button" data-pool-constraint-cancel>取消</button>
           <button class="primary-button" type="button" data-pool-constraint-confirm>確定</button>
@@ -9809,6 +9929,12 @@ function updatePoolConstraintWheelColumn(column) {
   // row happens to come first in the list.
   const summary = document.querySelector(`[data-pool-constraint-expand="${pendingPoolConstraint.expandedDayKey}"] [data-pool-constraint-time-summary-text]`);
   if (summary) summary.textContent = poolConstraintTimeSummaryText(entry);
+  const warning = document.querySelector("[data-pool-wheel-warning]");
+  if (warning) {
+    const selected = getUnscheduledPlaces().entries.find(item => item.key === pendingPoolConstraint.key);
+    const options = [...pendingPoolConstraint.dates.entries()].map(([dayKey, rule]) => ({ dayKey, ...rule }));
+    warning.innerHTML = plannerHoursWarningMarkup(selected ? plannerHoursConflict(selected, options) : null);
+  }
 }
 
 function confirmPlacePoolConstraint() {

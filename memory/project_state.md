@@ -1,5 +1,13 @@
 # Project state
 
+## Phase 2A.6 — Opening Hours Production Hotfix (2026-09-21)
+
+- Baseline/released production before hotfix: `985b8414837c7d676dd2d442d83428c7de88e8ae`; continued in `planner-hours-coverage` / `feat/planner-hours-coverage`. The first production smoke exposed a client bypass: an already-selected legacy Google Place was not enumerated for hydration at Planner start, so a 09:00 exact constraint could proceed without structured hours. The failing high-path client regression reproduced this before the fix.
+- Selection now starts hours hydration, authoritative server-normalized windows drive immediate candidate/date/exact-time conflict state, and the current-selection Planner-start barrier rechecks the selected set until stable before any `action=plan`. The existing wheel remains selectable and shows a persistent immediate warning for an invalid start; feasibility uses the existing 30 continuous minute minimum. Known conflicts disable Planner; transient failure and no-placeId remain unknown and nonblocking.
+- The server hydration response includes normalized windows bound to its Trip calendar. Session state preserves the server record across ordinary Trip synchronization without serializing it into Trip. Sidecar write/read production helpers have a hashed-key round-trip test. Server Plan/Apply overlay, preflight, model and Phase 2B Apply contracts are unchanged. No display-hours parser, category heuristic, migration, TTL, model contract change, Trip write/revision/Undo change or real external call was introduced.
+- Non-GUI Engineering Gate: targeted hotfix/opening-hours/Planner/Apply regression 81/81; final full regression 919/919, zero failures/skips. Changed JS/MJS syntax, `git diff --check`, API count 12, PRE `1310fa0cb5086a07cbb7836022272f9113addfb1405f0f279bcdb1959616825f`, POST `dd2d0b930e7ed42da9a2c7389f44abe1c0de018b0af6c15ac2c35a949eeb6893`, no migration/model-contract diff, secret/artifact audit passed. USER_UI_SMOKE_REQUIRED=YES; Agent operated no App/browser UI.
+- NEXT remains user iPhone smoke. Phase 2A.7 Map and Phase 2C Discovery are NOT STARTED.
+
 ## Phase 2A.6 — Planner Opening Hours Coverage (2026-09-20)
 
 - Started from exact production `origin/main` `2ee672ff6856cfb224be3911c09d90650d248cbe` in isolated `planner-hours-coverage` / `feat/planner-hours-coverage`. The legacy gap was that display hours existed while structured Google periods had not been hydrated; opening Place Detail was the only lazy backfill trigger.

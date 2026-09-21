@@ -10,6 +10,8 @@ import {
   checkPlannerFeasibility,
   plannerDailyLimit,
   plannerModelConfig,
+  plannerOpeningWindows,
+  plannerTripDays,
   runPlanner,
 } from "../lib/ai-trip-planner.mjs";
 import { readFileSync } from "node:fs";
@@ -355,14 +357,17 @@ export default async function tripHandler(request, response) {
         || place.manualLocation || place.coordinateLocation || place.detailsLocked) return sendJson(response, 200, { status: "unknown" });
       const sidecars = await readOpeningHoursSidecars([place], redisCommand);
       const effective = resolveStructuredOpeningPeriods(place, sidecars.get(placeId));
-      if (effective) return sendJson(response, 200, { status: effective.status, regularOpeningPeriods: effective });
+      const hoursPayload = record => ({ status: record.status, regularOpeningPeriods: record,
+        openingWindows: plannerOpeningWindows({ ...place, regularOpeningPeriods: record }, plannerTripDays(trip)),
+        windowCalendar: { startDate: trip.startDate, endDate: trip.endDate } });
+      if (effective) return sendJson(response, 200, hoursPayload(effective));
       const apiKey = String(process.env.GOOGLE_MAPS_API_KEY || "");
       if (!apiKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
       const resolved = await exactPlaceDetails({ apiKey, placeId, requestUrl: "", hoursOnly: true });
       if (resolved.error || !resolved.regularOpeningPeriods) return sendJson(response, 502, { error: resolved.error || "PLACE_DETAILS_INVALID" });
       try {
         const record = await writeOpeningHoursSidecar(resolved.regularOpeningPeriods, redisCommand);
-        return sendJson(response, 200, { status: record.status, regularOpeningPeriods: record });
+        return sendJson(response, 200, hoursPayload(record));
       } catch {
         // Never write the Trip as a fallback for failed metadata persistence.
         return sendJson(response, 503, { error: "OPENING_HOURS_STORE_UNAVAILABLE" });

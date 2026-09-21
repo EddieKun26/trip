@@ -8080,7 +8080,8 @@ body.transport-sheet-open .app {
 .place-pool-selected-heading { flex: 0 0 auto; margin: 0 0 8px; font-size: 14px; color: var(--ink); font-weight: 800; }
 .place-pool-selected-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .place-pool-selected-empty { padding: 10px 0; color: var(--muted); font-size: 13px; }
-.place-pool-selected-item { display: flex; align-items: stretch; gap: 6px; }
+.place-pool-selected-item { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+.place-pool-selected-item .place-pool-hours-warning { flex: 1 0 calc(100% - 42px); margin-left: 42px; }
 .place-pool-selected-unselect { flex: 0 0 auto; width: 36px; min-height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--mineral-soft); cursor: pointer; }
 .place-pool-selected-unselect:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .place-pool-selected-check { color: var(--mineral); font-weight: 900; }
@@ -8115,6 +8116,10 @@ body.transport-sheet-open .app {
 .place-pool-drag-handle:active { cursor: grabbing; }
 .place-pool-constraint { flex: 0 0 auto; min-width: 44px; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); color: var(--mineral); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
 .place-pool-constraint:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.place-pool-hours-warning { padding: 10px 12px; border: 1px solid #c8452d; border-radius: 12px; background: #fff2ed; color: #812d20; font-size: 13px; line-height: 1.45; }
+.place-pool-hours-warning strong { display: block; margin-bottom: 4px; font-size: 14px; }
+.place-pool-hours-warning p { margin: 2px 0; }
+.place-pool-constraint-dialog [data-pool-wheel-warning]:not(:empty) { flex: 0 0 auto; margin-top: 10px; }
 .place-pool-card.is-dragging { opacity: 0.45; }
 .place-pool-card.is-dragging .place-pool-select { border-style: dashed; border-color: var(--mineral); }
 .place-pool-thumb { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--swatch, var(--mineral)); color: #fff; font-weight: 800; }
