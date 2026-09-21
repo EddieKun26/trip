@@ -5897,7 +5897,7 @@ function acceptOpeningHours(placeId, record, tripId, windows, calendar, scope = 
   } else if (record.status === "unavailable") sessionOpeningWindows.delete(`${tripId}:${placeId}`);
   plannerHoursFailures.delete(placeId);
   for (const place of state.places) {
-    if (String(place.placeId || "").trim() !== placeId) continue;
+    if (detailGooglePlaceId(place) !== placeId) continue;
     if (!transientOpeningHours.has(place)) transientOpeningHours.set(place, place.regularOpeningPeriods);
     Object.defineProperty(place, "regularOpeningPeriods", { value: record, configurable: true, writable: true, enumerable: false });
   }
@@ -5940,7 +5940,7 @@ function pumpPlannerHoursQueue() {
 }
 
 function hydratePlannerPlaceHours(entry, requireWindows = false) {
-  const placeId = String(entry?.place?.placeId || "").trim();
+  const placeId = detailGooglePlaceId(entry?.place);
   if (!placeId || isAddressDetailPlace(entry.place)) return Promise.resolve();
   const tripId = state.tripId;
   const currentWindows = sessionOpeningWindows.get(`${tripId}:${placeId}`);
@@ -5959,22 +5959,22 @@ function hydratePlannerPlaceHours(entry, requireWindows = false) {
 }
 
 function selectedPlannerHoursPending() {
-  return placePoolSelectedEntries().some((entry) => plannerHoursRequests.has(`${state.tripId}:${String(entry.place.placeId || "").trim()}`));
+  return placePoolSelectedEntries().some((entry) => plannerHoursRequests.has(`${state.tripId}:${detailGooglePlaceId(entry.place)}`));
 }
 
 function selectedPlannerHoursFailed() {
-  return placePoolSelectedEntries().some((entry) => plannerHoursFailures.has(String(entry.place.placeId || "").trim()));
+  return placePoolSelectedEntries().some((entry) => plannerHoursFailures.has(detailGooglePlaceId(entry.place)));
 }
 
 function plannerHoursWindows(entry) {
-  const placeId = String(entry?.place?.placeId || "").trim();
+  const placeId = detailGooglePlaceId(entry?.place);
   const cached = sessionOpeningWindows.get(`${state.tripId}:${placeId}`);
   return cached?.scope === plannerHoursScope() && structuredHoursFetched(entry.place, placeId)
     && entry.place.regularOpeningPeriods.status === "known" ? cached.windows : null;
 }
 
 function plannerHoursNeedsResolution(entry) {
-  const placeId = String(entry?.place?.placeId || "").trim();
+  const placeId = detailGooglePlaceId(entry?.place);
   if (!placeId || isAddressDetailPlace(entry.place)) return false;
   if (plannerHoursRequests.has(`${state.tripId}:${placeId}`)) return true;
   if (!structuredHoursFetched(entry.place, placeId)) return true;
@@ -6020,10 +6020,10 @@ async function ensureSelectedPlannerHoursResolved() {
   for (;;) {
     const scope = plannerHoursScope();
     const entries = placePoolSelectedEntries();
-    const identities = entries.map(entry => `${entry.key}:${String(entry.place.placeId || "").trim()}`).join("|");
+    const identities = entries.map(entry => `${entry.key}:${detailGooglePlaceId(entry.place)}`).join("|");
     await Promise.allSettled(entries.map(entry => hydratePlannerPlaceHours(entry, placePoolConstraintFor(entry.key).length > 0)));
     if (state.tripId !== tripId || !state.placePool.open) return false;
-    const current = placePoolSelectedEntries().map(entry => `${entry.key}:${String(entry.place.placeId || "").trim()}`).join("|");
+    const current = placePoolSelectedEntries().map(entry => `${entry.key}:${detailGooglePlaceId(entry.place)}`).join("|");
     if (scope === plannerHoursScope() && identities === current) break;
   }
   refreshPlacePoolHoursConflicts();
@@ -9413,7 +9413,7 @@ function applyPlacePoolConstraint(key, dateOptions) {
   else constraints.set(key, normalized);
   refreshPlacePoolHoursConflicts();
   const entry = getUnscheduledPlaces().entries.find(item => item.key === key);
-  if (entry && normalized.length && structuredHoursFetched(entry.place, String(entry.place.placeId || "").trim())) {
+  if (entry && normalized.length && structuredHoursFetched(entry.place, detailGooglePlaceId(entry.place))) {
     void hydratePlannerPlaceHours(entry, true);
   }
   return true;

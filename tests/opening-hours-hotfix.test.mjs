@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { boot, trip, place } from './helpers/phase-c-browser.mjs';
+
+const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
 const record = { v: 1, status: 'known', placeId: 'google-ueno', periods: [
   { open: { day: 0, hour: 17, minute: 30 }, close: { day: 1, hour: 0, minute: 0 } },
@@ -45,8 +48,45 @@ test('candidate addition hydrates immediately, then shows a persistent conflict 
   assert.match(b.app.innerHTML, /你指定：09:00/);
   assert.match(b.app.innerHTML, /有 1 個地點/);
   assert.match(b.app.innerHTML, /data-pool-cta disabled/);
+  assert.match(b.run('placePoolCardMarkup(placePoolSelectedEntries()[0], { docked: false, selected: true })'), /營業時間不符合/);
+  assert.match(b.run('placePoolSelectedCompactCardMarkup(placePoolSelectedEntries()[0])'), /營業時間不符合/);
+  b.run('state.places.reverse(); refreshPlacePoolHoursConflicts(); render({ preserveScroll: true, filterOnly: true })');
+  assert.equal(b.run('placePoolHoursConflicts.has("app:synthetic-ueno")'), true);
+  assert.match(b.app.innerHTML, /營業時間不符合/);
   await b.run('requestPlacePoolPlan()');
   assert.equal(requests(b, 'plan').length, 0);
+});
+
+test('warning CSS remains visible in both real Planner card branches', () => {
+  const rule = styles.match(/^\.place-pool-hours-warning\s*\{[^}]+\}/m)?.[0] || '';
+  assert.match(rule, /padding:/);
+  assert.match(rule, /color:/);
+  assert.doesNotMatch(rule, /display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|height\s*:\s*0/);
+  assert.match(styles, /\.place-pool-selected-item \.place-pool-hours-warning/);
+});
+
+test('unavailable, naturally unknown and incomplete constraints never fabricate a hard conflict', async () => {
+  const unavailable = await selected();
+  await unavailable.reply(requests(unavailable, 'hydrateOpeningHours')[0], {
+    status: 'unavailable', regularOpeningPeriods: { ...record, status: 'unavailable', periods: [] },
+    openingWindows: null, windowCalendar: response.windowCalendar,
+  });
+  unavailable.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "exact", exactTime: "09:00" }])');
+  assert.equal(unavailable.run('placePoolHoursConflicts.size'), 0);
+
+  const custom = await boot(trip([place('ueno', { placeId: '', sourceUrl: '', openingHours: '17:30–00:00' })]));
+  custom.state.selectedDate = '9/20'; await custom.run('setTab("itinerary")'); custom.run('setPlacePoolOpen(true)');
+  custom.run('togglePlacePoolSelection("app:synthetic-ueno")');
+  custom.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "exact", exactTime: "09:00" }])');
+  assert.equal(requests(custom, 'hydrateOpeningHours').length, 0);
+  assert.equal(custom.run('placePoolHoursConflicts.size'), 0);
+
+  const known = await selected();
+  await known.reply(requests(known, 'hydrateOpeningHours')[0], response);
+  known.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "preferred", preferredPeriods: ["morning"] }])');
+  assert.equal(known.run('placePoolHoursConflicts.size'), 0);
+  known.run('applyPlacePoolConstraint("app:synthetic-ueno", [])');
+  assert.equal(known.run('placePoolHoursConflicts.size'), 0);
 });
 
 test('exact-time and date edits immediately clear and recreate conflicts using the same windows', async () => {
@@ -169,5 +209,30 @@ test('windows normalized for a stale Trip calendar are not trusted by the active
   await b.reply(requests(b, 'hydrateOpeningHours')[1], response);
   await planning;
   assert.equal(b.run('placePoolHoursConflicts.size'), 1);
+  assert.equal(requests(b, 'plan').length, 0);
+});
+
+test('released no-warning bug: legacy Maps URL identity hydrates and renders its known conflict', async () => {
+  const legacyPlaceId = 'ChIJLegacyVirtu';
+  const legacyRecord = { ...record, placeId: legacyPlaceId };
+  const b = await boot(trip([place('ueno', {
+    placeId: '',
+    category: 'bar',
+    openingHours: '17:30–00:00',
+    sourceUrl: `https://www.google.com/maps/search/?api=1&query=Virtu&query_place_id=${legacyPlaceId}`,
+  })]));
+  b.state.selectedDate = '9/20';
+  await b.run('setTab("itinerary")');
+  b.run('setPlacePoolOpen(true)');
+  b.run('togglePlacePoolSelection("app:synthetic-ueno")');
+  b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "exact", exactTime: "09:00" }])');
+  const hydrate = requests(b, 'hydrateOpeningHours')[0];
+  assert.ok(hydrate, 'legacy explicit Maps place identity must start hydration');
+  await b.reply(hydrate, { ...response, regularOpeningPeriods: legacyRecord });
+  assert.equal(b.run('placePoolHoursConflicts.size'), 1);
+  assert.match(b.app.innerHTML, /營業時間不符合/);
+  assert.match(b.app.innerHTML, /有 1 個地點/);
+  assert.match(b.app.innerHTML, /data-pool-cta disabled/);
+  await b.run('requestPlacePoolPlan()');
   assert.equal(requests(b, 'plan').length, 0);
 });

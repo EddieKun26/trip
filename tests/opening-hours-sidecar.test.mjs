@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import tripHandler from '../api/trip.mjs';
 import { openingHoursKey, overlayOpeningHours, readOpeningHoursSidecars, writeOpeningHoursSidecar } from '../lib/opening-hours-sidecar.mjs';
-import { resolveStructuredOpeningPeriods } from '../lib/opening-hours.mjs';
+import { resolveStructuredOpeningPeriods, structuredHoursPlaceId } from '../lib/opening-hours.mjs';
 import { boot, trip, place, json } from './helpers/phase-c-browser.mjs';
 
 const periods = [{ open: { day: 0, hour: 10, minute: 0 }, close: { day: 0, hour: 18, minute: 0 } }];
@@ -11,6 +11,7 @@ const record = (id, status = 'known') => ({ v: 1, status, placeId: id, periods: 
 const response = () => ({ statusCode: 200, payload: null, status(code) { this.statusCode = code; return this; }, setHeader() { return this; }, json(body) { this.payload = body; return this; } });
 
 function server(placeValue) {
+  const exactId = placeValue.placeId || (() => { try { const url = new URL(placeValue.sourceUrl); return url.searchParams.get('query_place_id') || url.searchParams.get('place_id') || ''; } catch { return ''; } })();
   const storedTrip = { ...trip([placeValue]), id: 'hours-sidecar', members: { alice: 'alice' } };
   const key = 'tokyo-family-trip:trip:hours-sidecar';
   const sessionKey = `tokyo-family-trip:session:${createHash('sha256').update('alice-token').digest('hex')}`;
@@ -29,14 +30,14 @@ function server(placeValue) {
       return new Response(JSON.stringify({ result }), { status: 200 });
     }
     google.push({ url: String(url), mask: options.headers?.['X-Goog-FieldMask'] });
-    return new Response(JSON.stringify({ id: placeValue.placeId, regularOpeningHours: { periods } }), { status: 200 });
+    return new Response(JSON.stringify({ id: exactId, regularOpeningHours: { periods } }), { status: 200 });
   };
   const run = async (action, extra = {}) => {
     const res = response();
     await tripHandler({ method: 'POST', url: '/api/trip?id=hours-sidecar', query: { id: 'hours-sidecar' }, headers: { cookie: 'tokyo_trip_session=alice-token' }, body: { action, ...extra } }, res);
     return res;
   };
-  return { run, store, commands, google, key, storedTrip };
+  return { run, store, commands, google, key, storedTrip, exactId };
 }
 
 test('sidecar uses a versioned hashed key and stores only the structured record', async () => {
@@ -63,6 +64,28 @@ test('production write helper and batch resolver round-trip the same hashed iden
   assert.equal(commands[0][1], commands[1][1]);
   assert.deepEqual(resolveStructuredOpeningPeriods({ placeId: id }, found.get(id)), record(id));
   assert.equal(resolveStructuredOpeningPeriods({ placeId: 'different' }, found.get(id)), null);
+});
+
+test('legacy explicit Maps URL identity uses the same hydration, sidecar and Planner overlay path', async () => {
+  const id = 'ChIJLegacyVirtu';
+  const p = place('ueno', { placeId: '', sourceUrl: `https://www.google.com/maps/search/?api=1&query=Virtu&query_place_id=${id}` });
+  assert.equal(structuredHoursPlaceId(p), id);
+  const s = server(p), before = s.store.get(s.key);
+  const hydrated = await s.run('hydrateOpeningHours', { ref: 'app:synthetic-ueno' });
+  assert.equal(hydrated.statusCode, 200, JSON.stringify(hydrated.payload));
+  assert.equal(hydrated.payload.status, 'known');
+  assert.equal(hydrated.payload.regularOpeningPeriods.placeId, id);
+  assert.deepEqual(hydrated.payload.openingWindows['9/20'], [{ startMinute: 600, endMinute: 1080 }]);
+  assert.equal(s.google.length, 1);
+  assert.equal(s.google[0].mask, 'id,regularOpeningHours');
+  assert.equal(JSON.parse(s.store.get(openingHoursKey(id))).placeId, id);
+  assert.equal(s.store.get(s.key), before);
+  const sidecars = await readOpeningHoursSidecars([p], async ([verb, ...keys]) => {
+    assert.equal(verb, 'MGET');
+    return keys.map(key => s.store.get(key) ?? null);
+  });
+  assert.deepEqual(resolveStructuredOpeningPeriods(p, sidecars.get(id)), hydrated.payload.regularOpeningPeriods);
+  assert.equal(overlayOpeningHours({ places: [p] }, sidecars).places[0].regularOpeningPeriods.status, 'known');
 });
 
 test('effective resolution prefers valid sidecar, falls back to valid embedded, rejects malformed and foreign IDs', () => {

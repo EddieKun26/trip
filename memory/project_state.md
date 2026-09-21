@@ -1,5 +1,14 @@
 # Project state
 
+## Phase 2A.6 — Opening Hours Production Hotfix 2 (2026-09-21)
+
+- Starting production baseline: `8546a0c42bccc8cbba58500d22d4e1b6aace9f9f`; work continued in `planner-hours-coverage` / `feat/planner-hours-coverage`. The second user smoke had no visible `營業時間不符合` for Virtu at 09:00.
+- Root cause: a legacy Saved Place may have no direct `placeId` but retain an explicit Google identity in its trusted Maps `sourceUrl`. Place Detail already supported this historical shape; released Planner hours code did not, so selection hydration, the active-state update, sidecar lookup and server overlay all treated it as naturally unknown. The new shared resolver preserves direct-ID precedence and accepts only explicit `query_place_id` / `place_id` from the existing trusted Google Maps host allowlist.
+- The new high-path regression uses the real Planner selected state and render path. It failed on the release because no hydration request existed, then passed with known 17:30–24:00 hours: active state binds the exact identity to the 09:00 constraint, both candidate-card branches render the persistent warning, the summary count is one, the CTA is disabled and no Plan request is sent. Reordering the Place list does not break the stable candidate binding. CSS is statically verified visible.
+- Existing semantics remain intact: exact field mask `id,regularOpeningHours`; server-normalized response/weekday windows; sidecar production-helper write/read round trip; selection/date/time immediate revalidation; 30-minute minimum; split/overnight/24-hour/closed-day behavior; current-selection barrier; server preflight with `modelCalls=0`; Plan zero Google/Trip writes; Apply zero Google/OpenAI; hydration zero Trip/revision/Undo/itinerary mutation. No display-text parser, business-type heuristic, migration, TTL or model contract change.
+- Non-GUI Engineering Gate: targeted opening-hours/identity/sidecar/client/Planner/Apply regression **144/144**; final full regression **923/923**, zero failures/skips. Changed JS/MJS syntax, `git diff --check`, API count 12, frozen PRE `1310fa0cb5086a07cbb7836022272f9113addfb1405f0f279bcdb1959616825f`, POST `dd2d0b930e7ed42da9a2c7389f44abe1c0de018b0af6c15ac2c35a949eeb6893`, no migration/model-contract diff, and secret/artifact audit passed. USER_UI_SMOKE_REQUIRED=YES; Agent operated no App/browser UI.
+- NEXT remains the single user iPhone smoke. Phase 2A.7 Map and Phase 2C Discovery are NOT STARTED.
+
 ## Phase 2A.6 — Opening Hours Production Hotfix (2026-09-21)
 
 - Baseline/released production before hotfix: `985b8414837c7d676dd2d442d83428c7de88e8ae`; continued in `planner-hours-coverage` / `feat/planner-hours-coverage`. The first production smoke exposed a client bypass: an already-selected legacy Google Place was not enumerated for hydration at Planner start, so a 09:00 exact constraint could proceed without structured hours. The failing high-path client regression reproduced this before the fix.

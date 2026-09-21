@@ -21,7 +21,7 @@ catch { /* Geometry is optional; address/evidence conversion and trip access sti
 import { createHash, randomBytes } from "node:crypto";
 import { exactPlaceDetails } from "./places.mjs";
 import { placeDetailKey } from "../lib/ai-trip-planner.mjs";
-import { resolveStructuredOpeningPeriods } from "../lib/opening-hours.mjs";
+import { resolveStructuredOpeningPeriods, structuredHoursPlaceId } from "../lib/opening-hours.mjs";
 import { overlayOpeningHours, readOpeningHoursSidecars, writeOpeningHoursSidecar } from "../lib/opening-hours-sidecar.mjs";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
@@ -43,6 +43,11 @@ function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("Cache-Control", "no-store");
   response.json(payload);
+}
+
+function logOpeningHoursHydration(fields) {
+  // Privacy-safe operational signal: no Trip ID, Place name/ref, placeId, Google payload or user data.
+  console.info("opening-hours-hydration", fields);
 }
 
 function redisConfig() {
@@ -352,24 +357,43 @@ export default async function tripHandler(request, response) {
       const matches = (trip.places || []).filter(place => placeDetailKey(place) === ref);
       if (matches.length !== 1) return sendJson(response, 422, { error: "INVALID_PLANNER_PLACE_REF" });
       const place = matches[0];
-      const placeId = String(place.placeId || "").trim();
+      const placeId = structuredHoursPlaceId(place);
+      const identitySource = String(place.placeId || "").trim() ? "stored" : placeId ? "legacy_source_url" : "none";
       if (!/^[A-Za-z0-9_-]{1,180}$/.test(placeId) || /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)
-        || place.manualLocation || place.coordinateLocation || place.detailsLocked) return sendJson(response, 200, { status: "unknown" });
+        || place.manualLocation || place.coordinateLocation || place.detailsLocked) {
+        logOpeningHoursHydration({ outcome: "unknown_identity", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
+        return sendJson(response, 200, { status: "unknown" });
+      }
       const sidecars = await readOpeningHoursSidecars([place], redisCommand);
       const effective = resolveStructuredOpeningPeriods(place, sidecars.get(placeId));
       const hoursPayload = record => ({ status: record.status, regularOpeningPeriods: record,
         openingWindows: plannerOpeningWindows({ ...place, regularOpeningPeriods: record }, plannerTripDays(trip)),
         windowCalendar: { startDate: trip.startDate, endDate: trip.endDate } });
-      if (effective) return sendJson(response, 200, hoursPayload(effective));
+      if (effective) {
+        const payload = hoursPayload(effective);
+        logOpeningHoursHydration({ outcome: "authoritative_cached", identitySource, effectiveStatus: effective.status,
+          hasOpeningWindows: payload.openingWindows !== null });
+        return sendJson(response, 200, payload);
+      }
       const apiKey = String(process.env.GOOGLE_MAPS_API_KEY || "");
-      if (!apiKey) return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
+      if (!apiKey) {
+        logOpeningHoursHydration({ outcome: "not_configured", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
+        return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
+      }
       const resolved = await exactPlaceDetails({ apiKey, placeId, requestUrl: "", hoursOnly: true });
-      if (resolved.error || !resolved.regularOpeningPeriods) return sendJson(response, 502, { error: resolved.error || "PLACE_DETAILS_INVALID" });
+      if (resolved.error || !resolved.regularOpeningPeriods) {
+        logOpeningHoursHydration({ outcome: "exact_failed", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
+        return sendJson(response, 502, { error: resolved.error || "PLACE_DETAILS_INVALID" });
+      }
       try {
         const record = await writeOpeningHoursSidecar(resolved.regularOpeningPeriods, redisCommand);
-        return sendJson(response, 200, hoursPayload(record));
+        const payload = hoursPayload(record);
+        logOpeningHoursHydration({ outcome: "exact_persisted", identitySource, effectiveStatus: record.status,
+          hasOpeningWindows: payload.openingWindows !== null });
+        return sendJson(response, 200, payload);
       } catch {
         // Never write the Trip as a fallback for failed metadata persistence.
+        logOpeningHoursHydration({ outcome: "store_failed", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
         return sendJson(response, 503, { error: "OPENING_HOURS_STORE_UNAVAILABLE" });
       }
     }

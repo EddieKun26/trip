@@ -1,5 +1,14 @@
 # Todo
 
+## Phase 2A.6 — Opening Hours Production Hotfix 2 (2026-09-21)
+
+- [x] Reproduce the second production no-warning failure with the real Planner selected-candidate/render path: a legacy Google Maps `sourceUrl` identity with no direct `placeId`, known mocked hours and exact 09:00 started no hydration on the released client.
+- [x] Unify the existing explicit legacy Google identity across selection hydration, current-selection barrier, active state, sidecar read/write, server Plan/Apply overlay and exact response binding. Preserve the three-layer contract, 30-minute minimum, no display parser/category heuristic, sidecar-only persistence and Plan/Apply external-call boundaries.
+- [x] Non-GUI gate: targeted 144/144; full regression 923/923; zero failures/skips; syntax/diff/API/fingerprint/migration/model-contract/secret/artifact checks passed.
+- [ ] User iPhone production smoke after READY: set exact 09:00, select Virtu without opening Detail, wait for hours resolution and expect persistent `營業時間不符合` plus blocked Planner; choose a legal time and expect warning clear/Planner enabled; return to 09:00 and expect the warning immediately without another Google fetch.
+- [ ] Phase 2A.7 Map — NOT STARTED.
+- [ ] Phase 2C Discovery / Tourist Recommendations — NOT STARTED.
+
 ## Phase 2A.6 — Opening Hours Production Hotfix (2026-09-21)
 
 - [x] Reproduce the released current-selection bypass and implement the three-layer correction: selection hydration with immediate candidate conflict, exact-time/date revalidation using the existing 30-minute rule, and a mandatory current-selection Planner-start barrier.
