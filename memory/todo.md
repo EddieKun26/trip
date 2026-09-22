@@ -1,5 +1,15 @@
 # Todo
 
+## Phase 2A.6 — Production-truth stabilization (2026-09-22)
+
+- [x] Record third user production failure. Correct earlier overclaim: legacy URL identity regression was proven with fixtures, not proven as the real Virtu failure.
+- [x] Inspect existing production logs: one uncorrelated exact_persisted/stored/known/windows event; no ai-planner event in deployment-scoped 24 hours. Insufficient for a real root cause.
+- [x] Add bounded authenticated diagnostic trace only; 8 diagnostic tests and full 931/931 regression, no failures/skips. Preserve all product semantics.
+- [ ] After diagnostic deployment READY: USER opens Planner, sets Virtu exact 09:00, selects it, waits, attempts Planner once if allowed, replies DONE. Agent never operates UI.
+- [ ] Read correlated production truth; add the actual root-cause regression and smallest fix. Implement final known/unavailable/transient visible state contract only after truth is established. Reduce temporary diagnostics for final release.
+- [ ] Final engineering Gate and functional release, then USER acceptance PASS. Phase 2A.6 remains NOT COMPLETE until acceptance passes.
+- [ ] Phase 2A.7 Map — NOT STARTED. Phase 2C Discovery — NOT STARTED.
+
 ## Phase 2A.6 — Opening Hours Production Hotfix 2 (2026-09-21)
 
 - [x] Reproduce the second production no-warning failure with the real Planner selected-candidate/render path: a legacy Google Maps `sourceUrl` identity with no direct `placeId`, known mocked hours and exact 09:00 started no hydration on the released client.

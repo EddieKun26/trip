@@ -1,5 +1,13 @@
 # Project state
 
+## Phase 2A.6 — Production-truth stabilization: awaiting diagnostic user action (2026-09-22)
+
+- Baseline `315cd49d6c6164933bbdf2dbb2d270379fd03693`, existing clean `planner-hours-coverage` / `feat/planner-hours-coverage`. ENGINEERING_TESTS=PASS, PRODUCTION_ACCEPTANCE=FAIL, Phase 2A.6=NOT COMPLETE. The third user smoke still had no visible warning.
+- Existing production logs were insufficient: one uncorrelated stored-ID exact hydration became known with windows at 04:35:28 UTC; no ai-planner event was found in the deployment-scoped 24-hour window. Actual Virtu identity, selection, date/time, payload acceptance, conflict/render and server preflight remain unproven. Prior exact-root-cause claims were fixture findings, not production facts.
+- Minimal correlated diagnostics only: client post-render/settled/editor snapshots; server canonical identity/sidecar comparison; exact-response shape observer; Plan preflight/result counters. Authenticated existing api/trip entry, bounded allowlist-only logs, random trace IDs, hashed refs/IDs, no product-state changes or external quota use in testing. No Trip/revision/Undo writes, model contract/migration/TTL/API-count change or UI operation.
+- Diagnostic verification: 8 new diagnostic tests, related focused regression passed, full Node regression 931/931 with zero failures/skips. Syntax/diff/privacy/artifact checks and API count 12 pass. Frozen PRE/POST and model implementation/schema remain unchanged. This is diagnostic engineering evidence, not acceptance evidence.
+- NEXT: after diagnostic Git deployment READY, USER performs exactly one Virtu 09:00 Planner attempt and replies DONE. Inspect trace, establish actual root cause, write matching failing regression, implement smallest fix plus approved visible known/unavailable/transient contract, then final Gate/release and USER acceptance. Phase 2A.7 Map and Phase 2C Discovery NOT STARTED.
+
 ## Phase 2A.6 — Opening Hours Production Hotfix 2 (2026-09-21)
 
 - Starting production baseline: `8546a0c42bccc8cbba58500d22d4e1b6aace9f9f`; work continued in `planner-hours-coverage` / `feat/planner-hours-coverage`. The second user smoke had no visible `營業時間不符合` for Virtu at 09:00.

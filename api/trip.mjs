@@ -23,6 +23,7 @@ import { exactPlaceDetails } from "./places.mjs";
 import { placeDetailKey } from "../lib/ai-trip-planner.mjs";
 import { resolveStructuredOpeningPeriods, structuredHoursPlaceId } from "../lib/opening-hours.mjs";
 import { overlayOpeningHours, readOpeningHoursSidecars, writeOpeningHoursSidecar } from "../lib/opening-hours-sidecar.mjs";
+import { hoursTraceId, hoursTraceHash, emitHoursTrace, admitHoursTrace, recordClientHoursTrace, traceOptions } from "../lib/planner-hours-trace.mjs";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
 /* The AI Planner action makes up to PLANNER_MAX_MODEL_CALLS model calls, so this route declares its
@@ -289,6 +290,7 @@ async function planTrip(request, response, trip, member) {
   const started = Date.now();
   let modelCalls = 0;
   const finish = (outcome, status, payload, extra = {}) => {
+    emitHoursTrace(request, "plan_result", { outcome, status, modelCalls });
     console.info("ai-planner", { outcome, code: outcome === "success" ? "OK" : String(payload.error || ""), status, ms: Date.now() - started, modelCalls, ...extra });
     return sendJson(response, status, payload);
   };
@@ -309,6 +311,11 @@ async function planTrip(request, response, trip, member) {
     const places = (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog));
     const context = buildPlannerContext({ trip, places, selected: body.selected });
     const feasibility = checkPlannerFeasibility(context);
+    emitHoursTrace(request, "plan_preflight", { selectedCount: body.selected.length,
+      candidatesWithOpeningWindows: context.candidates.filter(c => c.openingWindows !== null).length,
+      selected: context.candidates.filter(c => body.selected.some(s => s.ref === c.key)).map(c => ({
+        candidateRef: hoursTraceHash(c.key), hasOpeningWindows: c.openingWindows !== null, dateOptions: traceOptions(c.dateOptions) })),
+      feasible: feasibility.feasible, openingHoursConflict: feasibility.reason === "OPENING_HOURS_CONFLICT", modelCalls });
     if (!feasibility.feasible) {
       const details = feasibility.reason === "OPENING_HOURS_CONFLICT" ? context.candidates.filter(c => feasibility.placeKeys.includes(c.key)).flatMap(c =>
         c.dateOptions.map(option => ({ name: c.name, dayKey: option.dayKey, startTime: option.exactTime || "", openingWindows: (c.openingWindows?.[option.dayKey] || []).map(w => `${String(Math.floor(w.startMinute / 60)).padStart(2, "0")}:${String(w.startMinute % 60).padStart(2, "0")}–${String(Math.floor(w.endMinute / 60)).padStart(2, "0")}:${String(w.endMinute % 60).padStart(2, "0")}`) }))) : [];
@@ -345,11 +352,22 @@ export default async function tripHandler(request, response) {
     // Apply must never trigger legacy migration writes on a rejected request.
     const applying = request.method === "POST" && request.body?.action === "applyPlan";
     const hydrating = request.method === "POST" && request.body?.action === "hydrateOpeningHours";
+    const tracing = request.method === "POST" && request.body?.action === "plannerHoursTrace";
     const atomicUndo = request.method === "PUT" && request.body?.requireAtomic === true;
-    const trip = applying || hydrating || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
+    const trip = applying || hydrating || tracing || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
     if (!trip) return sendJson(response, 404, { error: "TRIP_NOT_FOUND" });
     const member = await authenticatedMember(request);
     const isMember = Boolean(member?.id && trip.members?.[member.id]);
+
+    if (tracing) {
+      if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
+      if (!hoursTraceId(request) || !Array.isArray(request.body.candidates) || request.body.candidates.length > 20
+        || JSON.stringify(request.body).length > 60000) return sendJson(response, 400, { error: "INVALID_HOURS_TRACE" });
+      if (!admitHoursTrace(member.id)) return sendJson(response, 429, { error: "HOURS_TRACE_LIMIT" });
+      try { await recordClientHoursTrace(request, trip, redisCommand); }
+      catch { emitHoursTrace(request, "diagnostic_failed", { failed: true }); }
+      return sendJson(response, 200, { ok: true });
+    }
 
     if (request.method === "POST" && request.body?.action === "hydrateOpeningHours") {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
@@ -359,39 +377,53 @@ export default async function tripHandler(request, response) {
       const place = matches[0];
       const placeId = structuredHoursPlaceId(place);
       const identitySource = String(place.placeId || "").trim() ? "stored" : placeId ? "legacy_source_url" : "none";
+      const trace = fields => emitHoursTrace(request, "hydration", { candidateRef: hoursTraceHash(ref), identityHash: hoursTraceHash(placeId), identitySource, ...fields });
       if (!/^[A-Za-z0-9_-]{1,180}$/.test(placeId) || /^(?:osm-|coordinate-|manual-address-|custom-place-)/u.test(placeId)
         || place.manualLocation || place.coordinateLocation || place.detailsLocked) {
         logOpeningHoursHydration({ outcome: "unknown_identity", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
+        trace({ outcome: "no_identity", excluded: Boolean(place.manualLocation || place.coordinateLocation || place.detailsLocked) });
         return sendJson(response, 200, { status: "unknown" });
       }
-      const sidecars = await readOpeningHoursSidecars([place], redisCommand);
+      let readFailed = false;
+      const sidecars = await readOpeningHoursSidecars([place], redisCommand, () => { readFailed = true; });
       const effective = resolveStructuredOpeningPeriods(place, sidecars.get(placeId));
+      trace({ sidecarRead: readFailed ? "error" : resolveStructuredOpeningPeriods({ placeId }, sidecars.get(placeId))?.status || "miss",
+        embeddedStatus: resolveStructuredOpeningPeriods(place)?.status || "unknown", effectiveStatus: effective?.status || "unknown" });
       const hoursPayload = record => ({ status: record.status, regularOpeningPeriods: record,
         openingWindows: plannerOpeningWindows({ ...place, regularOpeningPeriods: record }, plannerTripDays(trip)),
         windowCalendar: { startDate: trip.startDate, endDate: trip.endDate } });
       if (effective) {
         const payload = hoursPayload(effective);
+        trace({ outcome: "not_needed", effectiveStatus: effective.status, hasOpeningWindows: payload.openingWindows !== null });
         logOpeningHoursHydration({ outcome: "authoritative_cached", identitySource, effectiveStatus: effective.status,
           hasOpeningWindows: payload.openingWindows !== null });
         return sendJson(response, 200, payload);
       }
       const apiKey = String(process.env.GOOGLE_MAPS_API_KEY || "");
       if (!apiKey) {
+        trace({ outcome: "not_configured" });
         logOpeningHoursHydration({ outcome: "not_configured", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
         return sendJson(response, 503, { error: "PLACES_API_NOT_CONFIGURED" });
       }
-      const resolved = await exactPlaceDetails({ apiKey, placeId, requestUrl: "", hoursOnly: true });
+      trace({ exactStarted: true });
+      let resolved;
+      try {
+        resolved = await exactPlaceDetails({ apiKey, placeId, requestUrl: "", hoursOnly: true, observeHours: trace });
+      } catch (error) { trace({ outcome: "transient_failure", sidecarWrite: "not_attempted" }); throw error; }
       if (resolved.error || !resolved.regularOpeningPeriods) {
+        trace({ outcome: "transient_failure", sidecarWrite: "not_attempted" });
         logOpeningHoursHydration({ outcome: "exact_failed", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
         return sendJson(response, 502, { error: resolved.error || "PLACE_DETAILS_INVALID" });
       }
       try {
         const record = await writeOpeningHoursSidecar(resolved.regularOpeningPeriods, redisCommand);
         const payload = hoursPayload(record);
+        trace({ outcome: record.status, sidecarWrite: "success", hasOpeningWindows: payload.openingWindows !== null });
         logOpeningHoursHydration({ outcome: "exact_persisted", identitySource, effectiveStatus: record.status,
           hasOpeningWindows: payload.openingWindows !== null });
         return sendJson(response, 200, payload);
       } catch {
+        trace({ outcome: "transient_failure", sidecarWrite: "failed" });
         // Never write the Trip as a fallback for failed metadata persistence.
         logOpeningHoursHydration({ outcome: "store_failed", identitySource, effectiveStatus: "unknown", hasOpeningWindows: false });
         return sendJson(response, 503, { error: "OPENING_HOURS_STORE_UNAVAILABLE" });
