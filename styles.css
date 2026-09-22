@@ -8119,6 +8119,7 @@ body.transport-sheet-open .app {
 .place-pool-hours-warning { padding: 10px 12px; border: 1px solid #c8452d; border-radius: 12px; background: #fff2ed; color: #812d20; font-size: 13px; line-height: 1.45; }
 .place-pool-hours-warning strong { display: block; margin-bottom: 4px; font-size: 14px; }
 .place-pool-hours-warning p { margin: 2px 0; }
+.place-pool-hours-notice { border-color: #b28c42; background: #fff8e8; color: #634d21; }
 .place-pool-constraint-dialog [data-pool-wheel-warning]:not(:empty) { flex: 0 0 auto; margin-top: 10px; }
 .place-pool-card.is-dragging { opacity: 0.45; }
 .place-pool-card.is-dragging .place-pool-select { border-style: dashed; border-color: var(--mineral); }

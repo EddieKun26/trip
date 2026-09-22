@@ -10,10 +10,10 @@ const periods = [{ open: { day: 0, hour: 10, minute: 0 }, close: { day: 0, hour:
 const record = (id, status = 'known') => ({ v: 1, status, placeId: id, periods: status === 'known' ? periods : [], fetchedAt: '2026-09-20T00:00:00.000Z' });
 const response = () => ({ statusCode: 200, payload: null, status(code) { this.statusCode = code; return this; }, setHeader() { return this; }, json(body) { this.payload = body; return this; } });
 
-function server(placeValue) {
+function server(placeValue, tripId = 'hours-sidecar') {
   const exactId = placeValue.placeId || (() => { try { const url = new URL(placeValue.sourceUrl); return url.searchParams.get('query_place_id') || url.searchParams.get('place_id') || ''; } catch { return ''; } })();
-  const storedTrip = { ...trip([placeValue]), id: 'hours-sidecar', members: { alice: 'alice' } };
-  const key = 'tokyo-family-trip:trip:hours-sidecar';
+  const storedTrip = { ...trip([placeValue]), id: tripId, members: { alice: 'alice' } };
+  const key = `tokyo-family-trip:trip:${tripId}`;
   const sessionKey = `tokyo-family-trip:session:${createHash('sha256').update('alice-token').digest('hex')}`;
   const store = new Map([[key, JSON.stringify(storedTrip)], [sessionKey, JSON.stringify({ id: 'alice', nickname: 'alice' })]]);
   const commands = [], google = [];
@@ -34,10 +34,72 @@ function server(placeValue) {
   };
   const run = async (action, extra = {}) => {
     const res = response();
-    await tripHandler({ method: 'POST', url: '/api/trip?id=hours-sidecar', query: { id: 'hours-sidecar' }, headers: { cookie: 'tokyo_trip_session=alice-token' }, body: { action, ...extra } }, res);
+    await tripHandler({ method: 'POST', url: `/api/trip?id=${tripId}`, query: { id: tripId }, headers: { cookie: 'tokyo_trip_session=alice-token' }, body: { action, ...extra } }, res);
     return res;
   };
   return { run, store, commands, google, key, storedTrip, exactId };
+}
+
+// Production trace (2026-09-22): direct ID matches canonical, addressExcluded=true,
+// selected 9/24 exact 09:00, sidecar miss, no hydration/windows/warning. The trace
+// proves the aggregate exclusion, not which individual address flag set it.
+// Exercise each supported cause rather than pretending a private flag was observed.
+for (const exclusion of [{ addressProvider: '自行確認地址' }, { manualLocation: true, detailsLocked: true },
+  { coordinateLocation: true }, { category: 'premise' }]) {
+  test(`production entry regression: hours-only resolution survives Detail exclusion ${Object.keys(exclusion).join('/')}`, async t => {
+    const previousFetch = globalThis.fetch, previousEnv = { ...process.env };
+    t.after(() => { globalThis.fetch = previousFetch; process.env = previousEnv; });
+    const p = place('ueno', { ...exclusion, sourceUrl: 'https://www.google.com/maps/search/?api=1&query_place_id=google-ueno',
+      openingHours: 'display-only', note: 'preserve', photosLoaded: true });
+    const s = server(p, 'b');
+    s.storedTrip.endDate = '2026-09-26';
+    s.store.set(s.key, JSON.stringify(s.storedTrip));
+    const beforeServer = s.store.get(s.key);
+    const b = await boot(JSON.parse(beforeServer));
+    b.state.selectedDate = '9/20'; await b.run('setTab("itinerary")'); b.run('setPlacePoolOpen(true)');
+    const beforeClient = JSON.stringify(b.run('sharedTripPayload()'));
+    const beforeUndo = b.run('JSON.stringify([undoSnapshot, undoExpectedRevision, undoBaseline])');
+    assert.equal(b.run('isAddressDetailPlace(state.places[0])'), true);
+    await b.run('ensurePlaceDetails(state.places[0])');
+    assert.equal(b.requests.filter(r => r.url === '/api/places').length, 0, 'full Detail protection remains');
+    b.run('togglePlacePoolSelection("app:synthetic-ueno")');
+    b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/24", mode: "exact", exactTime: "09:00" }])');
+    const requests = action => b.requests.filter(r => JSON.parse(r.options.body || '{}').action === action);
+    assert.equal(requests('hydrateOpeningHours').length, 1, 'production exclusion must not suppress hours-only hydration');
+    // Use the actual serialized API response, real exact parser, sidecar write/read,
+    // and real calendar normalizer. Only Redis transport and Google transport are mocked.
+    const redisFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => String(url).includes('redis.test') ? redisFetch(url, options)
+      : (s.google.push({ mask: options.headers['X-Goog-FieldMask'] }), new Response(JSON.stringify({ id: p.placeId,
+        regularOpeningHours: { periods: [{ open: { day: 4, hour: 17, minute: 30 }, close: { day: 5, hour: 0, minute: 0 } }] } })));
+    const result = await s.run('hydrateOpeningHours', JSON.parse(requests('hydrateOpeningHours')[0].options.body));
+    assert.equal(result.payload.status, 'known');
+    assert.equal(result.payload.regularOpeningPeriods.placeId, p.placeId);
+    assert.deepEqual(result.payload.openingWindows['9/24'], [{ startMinute: 1050, endMinute: 1440 }]);
+    assert.equal(s.google[0].mask, 'id,regularOpeningHours');
+    await b.reply(requests('hydrateOpeningHours')[0], JSON.parse(JSON.stringify(result.payload)));
+    assert.equal(b.run('placePoolHoursConflicts.size'), 1);
+    for (const markup of [b.app.innerHTML, b.run('placePoolSelectedColumnMarkup(placePoolViewModel())')]) {
+      assert.match(markup, /營業時間不符合/); assert.match(markup, /09:00/);
+    }
+    assert.match(b.app.innerHTML, /有 1 個地點/); assert.match(b.app.innerHTML, /data-pool-cta disabled/);
+    await b.run('requestPlacePoolPlan()'); assert.equal(requests('plan').length, 0);
+    b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/24", mode: "exact", exactTime: "17:30" }])');
+    assert.equal(b.run('placePoolHoursConflicts.size'), 0);
+    b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/25", mode: "exact", exactTime: "17:30" }])');
+    assert.equal(b.run('placePoolHoursConflicts.size'), 1, 'correct closed weekday');
+    assert.equal(requests('hydrateOpeningHours').length, 1, 'date/time edits reuse normalized windows');
+    await s.run('hydrateOpeningHours', { ref: 'app:synthetic-ueno' });
+    assert.equal(s.google.length, 1, 'sidecar round-trip avoids Google');
+    process.env.AI_PLANNER_MODEL = 'gpt-5.6-luna'; process.env.OPENAI_API_KEY = 'test-key';
+    const outside = await s.run('plan', { expectedRevision: 1, selected: [{ ref: 'app:synthetic-ueno',
+      dateOptions: [{ dayKey: '9/24', mode: 'exact', exactTime: '09:00' }] }] });
+    assert.equal(outside.payload.reason, 'OPENING_HOURS_CONFLICT');
+    assert.equal(s.google.length, 1, 'server preflight calls neither Google nor model');
+    assert.equal(s.store.get(s.key), beforeServer, 'Trip including revision/itinerary unchanged');
+    assert.equal(JSON.stringify(b.run('sharedTripPayload()')), beforeClient, 'hours do not leak into Trip serialization');
+    assert.equal(b.run('JSON.stringify([undoSnapshot, undoExpectedRevision, undoBaseline])'), beforeUndo);
+  });
 }
 
 test('sidecar uses a versioned hashed key and stores only the structured record', async () => {

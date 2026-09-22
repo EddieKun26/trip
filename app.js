@@ -5633,7 +5633,6 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
     activeLeafletMap?.remove();
     activeLeafletMap = null;
   }
-  schedulePlannerHoursTrace();
 }
 
 function placeDetailKey(place) {
@@ -5887,92 +5886,6 @@ const plannerHoursFailures = new Set();
 let plannerHoursActive = 0;
 const PLANNER_HOURS_CONCURRENCY = 3;
 
-// Temporary production-truth observation. In-memory only, coalesced, bounded and best effort.
-// It never changes selection, hours, conflict state, persistence or the Planner request body.
-let plannerHoursTraceSession = null;
-let plannerHoursTraceTimer = null;
-function currentPlannerHoursTrace() {
-  const scope = `${state.tripId}:${tripContextVersion}`;
-  if (!plannerHoursTraceSession || plannerHoursTraceSession.scope !== scope) {
-    plannerHoursTraceSession = { scope, id: Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-      count: 0, last: "", attempts: new Map(), checks: new Set(), startAttempted: false, planSent: false };
-  }
-  return plannerHoursTraceSession;
-}
-function plannerHoursTraceHeader() {
-  return { "x-planner-hours-trace": currentPlannerHoursTrace().id };
-}
-function schedulePlannerHoursTrace() {
-  try {
-    if (!state.placePool?.open || !canEdit()) return;
-    window.clearTimeout(plannerHoursTraceTimer);
-    plannerHoursTraceTimer = window.setTimeout(() => { void sendPlannerHoursTrace(); }, 300);
-  } catch { /* Telemetry cannot affect the product path. */ }
-}
-async function sendPlannerHoursTrace() {
-  try {
-    if (!state.placePool?.open || !canEdit()) return;
-    const session = currentPlannerHoursTrace(), tripId = state.tripId;
-    if (session.count >= 40) return;
-    const entries = placePoolSelectedEntries();
-    const nodes = Array.from(app.querySelectorAll?.("[data-pool-anchor-key]") || []);
-    const visible = node => Boolean(node && node.getClientRects?.().length && window.getComputedStyle(node).visibility !== "hidden"
-      && window.getComputedStyle(node).opacity !== "0");
-    const candidates = entries.slice(0, 20).map(entry => {
-      const id = detailGooglePlaceId(entry.place), record = entry.place.regularOpeningPeriods;
-      const options = placePoolConstraintFor(entry.key), windows = plannerHoursWindows(entry);
-      const cache = sessionOpeningWindows.get(`${tripId}:${id}`);
-      const main = nodes.find(node => node.dataset.poolAnchorKey === entry.key && node.classList.contains("place-pool-item"));
-      const selected = nodes.find(node => node.dataset.poolAnchorKey === entry.key && node.classList.contains("place-pool-selected-item"));
-      const mainWarning = main?.querySelector(".place-pool-hours-warning"), selectedWarning = selected?.querySelector(".place-pool-hours-warning");
-      const attempt = session.attempts.get(entry.key);
-      const valid = structuredHoursFetched(entry.place, id);
-      return { ref: entry.key, id, client: {
-        selected: true, hasDirectPlaceId: Boolean(entry.place.placeId), hasSourceUrl: Boolean(entry.place.sourceUrl),
-        trustedSourceUrl: isGoogleMapsUrl(entry.place.sourceUrl), recoveredTrustedGoogleId: Boolean(id && !entry.place.placeId),
-        addressExcluded: isAddressDetailPlace(entry.place), hydrationRequired: plannerHoursNeedsResolution(entry),
-        hydrationStarted: Boolean(attempt), pending: plannerHoursRequests.has(`${tripId}:${id}`),
-        hydrationResult: attempt?.result || (!id ? "no_identity" : "not_needed"), response: attempt?.response || {},
-        hasRegularOpeningPeriods: Boolean(record), recordIdentityMatches: Boolean(id && record?.placeId === id),
-        effectiveStatus: valid ? record.status : "unknown", hasOpeningWindows: windows !== null,
-        calendarMatches: cache?.scope === plannerHoursScope(), activeCandidateReceived: Boolean(attempt?.response?.accepted && valid),
-        dateOptions: options, draftDateOptions: pendingPoolConstraint?.key === entry.key ? Array.from(pendingPoolConstraint.dates, ([dayKey, option]) => ({ dayKey, ...option })) : [],
-        constraintEditorOpen: pendingPoolConstraint?.key === entry.key,
-        conflictEvaluable: Boolean(windows && options.length && options.every(option => Array.isArray(windows[option.dayKey]))),
-        conflictComputed: session.checks.has(entry.key), clientConflict: placePoolHoursConflicts.has(entry.key), mainMounted: Boolean(main), selectedMounted: Boolean(selected),
-        mainWarningMounted: Boolean(mainWarning), selectedWarningMounted: Boolean(selectedWarning),
-        mainWarningVisible: visible(mainWarning), selectedWarningVisible: visible(selectedWarning) } };
-    });
-    const cta = app.querySelector?.("[data-pool-cta]");
-    const ui = { selectedCount: entries.length, conflictCount: placePoolHoursConflicts.size,
-      summaryMounted: Boolean(app.querySelector?.(".place-pool-cta-hint")?.textContent.includes("不符合營業時間")),
-      ctaMounted: Boolean(cta), ctaDisabled: cta?.disabled === true, narrowViewport: window.innerWidth <= 760,
-      drawerOpen: placePoolDrawerIsOpen(), previewMounted: Boolean(app.querySelector?.("[data-place-pool-preview]")),
-      otherTimeEditorOpen: Boolean(pendingTimePicker), activeDay: state.selectedDate,
-      plannerStartAttempted: session.startAttempted, planSent: session.planSent };
-    const signature = JSON.stringify({ candidates, ui });
-    if (signature === session.last) return;
-    session.last = signature; session.count += 1;
-    // Only a hash crosses the diagnostic boundary for client Google identity; refs are already
-    // the existing authenticated hydration/Plan API input and are hashed again before logging.
-    const safeRows = await Promise.all(candidates.map(async ({ ref, id, client }) => {
-      let identityHash = null;
-      if (id && typeof TextEncoder !== "undefined" && crypto.subtle) {
-        const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id));
-        identityHash = Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, "0")).join("").slice(0, 16);
-      }
-      return { ref, client: { ...client, identityHash } };
-    }));
-    if (plannerHoursTraceSession !== session || state.tripId !== tripId) return;
-    const controller = new AbortController(), timer = window.setTimeout(() => controller.abort(), 5000);
-    try {
-      await fetch(`/api/trip?id=${encodeURIComponent(tripId)}`, { method: "POST", cache: "no-store", signal: controller.signal,
-        headers: { "Content-Type": "application/json", "x-planner-hours-trace": session.id },
-        body: JSON.stringify({ action: "plannerHoursTrace", candidates: safeRows, ui }) });
-    } finally { window.clearTimeout(timer); }
-  } catch { /* No retry, toast, persistence or product failure from telemetry. */ }
-}
-
 function plannerHoursScope() { return `${state.tripId}:${state.startDate}:${state.endDate}`; }
 
 function acceptOpeningHours(placeId, record, tripId, windows, calendar, scope = plannerHoursScope()) {
@@ -5994,29 +5907,21 @@ function acceptOpeningHours(placeId, record, tripId, windows, calendar, scope = 
 function pumpPlannerHoursQueue() {
   while (plannerHoursActive < PLANNER_HOURS_CONCURRENCY && plannerHoursQueue.length) {
     const task = plannerHoursQueue.shift();
-    const traceSession = currentPlannerHoursTrace();
-    traceSession.attempts.set(task.ref, { result: "pending" });
     plannerHoursActive += 1;
     (async () => {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), 20000);
       try {
         const response = await fetch(`/api/trip?id=${encodeURIComponent(task.tripId)}`, {
-          method: "POST", headers: { "Content-Type": "application/json", "x-planner-hours-trace": traceSession.id }, cache: "no-store",
+          method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
           signal: controller.signal,
           body: JSON.stringify({ action: "hydrateOpeningHours", ref: task.ref }),
         });
         const payload = await response.json().catch(() => ({}));
-        const accepted = response.ok && acceptOpeningHours(task.placeId, payload.regularOpeningPeriods, task.tripId, payload.openingWindows, payload.windowCalendar, task.scope);
-        traceSession.attempts.set(task.ref, { result: accepted ? payload.regularOpeningPeriods.status : "transient_failure", response: {
-          ok: response.ok, hasRecord: Boolean(payload.regularOpeningPeriods), hasWindows: Boolean(payload.openingWindows),
-          hasCalendar: Boolean(payload.windowCalendar), identityMatches: payload.regularOpeningPeriods?.placeId === task.placeId,
-          calendarMatches: payload.windowCalendar?.startDate === state.startDate && payload.windowCalendar?.endDate === state.endDate, accepted } });
-        if (!accepted) {
+        if (!response.ok || !acceptOpeningHours(task.placeId, payload.regularOpeningPeriods, task.tripId, payload.openingWindows, payload.windowCalendar, task.scope)) {
           if (state.tripId === task.tripId) plannerHoursFailures.add(task.placeId);
         }
       } catch {
-        traceSession.attempts.set(task.ref, { result: "transient_failure" });
         if (state.tripId === task.tripId) plannerHoursFailures.add(task.placeId);
       } finally {
         window.clearTimeout(timer);
@@ -6025,7 +5930,6 @@ function pumpPlannerHoursQueue() {
         task.resolve();
         pumpPlannerHoursQueue();
         if (state.tripId === task.tripId && state.placePool.open) {
-          schedulePlannerHoursTrace();
           refreshPlacePoolHoursConflicts();
           render({ preserveScroll: true, filterOnly: true });
           if (pendingPoolConstraint?.key === task.ref) rerenderPoolConstraintDialog();
@@ -6035,9 +5939,17 @@ function pumpPlannerHoursQueue() {
   }
 }
 
+// Hours-only enrichment owns no address/photo/detail fields. A trusted current Google
+// identity remains eligible even when full Detail refresh is locked or address-based.
+// Keep identity validation aligned with the authenticated hours-only server action.
+function plannerHoursGooglePlaceId(place) {
+  const id = detailGooglePlaceId(place);
+  return /^[A-Za-z0-9_-]{1,180}$/.test(id) ? id : "";
+}
+
 function hydratePlannerPlaceHours(entry, requireWindows = false) {
-  const placeId = detailGooglePlaceId(entry?.place);
-  if (!placeId || isAddressDetailPlace(entry.place)) return Promise.resolve();
+  const placeId = plannerHoursGooglePlaceId(entry?.place);
+  if (!placeId) return Promise.resolve();
   const tripId = state.tripId;
   const currentWindows = sessionOpeningWindows.get(`${tripId}:${placeId}`);
   const hasCurrentWindows = currentWindows?.scope === plannerHoursScope();
@@ -6070,8 +5982,8 @@ function plannerHoursWindows(entry) {
 }
 
 function plannerHoursNeedsResolution(entry) {
-  const placeId = detailGooglePlaceId(entry?.place);
-  if (!placeId || isAddressDetailPlace(entry.place)) return false;
+  const placeId = plannerHoursGooglePlaceId(entry?.place);
+  if (!placeId) return false;
   if (plannerHoursRequests.has(`${state.tripId}:${placeId}`)) return true;
   if (!structuredHoursFetched(entry.place, placeId)) return true;
   return entry.place.regularOpeningPeriods.status === "known" && placePoolConstraintFor(entry.key).length > 0 && !plannerHoursWindows(entry);
@@ -6104,7 +6016,6 @@ function refreshPlacePoolHoursConflicts() {
   placePoolHoursConflicts.clear();
   for (const entry of placePoolSelectedEntries()) {
     const conflict = plannerHoursConflict(entry);
-    currentPlannerHoursTrace().checks.add(entry.key);
     if (conflict) placePoolHoursConflicts.set(entry.key, conflict);
   }
   return placePoolHoursConflicts;
@@ -9195,14 +9106,12 @@ function placePoolPlannerSnapshot() {
 }
 
 async function postPlacePoolPlan(snapshot) {
-  currentPlannerHoursTrace().planSent = true;
-  schedulePlannerHoursTrace();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PLACE_POOL_PLANNER_TIMEOUT_MS);
   try {
     const response = await fetch(`/api/trip?id=${encodeURIComponent(snapshot.tripId)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...plannerHoursTraceHeader() },
+      headers: { "Content-Type": "application/json" },
       cache: "no-store",
       signal: controller.signal,
       body: JSON.stringify({
@@ -9248,8 +9157,6 @@ function placePoolPlannerErrorMessage(result, snapshot) {
 // selection; 重新規劃 replays the Preview's own snapshot so later edits can never leak in.
 let plannerHoursStartBusy = false;
 async function requestPlacePoolPlan({ regenerate = false } = {}) {
-  currentPlannerHoursTrace().startAttempted = true;
-  schedulePlannerHoursTrace();
   const planner = placePoolPlannerState();
   if (plannerHoursStartBusy || ["loading", "applying"].includes(planner.status)) return;
   plannerHoursStartBusy = true;
@@ -9560,6 +9467,17 @@ function plannerHoursWarningMarkup(conflict) {
   return `<div class="place-pool-hours-warning" role="alert"><strong>營業時間不符合</strong>${conflict.exactTime ? `<p>你指定：${escapeHtml(conflict.exactTime)}</p>` : ""}<p>當日營業：${escapeHtml(labels.join("、") || "休息")}</p><p>請修改日期或時間。</p></div>`;
 }
 
+function plannerCandidateHoursMarkup(entry) {
+  const conflict = placePoolHoursConflicts.get(entry.key);
+  if (conflict) return plannerHoursWarningMarkup(conflict);
+  const id = plannerHoursGooglePlaceId(entry.place);
+  if (!id || !placePoolConstraintFor(entry.key).some(option => option.mode === "exact")) return "";
+  const unavailable = structuredHoursFetched(entry.place, id) && entry.place.regularOpeningPeriods.status === "unavailable";
+  const failed = plannerHoursFailures.has(id);
+  if (!unavailable && !failed) return "";
+  return `<div class="place-pool-hours-warning place-pool-hours-notice" role="status"><strong>${unavailable ? "營業時間無法確認" : "營業時間暫時無法確認"}</strong><p>規劃時不會將此地點的營業時間作為硬性限制，請自行確認。</p></div>`;
+}
+
 // mainEntries is the full filtered pool, unchanged by selection: a selected Place is never
 // removed from it, never reordered by it, only visually marked. selectedEntries splits out of
 // the same getUnscheduledPlaces() stable order (never click/selection time) from the *unfiltered*
@@ -9641,7 +9559,7 @@ function placePoolCardMarkup({ key, place, voteCount }, { docked, selected }) {
               ${handle}
               ${constraintButton}
             </div>
-            ${selected ? plannerHoursWarningMarkup(placePoolHoursConflicts.get(key)) : ""}
+            ${selected ? plannerCandidateHoursMarkup({ key, place }) : ""}
           </li>`;
 }
 
@@ -9662,7 +9580,7 @@ function placePoolSelectedCompactCardMarkup({ key, place }) {
               <span class="place-pool-selected-name">${escapeHtml(place.name)}</span>
               <span class="place-pool-selected-constraint">${escapeHtml(placePoolConstraintSummaryText(key, "summary"))}</span>
             </button>
-            ${plannerHoursWarningMarkup(placePoolHoursConflicts.get(key))}
+            ${plannerCandidateHoursMarkup({ key, place })}
           </li>`;
 }
 
@@ -9940,7 +9858,6 @@ function openPlacePoolConstraintSheet(key) {
 }
 
 function rerenderPoolConstraintDialog() {
-  schedulePlannerHoursTrace();
   if (!pendingPoolConstraint) return;
   const place = state.places.find((candidate) => placeDetailKey(candidate) === pendingPoolConstraint.key);
   if (!place) return closeSheet();
@@ -10037,7 +9954,6 @@ function updatePoolConstraintWheelColumn(column) {
     const options = [...pendingPoolConstraint.dates.entries()].map(([dayKey, rule]) => ({ dayKey, ...rule }));
     warning.innerHTML = plannerHoursWarningMarkup(selected ? plannerHoursConflict(selected, options) : null);
   }
-  schedulePlannerHoursTrace();
 }
 
 function confirmPlacePoolConstraint() {

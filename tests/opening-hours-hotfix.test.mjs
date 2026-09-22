@@ -14,8 +14,8 @@ const response = { status: 'known', regularOpeningPeriods: record, openingWindow
   windowCalendar: { startDate: '2026-09-20', endDate: '2026-09-23' } };
 const requests = (b, action) => b.requests.filter(r => JSON.parse(r.options.body || '{}').action === action);
 
-async function selected({ click = true, embedded = false, category = '景點' } = {}) {
-  const b = await boot(trip([place('ueno', { category, openingHours: '17:30–00:00',
+async function selected({ click = true, embedded = false, category = '景點', extra = {} } = {}) {
+  const b = await boot(trip([place('ueno', { category, openingHours: '17:30–00:00', ...extra,
     ...(embedded ? { regularOpeningPeriods: record } : {}) })]));
   b.state.selectedDate = '9/20';
   await b.run('setTab("itinerary")');
@@ -24,6 +24,53 @@ async function selected({ click = true, embedded = false, category = '景點' } 
   else b.run('placePoolSelectedKeys().add("app:synthetic-ueno")');
   return b;
 }
+
+test('current-selection barrier resolves an address-excluded Google candidate without a selection event', async () => {
+  const b = await selected({ click: false, extra: { addressProvider: 'address_geocode', detailsLocked: true } });
+  // Restore the committed constraint directly: neither click nor editor events start hydration.
+  b.run('placePoolPlanningConstraints().set("app:synthetic-ueno", [{ dayKey: "9/20", mode: "exact", exactTime: "09:00" }])');
+  const planning = b.run('requestPlacePoolPlan()');
+  assert.equal(requests(b, 'hydrateOpeningHours').length, 1);
+  await b.reply(requests(b, 'hydrateOpeningHours')[0], response); await planning;
+  assert.equal(requests(b, 'plan').length, 0);
+  assert.match(b.app.innerHTML, /營業時間不符合/);
+});
+
+for (const status of ['unavailable', 'transient_failure']) {
+  test(`${status} is visibly nonblocking on both selected-candidate surfaces after exact resolution`, async () => {
+    const b = await selected({ extra: { addressProvider: 'address_geocode', detailsLocked: true } });
+    b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "exact", exactTime: "09:00" }])');
+    const payload = status === 'unavailable' ? { ...response, status, regularOpeningPeriods: { ...record, status, periods: [] }, openingWindows: null } : { error: 'PLACE_DETAILS_429' };
+    await b.reply(requests(b, 'hydrateOpeningHours')[0], payload, status === 'unavailable' ? 200 : 502);
+    const title = status === 'unavailable' ? /營業時間無法確認/ : /營業時間暫時無法確認/;
+    for (const markup of [b.app.innerHTML, b.run('placePoolSelectedColumnMarkup(placePoolViewModel())')]) {
+      assert.match(markup, title); assert.match(markup, /role="status"/); assert.doesNotMatch(markup, /營業時間不符合/);
+    }
+    assert.equal(b.run('placePoolHoursConflicts.size'), 0);
+    assert.doesNotMatch(b.app.innerHTML, /data-pool-cta disabled/);
+    const planning = b.run('requestPlacePoolPlan()');
+    if (status === 'transient_failure') {
+      assert.equal(requests(b, 'hydrateOpeningHours').length, 2, 'retry eligible');
+      await b.reply(requests(b, 'hydrateOpeningHours')[1], payload, 502);
+    } else assert.equal(requests(b, 'hydrateOpeningHours').length, 1, 'authoritative unavailable does not refetch');
+    assert.equal(requests(b, 'plan').length, 1);
+    await b.reply(requests(b, 'plan')[0], { error: 'TEST' }, 422); await planning;
+    b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "preferred", preferredPeriods: ["morning"] }])');
+    assert.doesNotMatch(b.run('placePoolSelectedColumnMarkup(placePoolViewModel())'), title);
+    b.run('togglePlacePoolSelection("app:synthetic-ueno")');
+    assert.doesNotMatch(b.app.innerHTML, /place-pool-hours-notice/);
+  });
+}
+
+test('address-only/custom identities remain naturally unknown, with no Google request or hours notice', async () => {
+  for (const placeId of ['', 'manual-address-fixture', 'coordinate-fixture', 'bad/id']) {
+    const b = await selected({ extra: { placeId, sourceUrl: '', addressProvider: 'manual', manualLocation: true, detailsLocked: true } });
+    b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "exact", exactTime: "09:00" }])');
+    assert.equal(requests(b, 'hydrateOpeningHours').length, 0);
+    assert.equal(b.run('placePoolHoursConflicts.size'), 0);
+    assert.doesNotMatch(b.app.innerHTML, /place-pool-hours-notice|營業時間不符合/);
+  }
+});
 
 test('released bypass: already selected legacy Place must hydrate before Planner submission', async () => {
   const b = await selected({ click: false });

@@ -2,20 +2,21 @@
 
 ## Phase 2A.6 — Production-truth stabilization (2026-09-22)
 
-- [x] Record third user production failure. Correct earlier overclaim: legacy URL identity regression was proven with fixtures, not proven as the real Virtu failure.
-- [x] Inspect existing production logs: one uncorrelated exact_persisted/stored/known/windows event; no ai-planner event in deployment-scoped 24 hours. Insufficient for a real root cause.
-- [x] Add bounded authenticated diagnostic trace only; 8 diagnostic tests and full 931/931 regression, no failures/skips. Preserve all product semantics.
-- [ ] After diagnostic deployment READY: USER opens Planner, sets Virtu exact 09:00, selects it, waits, attempts Planner once if allowed, replies DONE. Agent never operates UI.
-- [ ] Read correlated production truth; add the actual root-cause regression and smallest fix. Implement final known/unavailable/transient visible state contract only after truth is established. Reduce temporary diagnostics for final release.
-- [ ] Final engineering Gate and functional release, then USER acceptance PASS. Phase 2A.6 remains NOT COMPLETE until acceptance passes.
-- [ ] Phase 2A.7 Map — NOT STARTED. Phase 2C Discovery — NOT STARTED.
+- [x] Record three production acceptance failures; distinguish fixture evidence from actual production truth.
+- [x] Diagnostic-only dd178242 deployed; USER performed smoke and supplied screenshots. Correlated trace confirmed direct identity + exact 9/24 09:00, address exclusion, zero hydration, sidecar miss, no windows/conflict and enabled CTA.
+- [x] Add actual exclusion-path failing regression; separate hours-only eligibility on client/server while keeping full Detail protections. Add known/unavailable/transient visible state tests and retain current-selection barrier.
+- [x] Remove temporary diagnostics. Focused 138/138, full 931/931, zero failures/skips; non-GUI static/fingerprint/API/privacy/artifact gate PASS.
+- [ ] Git fast-forward functional release after fresh exact dd178242 baseline reconciliation; verify exact commit production READY.
+- [ ] USER final iPhone acceptance: select at 9/24 exact 09:00 without opening Detail; known illegal shows persistent warning in main/drawer and blocks; unavailable/transient shows clear nonblocking notice. For known hours, legal time clears and returning to illegal time recreates warning without another Google request.
+- [ ] Phase 2A.6 COMPLETE only after USER acceptance PASS. Engineering PASS is not acceptance.
+- [ ] Phase 2A.7 Map — NOT STARTED. Phase 2C Discovery — NOT STARTED. Planner V2/External AI — NOT STARTED.
 
 ## Phase 2A.6 — Opening Hours Production Hotfix 2 (2026-09-21)
 
-- [x] Reproduce the second production no-warning failure with the real Planner selected-candidate/render path: a legacy Google Maps `sourceUrl` identity with no direct `placeId`, known mocked hours and exact 09:00 started no hydration on the released client.
+- [x] Reproduce a fixture-level legacy-identity defect with the real Planner selected-candidate/render path (not the later production-confirmed cause): a legacy Google Maps `sourceUrl` identity with no direct `placeId`, known mocked hours and exact 09:00 started no hydration on the released client.
 - [x] Unify the existing explicit legacy Google identity across selection hydration, current-selection barrier, active state, sidecar read/write, server Plan/Apply overlay and exact response binding. Preserve the three-layer contract, 30-minute minimum, no display parser/category heuristic, sidecar-only persistence and Plan/Apply external-call boundaries.
 - [x] Non-GUI gate: targeted 144/144; full regression 923/923; zero failures/skips; syntax/diff/API/fingerprint/migration/model-contract/secret/artifact checks passed.
-- [ ] User iPhone production smoke after READY: set exact 09:00, select Virtu without opening Detail, wait for hours resolution and expect persistent `營業時間不符合` plus blocked Planner; choose a legal time and expect warning clear/Planner enabled; return to 09:00 and expect the warning immediately without another Google fetch.
+- [x] Historical user smoke FAILED; superseded by the production-truth round above. Original smoke: set exact 09:00, select Virtu without opening Detail, wait for hours resolution and expect persistent `營業時間不符合` plus blocked Planner; choose a legal time and expect warning clear/Planner enabled; return to 09:00 and expect the warning immediately without another Google fetch.
 - [ ] Phase 2A.7 Map — NOT STARTED.
 - [ ] Phase 2C Discovery / Tourist Recommendations — NOT STARTED.
 
@@ -23,14 +24,14 @@
 
 - [x] Reproduce the released current-selection bypass and implement the three-layer correction: selection hydration with immediate candidate conflict, exact-time/date revalidation using the existing 30-minute rule, and a mandatory current-selection Planner-start barrier.
 - [x] Preserve sidecar-only enrichment, server authority, transient unknown behavior, zero Trip/revision/Undo mutation, Plan zero-Google/zero-write, Apply zero-Google/zero-OpenAI, Phase 2A.5 semantics and Phase 2B Draft/Apply. Non-GUI gate 919/919; no skips.
-- [ ] User iPhone production smoke after READY: without opening Detail, select Virtu at exact 09:00; after hours resolution expect `營業時間不符合` and blocked Planner, then choose a clearly valid time and expect the warning to clear and Preview/Draft to generate.
+- [x] Historical user smoke FAILED; superseded by the production-truth round above. Original smoke: without opening Detail, select Virtu at exact 09:00; after hours resolution expect `營業時間不符合` and blocked Planner, then choose a clearly valid time and expect the warning to clear and Preview/Draft to generate.
 - [ ] Phase 2A.7 Map — NOT STARTED.
 - [ ] Phase 2C Discovery / Tourist Recommendations — NOT STARTED.
 
 ## Phase 2A.6 — Planner Opening Hours Coverage (2026-09-20)
 
 - [x] Narrow Redis sidecar, legacy embedded fallback, authenticated selected-Place exact hydration, Detail hours-only compatibility, client request deduplication/concurrency cap, Planner waiting, Plan/Apply read overlay and non-GUI engineering regression.
-- [ ] User iPhone production smoke after READY: without opening Detail, select an old Google Place previously missed by Planner; after 確認營業時間 settles, an exact time clearly outside regular hours must show 營業時間不符合 before Preview, then an inside time should produce Preview/Draft.
+- [x] Historical user smoke FAILED; superseded by the production-truth round above. Original smoke: without opening Detail, select an old Google Place previously missed by Planner; after 確認營業時間 settles, an exact time clearly outside regular hours must show 營業時間不符合 before Preview, then an inside time should produce Preview/Draft.
 - [ ] Phase 2C — Discovery / Tourist Recommendations. NOT IMPLEMENTED.
 
 ## Completed
