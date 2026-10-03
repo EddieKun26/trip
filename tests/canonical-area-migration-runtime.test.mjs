@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import mig from '../lib/canonical-travel-migration.js';
+import canonical from '../lib/canonical-travel-catalog.js';
 
 const CATALOG = {
   shibuya: { travelAreaKey: 'shibuya' }, harajuku: { travelAreaKey: 'harajuku' },
@@ -16,12 +17,12 @@ const CATALOG = {
 };
 
 const automatic = key => ({
-  travelAreaKey: key, travelAreaZh: key, travelAreaLocal: key, travelAreaResolved: true,
+  travelAreaKey: key, travelAreaZh: canonical.catalog[key].travelAreaZh, travelAreaLocal: canonical.catalog[key].travelAreaLocal, travelAreaResolved: true,
   travelAreaManuallySet: false, travelAreaSource: 'automatic', travelAreaResolver: 'JP_TRAVEL_AREA',
   travelAreaResolutionVersion: 5, travelAreaResolutionStatus: 'resolved', travelAreaResolutionError: '',
 });
 const manual = key => ({
-  travelAreaKey: key, travelAreaZh: key, travelAreaLocal: key, travelAreaResolved: true,
+  travelAreaKey: key, travelAreaZh: canonical.catalog[key].travelAreaZh, travelAreaLocal: canonical.catalog[key].travelAreaLocal, travelAreaResolved: true,
   travelAreaManuallySet: true, travelAreaSource: 'manual', travelAreaResolver: 'MANUAL',
   travelAreaResolutionVersion: 5, travelAreaResolutionStatus: 'resolved', travelAreaResolutionError: '',
 });

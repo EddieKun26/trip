@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 function functionSource(name) {
   const start = source.search(new RegExp(`(?:async )?function ${name}\\(`));
   assert.ok(start >= 0, name);
@@ -34,7 +34,7 @@ function frontend() {
     },
   };
   vm.createContext(context);
-  for (const name of ["placeTagsList", "placeTagEntries", "placeTagChip", "contentTagValues", "placeContentTags", "sanitizeContentTags", "persistedRestaurantTagValues", "restaurantTagValues", "inferredRestaurantTags", "isGoogleMapsUrl", "isSocialPlaceUrl", "normalizeGoogleMapsUrl", "validMapCoordinates", "coordinatesFromText", "coordinatesFromGoogleMapsUrl", "extractNameFromGoogleMapsUrl", "inferPlaceArea", "inferPlaceCategory", "inferPlaceKind", "knownGooglePlace", "addressImportLineParts", "groupPlainTextAddressCandidates", "googleMapsImportCandidates", "parseGoogleMapsList", "samePlaceIdentity", "importAlreadyExists", "importCanBeAdded", "importCandidateSelectionMode", "samePendingImportIdentity", "submittablePlaceImports", "importCandidateIdentity", "selectImportCandidate", "updateImportConfirmState", "renderImportPreview", "socialImportStats", "importPreviewMarkup", "enrichPlaceImportsFromApi", "expandGoogleMapsSharedLists", "promoteSinglePlaceImport", "placeAreaFromAddress", "finalizeCandidateForBatchAdd"]) {
+  for (const name of ["detailGooglePlaceId", "plannerHoursGooglePlaceId", "placeTagsList", "placeTagEntries", "placeTagChip", "contentTagValues", "placeContentTags", "sanitizeContentTags", "persistedRestaurantTagValues", "restaurantTagValues", "inferredRestaurantTags", "isGoogleMapsUrl", "isSocialPlaceUrl", "normalizeGoogleMapsUrl", "validMapCoordinates", "coordinatesFromText", "coordinatesFromGoogleMapsUrl", "extractNameFromGoogleMapsUrl", "inferPlaceArea", "inferPlaceCategory", "inferPlaceKind", "knownGooglePlace", "addressImportLineParts", "groupPlainTextAddressCandidates", "googleMapsImportCandidates", "parseGoogleMapsList", "samePlaceIdentity", "importAlreadyExists", "importCanBeAdded", "importCandidateSelectionMode", "samePendingImportIdentity", "submittablePlaceImports", "importCandidateIdentity", "selectImportCandidate", "updateImportConfirmState", "renderImportPreview", "socialImportStats", "importPreviewMarkup", "enrichPlaceImportsFromApi", "expandGoogleMapsSharedLists", "promoteSinglePlaceImport", "placeAreaFromAddress", "finalizeCandidateForBatchAdd"]) {
     vm.runInContext(functionSource(name), context);
   }
   return { c: context, button, calls, preview };

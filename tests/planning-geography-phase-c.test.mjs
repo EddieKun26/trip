@@ -94,9 +94,9 @@ test('Phase C cross-parent section is deterministic and never persists a fake gr
   assert.equal(geo(p).planningGroupKey, null); assert.equal(geo(p).sectionKey, 'candidates:ginza|shinjuku');
   assert.equal(geo(p).sectionLabel, '銀座 / 新宿');
   const b = await boot(trip([p]));
-  assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, 1);
+  assert.equal((b.app.innerHTML.match(/class="v3-area-section"/g) || []).length, 1);
   assert.equal((b.app.innerHTML.match(/<strong>Rukuma Tokyo<\/strong>/g) || []).length, 1);
-  assert.match(b.app.innerHTML, /group-title">⌖ 銀座 \/ 新宿/);
+  assert.match(b.app.innerHTML, /data-v3-area="needs-confirmation">請確認地區/);
   assert.equal(Object.hasOwn(b.state.places[0], 'planningGroupKey'), false);
 });
 
@@ -140,7 +140,7 @@ test('Phase C same-parent renders one card in its shared 大地區 and that sect
     b.context.filterKey = key; b.run('state.placeSectionFilter = filterKey; render()');
     assert.equal(b.state.placeSectionFilter, key);
     assert.equal((b.app.innerHTML.match(/<strong>Rukuma Tokyo<\/strong>/g) || []).length, 1);
-    assert.match(b.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+    assert.match(b.app.innerHTML, /data-v3-area="needs-confirmation">請確認地區/);
     assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip|惠比壽（恵比寿）<\/span>|代官山<\/span>/);
     assert.equal(b.run('matchesMapFilters(state.places[0])'), true);
   }
@@ -330,6 +330,7 @@ for (const [name, components, expected] of [['unique', [component('銀座')], 'r
     const b = await boot(trip([])); b.context.candidate = { ...candidate, canImport: true, selected: true, recognition: 'complete' };
     b.run('pendingPlaceImports = [candidate]; candidateDraft(importCandidateIdentity(candidate), candidate)');
     for (const submit of b.listeners.submit) await submit({ target: { id: 'import-places-form', values: { placeKind: 'auto' } }, preventDefault() {} });
+    if(expected==='ambiguous'){assert.equal(b.state.places.length,0);assertAmbiguous(b.run('candidateDraft(importCandidateIdentity(candidate), candidate)'));noPlaceRequests(b);return;}
     assert.equal(b.state.places.length, 1); assert.equal(geo(b.state.places[0]).status, expected);
     for (const key of ['id', 'placeId', 'latitude', 'longitude', 'formattedAddress', 'addressComponentsOriginal', 'photos', 'source', 'sourceUrl', 'sourceListingId', 'importMetadata']) {
       assert.deepEqual(json(b.state.places[0][key]), json(candidate[key]), key);
@@ -342,7 +343,7 @@ for (const [name, components, expected] of [['unique', [component('銀座')], 'r
 }
 
 test('Phase C no reliable candidate and raw Ebisunishi never manufacture ambiguity', () => {
-  for (const components of [[], [component('Unknown')], [component('Ebisunishi')], [component('恵比寿西'), component('渋谷区', 'locality')]]) {
+  for (const components of [[], [component('Unknown')], [component('Ebisunishi')]]) {
     const result = resolveTravelArea({ countryCode: 'JP', originalAddressComponents: components });
     assert.equal(result.travelAreaResolved, false); assert.equal(result.travelAreaKey, '');
     assert.equal(Object.hasOwn(result, 'travelAreaCandidateKeys'), false); assert.notEqual(result.travelAreaResolutionStatus, 'ambiguous');
@@ -402,9 +403,10 @@ test('Phase C candidate editor manual selection then Restore Automatic survives 
     assert.equal(b.state.places.length, 0);
   }
   for (const submit of b.listeners.submit) await submit({ target: { id: 'import-places-form', values: { placeKind: 'auto' } }, preventDefault() {} });
-  assertAmbiguous(b.state.places[0]);
+  assert.equal(b.state.places.length,0);
+  const retained=b.run('candidateDraft(importCandidateIdentity(candidate), candidate)');assertAmbiguous(retained);
   for (const key of ['placeId', 'latitude', 'longitude', 'formattedAddress', 'photos', 'sourceUrl', 'addressComponentsOriginal']) {
-    assert.deepEqual(json(b.state.places[0][key]), before[key], key);
+    assert.deepEqual(json(retained[key]), before[key], key);
   }
   noPlaceRequests(b);
 });

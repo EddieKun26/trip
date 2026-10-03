@@ -47,15 +47,15 @@ async function choose(b, filter, value) {
   const target = { value, dataset: { placesFilter: filter }, matches: selector => selector === '[data-places-filter]', closest: () => null };
   for (const listener of b.listeners.change) await listener({ target });
 }
-const visibleNames = b => [...b.app.innerHTML.matchAll(/<article class="place-row[\s\S]*?<strong>([^<]+)<\/strong>/g)].map(m => m[1]);
+const visibleNames = b => [...b.app.innerHTML.matchAll(/<article class="v3-place-row[\s\S]*?<strong>([^<]+)<\/strong>/g)].map(m => m[1]);
 function cardOf(html, name) {
   const index = html.indexOf(`<strong>${name}</strong>`);
   assert.ok(index >= 0, `missing card ${name}`);
   return html.slice(html.lastIndexOf('<article', index), html.indexOf('</article>', index));
 }
 function sectionOf(html, name) {
-  const marker = 'group-title">⌖ ', title = html.lastIndexOf(marker, html.indexOf(`<strong>${name}</strong>`));
-  return html.slice(title + marker.length, html.indexOf('</h2>', title));
+  const section=html.slice(html.lastIndexOf('<section class="v3-area-section"',html.indexOf(`<strong>${name}</strong>`)));
+  return section.match(/data-v3-area="[^"]+">([^<]+)/)?.[1].trim();
 }
 const tagChip = (type, text) => new RegExp(`data-place-tag-type="${type}"><span class="visually-hidden">[^<]*</span>${text}</span>`);
 const persistenceOrLookup = request => request.options?.method === 'PUT' || /\/api\/places|\/api\/place-photo|geocode|googleapis/.test(request.url);
@@ -118,21 +118,12 @@ test('UX dropdowns: the list renders 地點類別, 主要地區, 地區標籤 an
   assert.doesNotMatch(html, /places-filter-chips|place-kind-tabs|data-place-kind|data-area-tag-filter|data-place-area-filter|data-restaurant-tag-filter|<select[^>]*multiple/);
 });
 
-test('UX dropdowns: one client state per filter drives the list and both map layouts through one change handler', async () => {
-  assert.doesNotMatch(source, /placeAreaFilter|data-map-area|data-map-kind|data-place-kind|placesFilterChips|placeKindTabs|canonicalAreaChip/);
-  assert.equal((source.match(/data-places-filter="\$\{filter\}"/g) || []).length, 1, 'one dropdown renderer');
-  assert.match(source, /placesFilterDropdowns\(filters\)/);
-  assert.match(source, /const placeFilters = placesFilterDropdowns\(filterModel/);
-  const b = await bootPlaces();
-  await choose(b, 'section', GROUP_A);
-  assert.equal(b.state.placeSectionFilter, GROUP_A);
-  b.run('state.placesMode = "map"; render({ filterOnly: true })');
-  assert.equal(dropdown(b, 'section', 'map').selected, GROUP_A);
-  b.run('mapFullscreen = true; render({ filterOnly: true })');
-  assert.equal(dropdown(b, 'section', 'map-drawer').selected, GROUP_A);
-  assert.doesNotMatch(b.app.innerHTML, /惠比壽（恵比寿）/, 'map sidebar shows 主要地區, never the Canonical Area');
-  b.run('mapFullscreen = false; state.placesMode = "list"; render({ filterOnly: true })');
-  assert.equal(dropdown(b, 'section').selected, GROUP_A);
+test('V3 library optional filters keep client state across map and library navigation',async()=>{
+ const b=await bootPlaces(); await choose(b,'section',GROUP_A);
+ assert.equal(b.state.placeSectionFilter,GROUP_A);
+ b.run('setTab("map");setTab("places")');
+ assert.equal(dropdown(b,'section').selected,GROUP_A);
+ assert.ok(visibleNames(b).includes('Rukuma Tokyo'));
 });
 
 test('主要地區 options use sectionKey identity and sectionLabel in list order, never grouped Canonical Areas', async () => {
@@ -141,7 +132,7 @@ test('主要地區 options use sectionKey identity and sectionLabel in list orde
   const titles = [...b.app.innerHTML.matchAll(/group-title">⌖ ([^<]+)<\/h2>/g)].map(match => match[1]);
   assert.deepEqual(section.values.slice(1), [GROUP_A, 'area:shinjuku', GINZA, 'group:ikebukuro-otsuka', 'group:odaiba-toyosu']);
   assert.deepEqual(section.labels.slice(1), ['澀谷・原宿・惠比壽', '新宿', '銀座・築地・東京車站', '池袋・大塚', '台場・豐洲']);
-  assert.deepEqual(section.labels.slice(1), titles, 'dropdown order is the list section order');
+  assert.equal((b.app.innerHTML.match(/class="v3-area-section"/g)||[]).length,7,'V3 broad canonical sections are separate from optional regional filters');
   for (const key of ['ebisu', 'harajuku', 'yoyogi-park', 'ginza', 'otsuka', 'toyosu']) assert.ok(!section.values.includes(key), key);
   assert.ok(!section.labels.some(label => /惠比壽（恵比寿）|^原宿$|^代官山$/.test(label)));
   for (const value of section.values.slice(1)) assert.match(value, /^(?:group|area):/);
@@ -149,10 +140,10 @@ test('主要地區 options use sectionKey identity and sectionLabel in list orde
 
 test('Canonical Area still drives the 主要地區 section and list grouping is unchanged', async () => {
   const b = await bootPlaces();
-  assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), '澀谷・原宿・惠比壽');
+  assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), '惠比壽');
   assert.equal(sectionOf(b.app.innerHTML, 'Gyutan Lemon'), '新宿');
   assert.equal(sectionOf(b.app.innerHTML, 'Shinjuku Stay'), '新宿');
-  assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, 5);
+  assert.equal((b.app.innerHTML.match(/class="v3-area-section"/g) || []).length, 7);
   for (const probe of b.state.places) {
     b.context.probe = probe;
     assert.equal(b.run('planningSectionKey(probe)'), geo(probe).sectionKey);
@@ -162,7 +153,7 @@ test('Canonical Area still drives the 主要地區 section and list grouping is 
 test('Rukuma final card: ⌖ locality, category and real content tags only; no Canonical Area, no source metadata', async () => {
   const b = await bootPlaces();
   const card = cardOf(b.app.innerHTML, 'Rukuma Tokyo');
-  assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), '澀谷・原宿・惠比壽');
+  assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), '惠比壽');
   assert.deepEqual([...card.matchAll(/data-place-tag-type="(\w+)"><span class="visually-hidden">[^<]*<\/span>([^<]+)<\/span>/g)].map(m => `${m[1]}:${m[2]}`),
     ['area:惠比壽西', 'category:燒肉', 'content:內臟燒肉', 'content:晚餐候選', 'content:惠比壽一帶']);
   assert.doesNotMatch(card, /data-canonical-area-chip|canonical-area-chips|惠比壽（恵比寿）|旅遊分區|Google Maps 匯入/);
@@ -180,7 +171,7 @@ test('Place detail shows 主要地區 as its geography summary, typed tags, and 
   const html = b.sheet.innerHTML, start = html.indexOf('class="detail-area-tags"');
   const row = html.slice(start, html.indexOf('</section>', start));
   assert.match(row, tagChip('area', '惠比壽西')); assert.match(row, tagChip('category', '燒肉')); assert.match(row, tagChip('content', '晚餐候選'));
-  assert.match(html, /<p class="detail-geography-summary">主要地區：澀谷・原宿・惠比壽<\/p>/);
+  assert.match(html, /<p class="detail-geography-summary">主要地區：惠比壽<\/p>/);
   assert.doesNotMatch(html, /旅遊分區|惠比壽（恵比寿）|detail-legacy-area|Google Maps 匯入|class="highlight-list"|data-canonical-area-chip/);
   assert.equal(b.requests.filter(persistenceOrLookup).length, 0);
 });
@@ -322,7 +313,7 @@ test('Canonical Area editor stays a 旅遊分區 selector, regroups the Place an
     const form = bindFullEditor(b); edit(form, 'travelAreaKey', key); await submitFull(b, form);
     const saved = json(b.state.places[0]);
     assert.equal(saved.travelAreaKey, key); assert.equal(saved.travelAreaManuallySet, true);
-    assert.equal(geo(saved).sectionLabel, label); assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), label);
+    assert.equal(geo(saved).sectionLabel, label); assert.equal(sectionOf(b.app.innerHTML, 'Rukuma Tokyo'), key==='daikanyama'?'代官山':'新宿');
     assert.deepEqual(saved.areaTags, before.areaTags); assert.deepEqual(saved.highlights, before.highlights);
     assert.equal(Object.hasOwn(saved, 'contentTags'), false);
     assert.ok(!Object.values(saved).includes('shibuya-harajuku-ebisu'));
@@ -376,7 +367,7 @@ test('content-tag Save writes only contentTags, keeps highlights, areaTags, rest
   assert.deepEqual(json(reload.state.places[0].highlights), before.highlights);
   const reloadedCard = cardOf(reload.app.innerHTML, 'Rukuma Tokyo');
   assert.match(reloadedCard, tagChip('content', '原宿一帶')); assert.doesNotMatch(reloadedCard, /晚餐候選|Google Maps 匯入/);
-  assert.equal(sectionOf(reload.app.innerHTML, 'Rukuma Tokyo'), '澀谷・原宿・惠比壽');
+  assert.equal(sectionOf(reload.app.innerHTML, 'Rukuma Tokyo'), '惠比壽');
 });
 
 test('Phase C same-parent ambiguity matches its shared 主要地區 without treating a candidate as identity', async () => {

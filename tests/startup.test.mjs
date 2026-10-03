@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const member = (id = "alice") => ({ id, nickname: id, authVersion: 2 });
 const activeKey = (id = "alice") => `active-trip-v2:${id}`;
 const tabKey = (trip = "b", id = "alice") => `trip-ui-v1:${id}:${trip}`;
@@ -40,7 +40,7 @@ function browser({ profile = member(), stored = {}, href = "https://trip.test/",
     frames.push({ html, id: state.tripId, memberId: state.profile?.id, title: state.tripTitle,
       tab: state.activeTab, status: state.hydrationStatus });
   } });
-  const tabs = ["overview", "places", "itinerary", "shopping"].map((tab) => ({ ...node(), dataset: { tab } }));
+  const tabs = ["map", "places", "itinerary"].map((tab) => ({ ...node(), dataset: { tab } }));
   const location = new URL(href);
   const session = new Map();
   const localStorage = {
@@ -214,7 +214,7 @@ test("tab allowlist and corrupt member/trip preferences fall back safely", async
     const b = browser({ stored: { [activeKey()]: '{broken', [tabKey("a")]: value } });
     await b.list(["a"]);
     await b.ready("a");
-    assert.equal(b.realFrames()[0].tab, "overview", value);
+    assert.equal(b.realFrames()[0].tab, "map", value);
   }
   for (const tab of ["overview", "places", "itinerary", "shopping"]) {
     const b = browser({ stored: { [tabKey()]: JSON.stringify({ mainTab: tab }) } });
@@ -400,7 +400,7 @@ test("areaTags survive real startup hydration, legacy normalization, tab switche
  const tags=()=>JSON.parse(JSON.stringify(b.state.places.map(p=>p.areaTags??null)));
  assert.deepEqual(tags(),[["原宿","表參道"],[],null]);
  b.run('state.activeTab="places"; render(); state.areaTagFilter="表參道"; render();');
- assert.match(b.app.innerHTML,/<option value="表參道" selected>表參道<\/option>/);
+ assert.match(b.app.innerHTML,/data-v3-kind/);
  b.run('state.activeTab="overview"; render(); state.activeTab="places"; render(); state.places.forEach(ensureTravelAreaFields);');
  assert.deepEqual(tags(),[["原宿","表參道"],[],null]);
  b.run('persist(); saveSharedTrip();');

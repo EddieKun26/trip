@@ -3,7 +3,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import mig from '../../lib/canonical-travel-migration.js';
 
-export const source = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
+export const source = ["../../lib/canonical-travel-catalog.js", "../../lib/planning-geography.js", "../../lib/trip-workspace.js", "../../workspace-v3.js", "../../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 export const section = (start, end) => {
   const a = source.indexOf(start), b = source.indexOf(end, a + start.length);
   assert.ok(a >= 0 && b > a);
@@ -15,7 +15,7 @@ export function gateContext({tripId=mig.TRIP, ready=true, editor=true, outcome=m
   const context=vm.createContext({
     state:{tripId,hydrationStatus:ready?'ready':'loading',hydratedTripId:ready?tripId:'',hydratedMemberId:ready?'test-editor':'',
       profile:{id:'test-editor',nickname:'Test'},isGuest:!editor,trips:editor?[{id:tripId}]:[]},
-    tripContextVersion:1, console:{warn:line=>calls.warnings.push(line),info:line=>calls.infos.push(line)},
+    v3Today:()=>'', tripContextVersion:1, console:{warn:line=>calls.warnings.push(line),info:line=>calls.infos.push(line)},
     currentMemberId:()=> 'test-editor',
     scheduleContainmentMigration:()=>calls.containment++,scheduleTagBackfillMigration:()=>calls.backfill++,
     applySharedTrip:()=>{calls.applied++;},render:()=>calls.renders++,showToast:line=>calls.toasts.push(line),

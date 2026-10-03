@@ -1,5 +1,7 @@
 # User preferences
 
+- Current V3 preference (2026-10-03), superseding historical navigation below: Map / Itinerary / Places; Shopping secondary. Use one familiar confirmed broad area (e.g. 上野、原宿、新宿、代代木). Complete integrated engineering work and one Git production release; user alone operates the final App/UI acceptance.
+
 - Communicate in Traditional Chinese.
 - Design primarily for iPhone 15 Pro and avoid horizontal overflow, unexpected focus zoom, and unnecessary full-page scrolling.
 - Prefer compact, direct interfaces with important content visible without extra navigation.

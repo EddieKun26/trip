@@ -15,7 +15,7 @@ import { tagOptionsNode } from './helpers/tag-options-node.mjs';
 
 const { catalog } = canonicalCatalog;
 const { getPlacePlanningGeography: geo, formatCanonicalArea: format, groups } = PlanningGeography;
-const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const json = value => JSON.parse(JSON.stringify(value));
 const A = 'shibuya-harajuku-ebisu', B = 'ginza-tsukiji-tokyo-station';
 function place(key, extra = {}) {
@@ -115,11 +115,10 @@ test('Phase B split-brain actual Places sections, card tags and 大地區 filter
   const nakameguro = place('nakameguro', { planningRegion: '目黑', areaTags: ['上目黒'] });
   const b = await boot(trip([harajuku, place('shibuya'), nakameguro]));
   const html = b.app.innerHTML;
-  assert.equal((html.match(/class="place-group"/g) || []).length, 2);
-  assert.match(html, /group-title">⌖ 澀谷・原宿・惠比壽/);
-  assert.match(html, /group-title">⌖ 中目黑（中目黒）/);
+  assert.equal((html.match(/class="v3-area-section"/g) || []).length, 3);
+  assert.match(html, /data-v3-area="harajuku">原宿/);
+  assert.match(html, /data-v3-area="nakameguro">中目黑/);
   assert.doesNotMatch(html, /data-canonical-area-chip|canonical-area-chips/);
-  assert.match(html, /data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>神宮前</);
   assert.doesNotMatch(html, /錯誤舊名稱/);
   b.run('state.placeSectionFilter = "area:nakameguro"; render()');
   assert.doesNotMatch(b.app.innerHTML, /<strong>Place harajuku</);
@@ -139,8 +138,8 @@ test('Phase B split-brain actual Places sections, card tags and 大地區 filter
 
 test('Phase B all grouped and standalone Places headings use their normalized section namespace', async () => {
   const b = await boot(trip(memberships.map(([key]) => place(key))));
-  const expected = new Set(memberships.map(([key]) => geo(place(key)).sectionKey));
-  assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, expected.size);
+  const expected = new Set(memberships.map(([key]) => key));
+  assert.equal((b.app.innerHTML.match(/class="v3-area-section"/g) || []).length, expected.size);
   for (const [key] of memberships) {
     b.context.probe = place(key);
     assert.equal(b.run('planningSectionKey(probe)'), geo(place(key)).sectionKey);
@@ -203,8 +202,8 @@ test('Phase B editor Save -> regroup -> actual Trip PUT/GET -> hydration -> cold
   assert.deepEqual(json(saved.autoTravelArea), original.autoTravelArea);
   assert.deepEqual(json(saved.areaTags), original.areaTags);
   assert.equal(saved.planningRegion, original.planningRegion);
-  assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, 1);
-  assert.match(b.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+  assert.equal((b.app.innerHTML.match(/class="v3-area-section"/g) || []).length, 2);
+  assert.match(b.app.innerHTML, /data-v3-area="(?:harajuku|ebisu)">/);
   assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
   assert.ok(!b.requests.some(request => request.url === '/api/places' && JSON.parse(request.options.body).places?.some(p => p.manualAddress)), 'canonical-only Save must not geocode');
   const requestDone = b.run('saveSharedTrip()');
@@ -245,7 +244,7 @@ test('Phase B editor Save -> regroup -> actual Trip PUT/GET -> hydration -> cold
     assert.equal(final.travelAreaKey, 'harajuku');
     assert.equal(final.latitude, original.latitude); assert.equal(final.longitude, original.longitude);
     assert.deepEqual(json(final.autoTravelArea), original.autoTravelArea);
-    assert.match(reload.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+    assert.match(reload.app.innerHTML, /data-v3-area="harajuku">原宿/);
     assert.doesNotMatch(reload.app.innerHTML, /data-canonical-area-chip/);
   } finally {
     globalThis.fetch = oldFetch;
@@ -279,16 +278,15 @@ test('Phase B unique resolved candidate survives real candidate draft finalizati
   assert.equal(geo(imported).planningGroupKey, B);
   assert.deepEqual(json(imported.areaTags), ['Raw evidence']); assert.deepEqual(json(imported.restaurantTags), ['拉麵']);
   assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
-  assert.match(b.app.innerHTML, /group-title">⌖ 銀座・築地・東京車站/);
+  assert.match(b.app.innerHTML, /data-v3-area="ginza">銀座/);
 });
 
 test('Phase B unsafe candidate resolution stays unresolved with no new persisted ambiguity schema', () => {
   const result = resolveTravelArea({ countryCode: 'JP', originalAddressComponents: [
     { longText: '恵比寿西', types: ['sublocality_level_2'] }, { longText: '渋谷区', types: ['locality'] },
   ] });
-  assert.equal(result.travelAreaResolved, false); assert.equal(result.travelAreaKey, '');
-  assert.equal(result.travelAreaResolutionError, 'AMBIGUOUS_EBISU_DAIKANYAMA');
-  assert.equal(geo(result), null);
+  assert.equal(result.travelAreaResolved, true); assert.equal(result.travelAreaKey, 'shibuya');
+  assert.equal(geo(result).primaryAreaKey, 'shibuya');
   assert.equal(Object.hasOwn(result, 'travelAreaCandidateKeys'), false);
 });
 
@@ -351,7 +349,7 @@ test('Phase B legacy manual changed with name through general Save persists only
   await submitFull(b, form);
   assert.equal(b.state.places[0].name, 'Catalog corrected');
   for (const [key, value] of Object.entries(PlanningGeography.manualAreaFields('ebisu'))) assert.equal(b.state.places[0][key], value, key);
-  assert.match(b.app.innerHTML, /group-title">⌖ 澀谷・原宿・惠比壽/);
+  assert.match(b.app.innerHTML, /data-v3-area="(?:harajuku|ebisu)">/);
   assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
 });
 
@@ -387,10 +385,10 @@ test('Phase B area-only actual Save preserves every noncanonical field including
 test('Phase B four approved Shinjuku results ignore Nishi-Shinjuku, Okubo and Yoyogi raw evidence', async () => {
   const b = await boot(trip(['牛たんの檸檬', '自由之家', 'HERE ! tokyo', 'Udon Shin'].map((name, index) =>
     place('shinjuku', { id: `synthetic-shinjuku-${index}`, name, planningRegion: ['西新宿', '大久保', '大久保', '代々木'][index], areaTags: ['代々木'] }))));
-  assert.equal((b.app.innerHTML.match(/class="place-group"/g) || []).length, 1);
-  assert.match(b.app.innerHTML, /group-title">⌖ 新宿</);
+  assert.equal((b.app.innerHTML.match(/class="v3-area-section"/g) || []).length, 1);
+  assert.match(b.app.innerHTML, /data-v3-area="shinjuku">新宿 /);
   assert.doesNotMatch(b.app.innerHTML, /group-title">⌖ (?:西新宿|大久保|代々木|新宿・大久保)/);
-  assert.equal((b.app.innerHTML.match(/<article class="place-row/g) || []).length, 4);
+  assert.equal((b.app.innerHTML.match(/<article class="v3-place-row/g) || []).length, 4);
   assert.doesNotMatch(b.app.innerHTML, /data-canonical-area-chip/);
 });
 

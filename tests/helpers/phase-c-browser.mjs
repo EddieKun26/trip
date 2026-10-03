@@ -11,7 +11,7 @@ import { tagOptionsNode } from './tag-options-node.mjs';
 
 const { catalog } = canonicalCatalog;
 const { getPlacePlanningGeography: geo } = PlanningGeography;
-const source = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
+const source = ["../../lib/canonical-travel-catalog.js", "../../lib/planning-geography.js", "../../lib/trip-workspace.js", "../../workspace-v3.js", "../../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const json = value => JSON.parse(JSON.stringify(value));
 function place(key, extra = {}) {
   return { ...catalog[key], id: `synthetic-${key}`, placeId: `google-${key}`, name: `Place ${key}`,

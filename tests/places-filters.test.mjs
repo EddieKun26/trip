@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 const c = vm.createContext({ AreaTags, PlanningGeography, TravelAreaAudit: areaAudit, escapeHtml: (s) => String(s).replaceAll('"', '&quot;'),
  state: {}, placeVoters: () => [], currentMemberId: () => "me" });
@@ -125,26 +125,14 @@ test("empty area preserves Google/Leaflet viewport, scoped to the current trip",
  assert.equal(context.emptyMapViewport().longitude, 135.5);
  context.state.tripId = "different";
  assert.equal(context.emptyMapViewport().zoom, 11);
- const google = section("function renderGoogleInteractiveMap", "function renderLeafletInteractiveMap");
- const leaflet = section("function renderLeafletInteractiveMap", "async function ensureMapCoordinates");
- assert.match(google, /if \(places.length > 1\) map.fitBounds/);
- assert.match(leaflet, /if \(bounds.length > 1\) activeLeafletMap.fitBounds/);
- assert.match(google, /emptyMapViewport\(\).zoom/);
- assert.match(leaflet, /emptyMapViewport\(\).zoom/);
+ const google = section("function v3GoogleMap", "function v3LeafletMap");
+ const leaflet = section("function v3LeafletMap", "function v3Desktop");
+ assert.match(google, /else map.fitBounds/);
+ assert.match(leaflet, /if\(places.length.*map.fitBounds/);
+ assert.match(google, /viewport.zoom/);
+ assert.match(leaflet, /viewport.zoom/);
 });
 
-test("map dropdowns and adjacent location/fullscreen controls exist in both layouts", () => {
- const map = section("function mapScreen", "function mapPinColor");
- assert.equal((map.match(/\$\{placeFilters\}/g) || []).length, 2);
- assert.match(map, /const placeFilters = placesFilterDropdowns\(filterModel, \{ idPrefix: mapFullscreen \? "map-drawer" : "map" \}\)/);
- assert.equal((map.match(/\$\{mapActions\}/g) || []).length, 2);
- assert.match(map, /class="map-operation-actions"/);
- assert.doesNotMatch(map, /map-toolbar-actions[^\n]*fullscreenButton/);
- assert.doesNotMatch(map, /data-map-kind|data-map-area|data-place-kind|sidebarKindButtons/);
- const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
- assert.match(css, /\.places-filter-bar \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
- assert.match(css, /\.map-fullscreen-sidebar > \.places-filter-bar/);
-});
 
 
 test("category options derive from the selected 主要地區 only and reset unavailable selection", () => {
@@ -182,15 +170,6 @@ test("custom input trims, deduplicates exact values and does not persist before 
 });
 
 
-test("fullscreen reuses the shared dropdowns and mode switches retain filter selections", () => {
- c.state = { placeKind: "restaurant", placeSectionFilter: UENO, restaurantTagFilter: "燒肉" };
- const html = c.placesFilterDropdowns(c.placesFilterModel(places, c.state), { idPrefix: "map-drawer" });
- assert.match(html, /<select id="map-drawer-filter-section" data-places-filter="section">/);
- assert.match(html, /<option value="燒肉" selected>燒肉<\/option>/); assert.doesNotMatch(html, /壽喜燒/);
- const mode = section('  const mode = event.target.closest("[data-places-mode]")', '  if (event.target.closest("[data-toggle-map-fullscreen]"))');
- assert.doesNotMatch(mode, /state\.(?:placeKind|mapCategory|mapPreference|placeSectionFilter|areaTagFilter|restaurantTagFilter)\s*=/);
- assert.match(source, /const visiblePlaces = filters.visible.filter\(matchesMapFilters\)/);
-});
 
 
 test("formal vocabulary and detail use persisted arrays only, never defaults or legacy inference", () => {

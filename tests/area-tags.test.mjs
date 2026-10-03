@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import AreaTags from '../lib/area-tags.js';
 import audit from '../lib/travel-area-audit.js';
-const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const section = (a, b) => source.slice(source.indexOf(a), source.indexOf(b, source.indexOf(a)));
 const json = value => JSON.parse(JSON.stringify(value));
 
@@ -99,7 +99,7 @@ test('List and Map share multi-tag membership, trip-only options, All and stale 
   c.state.areaTagFilter='absent';c.placesFilterModel(places,c.state);assert.equal(c.state.areaTagFilter,'');
   const html=c.placesFilterDropdowns(c.placesFilterModel(places,c.state));
   assert.match(html,/<label for="places-filter-areaTag">地區標籤<\/label>/);assert.match(html,/<option value="原宿">原宿<\/option>/);assert.doesNotMatch(html,/data-area-tag-filter|data-place-area-filter/);
-  assert.match(source,/const placeFilters = placesFilterDropdowns\(filterModel/);
+  assert.match(readFileSync(new URL('../workspace-v3.js',import.meta.url),'utf8'),/placesFilterDropdowns\(model\)/);
 });
 
 test('detail omits empty tags, escapes custom display, renders typed locality/category/content chips in one deduped row, and retains separate legacy/address sections', () => {
@@ -118,8 +118,8 @@ test('detail omits empty tags, escapes custom display, renders typed locality/ca
   // Persisted content tags follow as their own type; identical text renders once.
   const content=c.placeTagsDetail({kind:'restaurant',areaTags:['銀座'],restaurantTags:['燒肉'],highlights:['燒肉',' 晚餐候選 ','',3,'銀座']});
   assert.equal(content,`<section class="detail-area-tags"><div>${chip('area','地區標籤','銀座')}${chip('category','餐廳類別','燒肉')}${chip('content','內容標籤','晚餐候選')}</div></section>`);
-  const detail=section('function openPlaceSheet','async function ensurePlaceDetails');
-  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/主要地區：\$\{escapeHtml\(planningSectionLabel\(place\)\)\}/);assert.match(detail,/escapeHtml\(place.formattedAddress\)/);
+  const detail=readFileSync(new URL('../workspace-v3.js',import.meta.url),'utf8');
+  assert.match(detail,/placeTagsDetail\(place\)/);assert.match(detail,/主要地區：\$\{escapeHtml\(v3Area\(place\)\)\}/);assert.match(detail,/escapeHtml\(place.formattedAddress\|\|/);
   assert.doesNotMatch(detail,/旅遊分區|travelAreaDisplayName|travelAreaChineseName/);
   assert.doesNotMatch(detail,/detail-restaurant-tags|highlight-list|data-canonical-area-chip/);
 });

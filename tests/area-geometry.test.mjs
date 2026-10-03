@@ -60,13 +60,10 @@ test('Leaflet boundary is noninteractive and uses a pointer-transparent pane',()
  const boundary=section('async function renderAreaBoundary','let lastMapViewport');
  assert.match(boundary,/pointerEvents = "none"/);assert.match(boundary,/interactive: false/);assert.match(boundary,/fill: false/);
 });
-test('fullscreen has one persistent arrow with dropdown and independent exit action',()=>{
- const map=section('function mapScreen','function syncMapDrawerHandle');
- assert.equal((map.match(/data-toggle-map-sidebar/g)||[]).length,1);
- assert.match(map,/const placeFilters = placesFilterDropdowns\(filterModel/);assert.doesNotMatch(map,/data-map-area/);assert.match(map,/aria-expanded=/);assert.match(map,/aria-controls="map-drawer"/);
- assert.doesNotMatch(map,/aria-label="收合篩選列">×/);
- const css=readFileSync(new URL('../styles.css',import.meta.url),'utf8');
- assert.match(css,/map-drawer-handle[^}]*top: 50%/);assert.match(css,/map-drawer-handle[^}]*width: 44px/);
+test('V3 map uses named bottom-sheet states and native exact marker positioning',()=>{
+ const current=readFileSync(new URL('../workspace-v3.js',import.meta.url),'utf8');
+ assert.match(current,/data-v3-sheet/); assert.match(current,/v3-map-sheet/);
+ assert.match(current,/new google.maps.Marker/); assert.doesNotMatch(current,/pinOffsetX|pinOffsetY/);
 });
 
 test('a grouped 大地區 draws every child Canonical Area boundary and credits them together',async()=>{

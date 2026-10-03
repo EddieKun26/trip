@@ -83,7 +83,7 @@ for (const exclusion of [{ addressProvider: '自行確認地址' }, { manualLoca
       assert.match(markup, /營業時間不符合/); assert.match(markup, /09:00/);
     }
     assert.match(b.app.innerHTML, /有 1 個地點/); assert.match(b.app.innerHTML, /data-pool-cta disabled/);
-    await b.run('requestPlacePoolPlan()'); assert.equal(requests('plan').length, 0);
+    await b.run('requestPlacePoolPlan()'); assert.equal(requests('planningSnapshot').length, 0);
     b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/24", mode: "exact", exactTime: "17:30" }])');
     assert.equal(b.run('placePoolHoursConflicts.size'), 0);
     b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/25", mode: "exact", exactTime: "17:30" }])');
@@ -92,7 +92,7 @@ for (const exclusion of [{ addressProvider: '自行確認地址' }, { manualLoca
     await s.run('hydrateOpeningHours', { ref: 'app:synthetic-ueno' });
     assert.equal(s.google.length, 1, 'sidecar round-trip avoids Google');
     process.env.AI_PLANNER_MODEL = 'gpt-5.6-luna'; process.env.OPENAI_API_KEY = 'test-key';
-    const outside = await s.run('plan', { expectedRevision: 1, selected: [{ ref: 'app:synthetic-ueno',
+    const outside = await s.run('planningSnapshot', { expectedRevision: 1, selected: [{ ref: 'app:synthetic-ueno',
       dateOptions: [{ dayKey: '9/24', mode: 'exact', exactTime: '09:00' }] }] });
     assert.equal(outside.payload.reason, 'OPENING_HOURS_CONFLICT');
     assert.equal(s.google.length, 1, 'server preflight calls neither Google nor model');
@@ -285,7 +285,7 @@ test('server Planner preflight reads sidecar known hours, makes zero Google call
   process.env.OPENAI_API_KEY = 'test-key';
   s.store.set(openingHoursKey(p.placeId), JSON.stringify(record(p.placeId)));
   const before = s.store.get(s.key);
-  const result = await s.run('plan', { expectedRevision: 1, selected: [{ ref: 'app:synthetic-ueno', dateOptions: [
+  const result = await s.run('planningSnapshot', { expectedRevision: 1, selected: [{ ref: 'app:synthetic-ueno', dateOptions: [
     { dayKey: '9/20', mode: 'exact', exactTime: '07:00' },
   ] }] });
   assert.equal(result.statusCode, 422, JSON.stringify(result.payload));
@@ -306,14 +306,14 @@ test('selection hydrates in session without Trip/Undo writes and blocks Planner 
   assert.ok(hydrate);
   assert.match(b.app.innerHTML, /正在確認營業時間/);
   const pending = b.run('requestPlacePoolPlan()');
-  assert.equal(b.requests.filter(r => JSON.parse(r.options.body || '{}').action === 'plan').length, 0);
+  assert.equal(b.requests.filter(r => JSON.parse(r.options.body || '{}').action === 'planningSnapshot').length, 0);
   await b.reply(hydrate, { status: 'known', regularOpeningPeriods: record('google-ueno') });
   await Promise.resolve();
   assert.deepEqual(json(b.state.places[0].regularOpeningPeriods), record('google-ueno'));
   assert.equal(b.state.sharedRevision, revision);
   assert.equal(b.requests.filter(r => r.options.method === 'PUT' && r.url.startsWith('/api/trip')).length, 0);
   assert.equal('regularOpeningPeriods' in b.run('sharedTripPayload().places[0]'), false);
-  const plan = b.requests.find(r => JSON.parse(r.options.body || '{}').action === 'plan');
+  const plan = b.requests.find(r => JSON.parse(r.options.body || '{}').action === 'planningSnapshot');
   assert.ok(plan);
   await b.reply(plan, { error: 'TEST' }, 422);
   await pending;
@@ -388,7 +388,7 @@ test('transient hydration failure settles, warns, allows Planner and remains ret
   await b.reply(requests()[0], { error: 'PLACE_DETAILS_429' }, 502);
   assert.match(b.app.innerHTML, /部分地點的營業時間暫時無法確認/);
   assert.equal(b.state.places[0].regularOpeningPeriods, undefined);
-  const plan = b.requests.find(r => JSON.parse(r.options.body || '{}').action === 'plan');
+  const plan = b.requests.find(r => JSON.parse(r.options.body || '{}').action === 'planningSnapshot');
   assert.ok(plan);
   await b.reply(plan, { error: 'TEST' }, 422); await pending;
   b.run('togglePlacePoolSelection("app:synthetic-ueno")');

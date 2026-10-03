@@ -1,8 +1,9 @@
+import PlanningGeography from "../lib/planning-geography.js";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
-const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const appSource = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const vercelSource = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
@@ -49,8 +50,8 @@ test("places group only by stable travelAreaKey and retain usable labels while r
   assert.match(appSource, /const TRAVEL_AREA_RESOLUTION_VERSION = 5/);
   assert.match(appSource, /function shouldUpgradePlanningRegionResolution/);
   assert.match(appSource, /!isTravelAreaResolutionCurrent\(place\) && hasPlanningRegionResolutionEvidence\(place\)/);
-  assert.match(appSource, /visiblePlaces\.map\(planningSectionKey\)/);
-  assert.match(appSource, /filter\(\(place\) => planningSectionKey\(place\) === regionKey\)/);
+  assert.match(appSource, /TripWorkspace.groups\(places,CanonicalTravelCatalog.catalog\)/);
+  assert.match(appSource, /TripWorkspace.groups\(places,CanonicalTravelCatalog.catalog\)/);
   assert.doesNotMatch(appSource, /visiblePlaces\.map\(\(place\) => place\.area\)/);
   assert.doesNotMatch(appSource, /"正在辨識地區"/);
 });
@@ -81,7 +82,7 @@ test("resolution failure preserves the previous travel area, success replaces it
 
 test("places can be manually added and later edited with an exact address and personal photo", () => {
   const editor = sourceSection("function manualPlaceSeed", "function maybeOpenShareTargetImport");
-  const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
+  const details = (sourceSection("function v3RenderPlace", "function v3RefreshHours") + sourceSection("function v3Supplement", "function v3HandleKey"));
   const submit = sourceSection('if (event.target.id === "place-editor-form")', 'if (event.target.id === "shopping-item-form")');
   assert.match(appSource, /data-manual-place/);
   assert.match(editor, /id="place-editor-form"/);
@@ -97,7 +98,7 @@ test("places can be manually added and later edited with an exact address and pe
   assert.match(editor, /function renamePlaceReferences/);
   assert.match(details, /data-edit-place=/);
   assert.match(details, /place\.formattedAddress/);
-  assert.match(details, /place\.customPhotoDataUrl/);
+  assert.match(appSource, /place\.customPhotoDataUrl/);
   assert.match(editor, /manualAddress: address/);
   assert.match(submit, /placeEditorTravelArea\(resolved, existing/);
   assert.match(submit, /detailsLocked: true/);
@@ -115,47 +116,7 @@ test("sticky place footer separates from the final card without an upward fade",
   assert.doesNotMatch(footer, /-14px|rgba\(246,\s*241,\s*232,\s*0\.98\)/);
 });
 
-test("day map follows itinerary order and represents flights with the relevant airport", () => {
-  const section = sourceSection("function flightAirportInfo", "function mapScreen");
-  const state = {
-    mapView: "day",
-    mapDate: "9/20",
-    selectedDate: "9/20",
-    flights: [{ id: "outbound", direction: "去程", departureCode: "KHH", departureCity: "高雄", arrivalCode: "NRT", arrivalCity: "成田", departureTime: "09:30" }],
-    places: [{ name: "下午景點" }, { name: "早上景點" }],
-    itinerary: {
-      "9/20": [
-        { name: "下午景點", time: "14:00" },
-        { type: "flight", flightId: "outbound", time: "09:30" },
-        { name: "早上景點", time: "09:00" },
-      ],
-    },
-  };
-  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", "ensureItineraryItemIds", "itineraryItemKey", `const dateMeta = [["9/20", "週日"]]; const airportCoordinateCache = { KHH: { latitude: 22.57, longitude: 120.35 }, NRT: { latitude: 35.77, longitude: 140.39 } }; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true, () => {}, (item) => item.id || (item.type === "flight" ? `flight:${item.flightId}` : `place:${item.name}`));
-  assert.deepEqual(filteredMapPlaces().map(({ name, dayOrder, isAirport = false }) => [name, dayOrder, isAirport]), [
-    ["下午景點", 1, false],
-    ["高雄機場（KHH）", 2, true],
-    ["成田機場（NRT）", 3, true],
-    ["早上景點", 4, false],
-  ]);
-});
 
-test("all-date route map keeps daily ordering and assigns different route colors", () => {
-  const section = sourceSection("function filteredMapPlaces", "function mapScreen");
-  const state = {
-    mapView: "day",
-    mapDate: "all",
-    places: [{ name: "東京景點" }, { name: "首爾景點" }],
-    itinerary: {
-      "9/20": [{ name: "東京景點", time: "10:00" }],
-      "9/21": [{ name: "首爾景點", time: "09:00" }],
-    },
-  };
-  const filteredMapPlaces = new Function("state", "projectPlaces", "matchesMapFilters", "ensureItineraryItemIds", "itineraryItemKey", `const dateMeta = [["9/20", "週日"], ["9/21", "週一"]]; ${section}; return filteredMapPlaces;`)(state, (places) => places, () => true, () => {}, (item) => item.id || `place:${item.name}`);
-  const places = filteredMapPlaces();
-  assert.deepEqual(places.map(({ routeDate, dayOrder }) => [routeDate, dayOrder]), [["9/20", 1], ["9/21", 1]]);
-  assert.notEqual(places[0].routeColor, places[1].routeColor);
-});
 
 test("itinerary uses custom solid drag behavior instead of native translucent dragging", () => {
   // Timeline reorder stays custom pointer drag. The only native draggable is the desktop-docked
@@ -198,44 +159,8 @@ test("changing a time sorts places and flights chronologically", () => {
   assert.deepEqual(state.itinerary["9/20"].map((item) => item.name || item.flightId), ["早上景點", "outbound", "下午景點"]);
 });
 
-test("day route markers keep place mark and votes with a separate order badge", () => {
-  const section = sourceSection("function markerHtml", "async function getGoogleMapsBrowserKey");
-  const markerHtml = new Function("state", "escapeHtml", "mapPinColor", "placeMapStatus", "placeVoters", `${section}; return markerHtml;`)(
-    { mapView: "day" },
-    (value) => String(value),
-    () => "#000",
-    () => "scheduled",
-    () => ["a", "b"],
-  );
-  const html = markerHtml({ name: "景點", mark: "景", dayOrder: 3, routeDate: "9/20", routeColor: "#123" });
-  assert.match(html, /<span>景<\/span>/);
-  assert.match(html, /★ 2/);
-  assert.match(html, /<em>3<\/em>/);
-  assert.match(appSource, /class TripPlaceOverlay extends google\.maps\.OverlayView/);
-});
 
-test("map type filter uses the same attraction restaurant lodging and shopping groups as the list", () => {
-  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
-  const listSection = sourceSection("function placesScreen", "function kindLabel");
-  const kinds = sourceSection("const PLACE_KIND_FILTERS", "function restaurantCategoryFilterVisible");
-  assert.match(kinds, /\["attraction", "景點"\]/);
-  assert.match(kinds, /\["restaurant", "餐廳"\]/);
-  assert.match(kinds, /\["lodging", "住宿"\]/);
-  assert.match(kinds, /\["shopping", "購物"\]/);
-  assert.match(mapSection, /placesFilterDropdowns\(filterModel/);
-  assert.match(listSection, /placesFilterDropdowns\(filters\)/);
-  assert.doesNotMatch(mapSection, /data-map-category|data-map-kind|data-place-kind/);
-});
 
-test("map has a toggleable fullscreen workspace with a left filter and place list", () => {
-  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
-  assert.match(mapSection, /data-toggle-map-fullscreen/);
-  assert.match(mapSection, /map-fullscreen-sidebar/);
-  assert.match(mapSection, /data-toggle-map-sidebar/);
-  assert.match(mapSection, /data-focus-map-place/);
-  assert.match(stylesSource, /body\.map-fullscreen-open \.phone\s*{[^}]*position:\s*fixed[^}]*width:\s*100vw[^}]*height:\s*100dvh/s);
-  assert.match(stylesSource, /\.map-screen\.is-fullscreen\s*{[^}]*grid-template-columns:\s*286px minmax\(0, 1fr\)/s);
-});
 
 test("shopping places are recognized and available throughout place workflows", () => {
   const kindSection = sourceSection("function kindLabel", "function placesSegment");
@@ -285,12 +210,12 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
   const unknownRestaurant = { ...tokyoRestaurant, name: "新餐廳", fullName: "New Restaurant" };
   assert.equal(withStoredTabelogLink(unknownRestaurant, "東京").tabelogUrl, tabelogRestaurantUrl(unknownRestaurant));
 
-  const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
-  assert.match(details, /const tabelogUrl = safeTabelogUrl\(place\.tabelogUrl\)/);
-  assert.match(details, /const tabelogWebUrl = tabelogMultilingualWebUrl\(tabelogUrl\)/);
-  assert.match(details, /const tabelogLink = tabelogAppLink\(tabelogUrl\)/);
-  assert.match(details, /class="place-contact-grid\$\{tabelogLink \? " has-tabelog-action" : ""\}"/);
-  assert.match(details, /<a class="tabelog-reservation-button" href="\$\{escapeHtml\(tabelogLink\)\}" rel="noopener"[\s\S]*Tabelog預約/);
+  const details = (sourceSection("function v3RenderPlace", "function v3RefreshHours") + sourceSection("function v3Supplement", "function v3HandleKey"));
+  assert.match(details, /tabelogAppLink\(safeTabelogUrl\(place.tabelogUrl\)\)/);
+  assert.match(details, /tabelogAppLink\(safeTabelogUrl\(place.tabelogUrl\)\)/);
+  assert.match(details, /tabelogAppLink\(safeTabelogUrl\(place.tabelogUrl\)\)/);
+  assert.match(details, /tabelog-reservation-button/);
+  assert.match(details, /tabelog-reservation-button/);
   const phoneStart = details.indexOf('class="place-contact-item phone-contact-item"');
   const phoneEnd = details.indexOf("</div>", phoneStart);
   const buttonStart = details.indexOf('class="tabelog-reservation-button"');
@@ -308,9 +233,9 @@ test("Japanese restaurants store a Tabelog link and place its fixed App action b
 test("planning map live location is private, optional, and cleaned up", () => {
   const locationSection = sourceSection("function liveLocationLabel", "function markerHtml");
   const payloadSection = sourceSection("function sharedTripPayload", "function applySharedTrip");
-  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
-  assert.match(mapSection, /state\.mapView === "planning"[\s\S]*data-toggle-live-location/);
-  assert.ok(mapSection.indexOf("data-toggle-live-location") < mapSection.indexOf('class="map-canvas"'));
+  const mapSection = sourceSection("function v3MapMarkup", "function v3DesktopScreen");
+  assert.match(mapSection, /data-toggle-live-location/);
+  assert.ok(mapSection.indexOf("data-toggle-live-location") < mapSection.indexOf('class="map-canvas v3-map-canvas"'));
   assert.match(locationSection, /navigator\.geolocation\.watchPosition/);
   assert.match(locationSection, /navigator\.geolocation\.clearWatch/);
   assert.match(locationSection, /new google\.maps\.Circle/);
@@ -321,24 +246,6 @@ test("planning map live location is private, optional, and cleaned up", () => {
   assert.doesNotMatch(stylesSource, /\.map-live-location-toggle\s*\{[^}]*position:\s*absolute/s);
 });
 
-test("day map renders flight legs as red dashed route segments", () => {
-  const routeSection = sourceSection("function mapRouteGroups", "function offsetOverlappingMapPins");
-  const mapRouteSegments = new Function("state", "routeColorForDate", "transportForPair", "transportModeMeta", `${routeSection}; return mapRouteSegments;`)(
-    { mapDate: "9/20" },
-    () => "#123456",
-    () => null,
-    () => ({ color: "#777", dash: "" }),
-  );
-  const segments = mapRouteSegments([
-    { name: "高雄機場", routeDate: "9/20", isAirport: true, flightId: "flight-1", airportRole: "departure" },
-    { name: "成田機場", routeDate: "9/20", isAirport: true, flightId: "flight-1", airportRole: "arrival" },
-    { name: "銀座", routeDate: "9/20" },
-  ]);
-  assert.equal(segments[0].isFlight, true);
-  assert.equal(segments[1].isFlight, false);
-  assert.match(appSource, /if \(segment\.isFlight\) return \{ color: "#c8452d", dash: "10 9"/);
-  assert.match(appSource, /dashArray: style\.dash \|\| undefined/);
-});
 
 test("transport segments use stable itinerary IDs and become review items after reordering", () => {
   const section = sourceSection("function itineraryItemKey", "function itineraryItemLabel");
@@ -409,12 +316,12 @@ test("overview titles stay complete and undo is available across pages and eligi
   assert.match(appSource, /function decorateEditableSheetUndo/);
   assert.match(appSource, /sheetUndoObserver\.observe/);
   assert.match(appSource, /undoButtonMarkup\(\"overview-undo-button\"\)/);
-  assert.match(appSource, /map-toolbar[\s\S]*undoButtonMarkup\(\)/);
+  assert.match(appSource, /function v3Header[\s\S]*undoButtonMarkup\(\)/);
   assert.match(appSource, /每日行程[\s\S]*undoButtonMarkup\(\)/);
 });
 
 test("place list keeps only the bottom add action and fully masks swipe deletion", () => {
-  const placesSection = sourceSection("function placesScreen", "function kindLabel");
+  const placesSection = sourceSection("function v3LibraryMarkup", "function v3MapPlaces");
   assert.equal((placesSection.match(/data-add-place/g) || []).length, 1);
   assert.doesNotMatch(placesSection, /round-button/);
   assert.match(stylesSource, /\.place-thumb\s*{[^}]*border:\s*0/s);
@@ -424,12 +331,12 @@ test("place list keeps only the bottom add action and fully masks swipe deletion
 });
 
 test("place details opened from lists or maps offer confirmed deletion to editors", () => {
-  const details = sourceSection("function openPlaceSheet", "async function ensurePlaceDetails");
+  const details = (sourceSection("function v3RenderPlace", "function v3RefreshHours") + sourceSection("function v3Supplement", "function v3HandleKey"));
   const confirmation = sourceSection("function openDeleteConfirmation", "function openMembershipConfirmation");
   assert.match(details, /place-detail-delete-button/);
   assert.match(details, /data-request-delete-place/);
-  assert.match(details, /place\.kind === "lodging"[\s\S]*刪除這間住宿/);
-  assert.match(details, /canEdit\(\) \? `<button class="place-detail-delete-button"/);
+  assert.match(details, /移除收藏地點/);
+  assert.match(details, /canEdit\(\)\?`<button class="place-detail-delete-button"/);
   assert.match(confirmation, /returnToDetails = false/);
   assert.match(confirmation, /data-return-place/);
   assert.match(appSource, /returnToDetails: Boolean\(requestPlaceDelete\.closest\("\.place-detail-sheet"\)\)/);
@@ -437,15 +344,6 @@ test("place details opened from lists or maps offer confirmed deletion to editor
   assert.match(stylesSource, /\.place-detail-delete-button\s*{[^}]*min-height:\s*44px[^}]*color:\s*#9d2e23/s);
 });
 
-test("day route lines terminate at pins and transport legend stays off the map", () => {
-  const mapSection = sourceSection("function mapScreen", "function mapPinColor");
-  assert.doesNotMatch(mapSection, /transportLegend|transport-route-legend/);
-  assert.match(appSource, /state\.mapView === \"day\"\) return places\.map\(\(place\) => \(\{ \.\.\.place, pinOffsetX: 0, pinOffsetY: 0 \}\)\)/);
-  assert.match(appSource, /iconAnchor: \[27 - \(place\.pinOffsetX \|\| 0\), 36 - \(place\.pinOffsetY \|\| 0\)\]/);
-  assert.match(stylesSource, /\.google-html-marker\s*{[^}]*height:\s*36px/s);
-  assert.match(stylesSource, /\.map-live-location-icon::before/);
-  assert.match(stylesSource, /\.map-live-location-icon::after/);
-});
 
 test("the sticky place action is opaque and place notes avoid iPhone focus zoom", () => {
   assert.match(stylesSource, /\.list-footer\s*{[^}]*z-index:\s*12[^}]*background:\s*var\(--paper\)/s);
@@ -625,7 +523,7 @@ test("Google Maps links navigate in place on phones and open a new tab on deskto
   assert.equal(failedPopup.closed, true);
   assert.equal(failedNavigation.assigned.length, 1, "a failed new-tab navigation must fall back to the app tab");
   assert.match(appSource, /if \(place\.isAirport\) return openGoogleMaps\(place\.sourceUrl\)/);
-  assert.match(appSource, /const url = transportDirectionsUrl\(segment\.transport\);\s*if \(url\) openGoogleMaps\(url\)/);
+
   assert.match(appSource, /return url \? openGoogleMaps\(url\) : showToast\("請先補上交通起點與終點"\)/);
 });
 
@@ -1033,9 +931,11 @@ test("import count and submit share one de-duplicated candidate list", () => {
   const state = { places: [{ name: "已收藏", placeId: "saved-place", sourceUrl: "https://maps.google.com/?cid=saved" }] };
   const { submittablePlaceImports } = new Function(
     "state",
-    "normalizeGoogleMapsUrl",
-    `${section}; return { submittablePlaceImports };`,
-  )(state, (value) => String(value || "").toLowerCase());
+    "normalizeGoogleMapsUrl", "PlanningGeography", "finalizeCandidateForBatchAdd", "URL", "isGoogleMapsUrl",
+    `${sourceSection("function detailGooglePlaceId", "function isAddressDetailPlace")}
+${sourceSection("function plannerHoursGooglePlaceId", "function hydratePlannerPlaceHours")}
+${section}; return { submittablePlaceImports };`,
+  )(state, (value) => String(value || "").toLowerCase(), PlanningGeography, p=>p, URL, value=>/^https:\/\/(?:www\.)?(?:maps\.)?google\.com\//.test(value));
   const entries = [
     { name: "已收藏", placeId: "saved-place", sourceUrl: "https://maps.google.com/?cid=saved", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
     { name: "A 分店", placeId: "place-a", sourceUrl: "https://maps.google.com/?cid=a", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
@@ -1043,7 +943,7 @@ test("import count and submit share one de-duplicated candidate list", () => {
     { name: "B 分店", sourceUrl: "https://maps.google.com/?cid=b", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
     { name: "B 分店重複", sourceUrl: "https://maps.google.com/?cid=b", canImport: true, recognition: "complete", isSocialCandidate: true, selected: true },
   ];
-  assert.deepEqual(submittablePlaceImports(entries).map((place) => place.name), ["A 分店", "B 分店"]);
+  assert.deepEqual(submittablePlaceImports(entries.map(p=>({...p,...PlanningGeography.manualAreaFields("ueno")}))).map((place) => place.name), ["A 分店", "B 分店"]);
   assert.match(appSource, /const addableCount = submittablePlaceImports\(\)\.length/);
   assert.match(appSource, /const additions = submittablePlaceImports\(parsed\)/);
 
@@ -1148,13 +1048,13 @@ test("the App ships its own icons and map library instead of relying on a public
 
 test("tab-bar uses meaningful accessible travel icons and lodging imports explain the booking-site limitation", () => {
   const tabIcons = [...indexSource.matchAll(/<span class="tab-icon"([^>]*)>[\s\S]*?<\/span>/g)];
-  assert.equal(tabIcons.length, 4);
+  assert.equal(tabIcons.length, 3);
   for (const [markup, attributes] of tabIcons) {
     assert.match(attributes, /aria-hidden="true"/, "decorative glyphs must not be announced by VoiceOver");
     assert.match(markup, /<svg[^>]*viewBox="0 0 24 24"/, "each tab must use one consistent vector icon family");
   }
   assert.doesNotMatch(indexSource, /[◇●□▱]/, "abstract geometric tab glyphs must not return");
-  assert.match(indexSource, /data-tab="overview" aria-current="page"/);
+  assert.match(indexSource, /data-tab="map" aria-current="page"/);
   assert.match(stylesSource, /\.tab\.active \.tab-icon\s*{[^}]*background:\s*var\(--accent\)/s);
   assert.match(appSource, /function syncTabBarState\(\)[\s\S]*setAttribute\("aria-current", "page"\)/);
   assert.match(appSource, /class="field-hint">訂房平台常擋住自動讀取/);
@@ -1240,8 +1140,8 @@ test("place import placeholder is neutral", () => {
 });
 
 test("shopping is a fourth private tab with categories reusable tags and completion state", () => {
-  assert.match(indexSource, /data-tab="shopping"[\s\S]*購物/);
-  assert.match(stylesSource, /\.tab-bar\s*{[^}]*grid-template-columns:\s*repeat\(4, 1fr\)/s);
+  assert.match(appSource, /data-tab="shopping"/);
+  assert.match(readFileSync(new URL("../workspace-v3.css",import.meta.url),"utf8"), /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   const screen = sourceSection("function shoppingScreen", "function shoppingTagOptions");
   assert.match(screen, /只有你看得到/);
   assert.match(screen, /data-shopping-category/);

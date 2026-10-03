@@ -32,7 +32,7 @@ test('current-selection barrier resolves an address-excluded Google candidate wi
   const planning = b.run('requestPlacePoolPlan()');
   assert.equal(requests(b, 'hydrateOpeningHours').length, 1);
   await b.reply(requests(b, 'hydrateOpeningHours')[0], response); await planning;
-  assert.equal(requests(b, 'plan').length, 0);
+  assert.equal(requests(b, 'planningSnapshot').length, 0);
   assert.match(b.app.innerHTML, /營業時間不符合/);
 });
 
@@ -53,8 +53,8 @@ for (const status of ['unavailable', 'transient_failure']) {
       assert.equal(requests(b, 'hydrateOpeningHours').length, 2, 'retry eligible');
       await b.reply(requests(b, 'hydrateOpeningHours')[1], payload, 502);
     } else assert.equal(requests(b, 'hydrateOpeningHours').length, 1, 'authoritative unavailable does not refetch');
-    assert.equal(requests(b, 'plan').length, 1);
-    await b.reply(requests(b, 'plan')[0], { error: 'TEST' }, 422); await planning;
+    assert.equal(requests(b, 'planningSnapshot').length, 1);
+    await b.reply(requests(b, 'planningSnapshot')[0], { error: 'TEST' }, 422); await planning;
     b.run('applyPlacePoolConstraint("app:synthetic-ueno", [{ dayKey: "9/20", mode: "preferred", preferredPeriods: ["morning"] }])');
     assert.doesNotMatch(b.run('placePoolSelectedColumnMarkup(placePoolViewModel())'), title);
     b.run('togglePlacePoolSelection("app:synthetic-ueno")');
@@ -80,7 +80,7 @@ test('released bypass: already selected legacy Place must hydrate before Planner
   assert.ok(hydrate, 'Planner start must resolve the currently selected candidate');
   await b.reply(hydrate, response);
   await planning;
-  assert.equal(b.requests.filter(r => JSON.parse(r.options.body || '{}').action === 'plan').length, 0);
+  assert.equal(b.requests.filter(r => JSON.parse(r.options.body || '{}').action === 'planningSnapshot').length, 0);
   assert.match(b.app.innerHTML, /營業時間不符合/);
 });
 
@@ -101,7 +101,7 @@ test('candidate addition hydrates immediately, then shows a persistent conflict 
   assert.equal(b.run('placePoolHoursConflicts.has("app:synthetic-ueno")'), true);
   assert.match(b.app.innerHTML, /營業時間不符合/);
   await b.run('requestPlacePoolPlan()');
-  assert.equal(requests(b, 'plan').length, 0);
+  assert.equal(requests(b, 'planningSnapshot').length, 0);
 });
 
 test('warning CSS remains visible in both real Planner card branches', () => {
@@ -185,25 +185,19 @@ test('failed hydration leaves unknown hours and permits Planner; bar category an
   const retry = requests(b, 'hydrateOpeningHours')[1];
   assert.ok(retry, 'transient failure remains retry eligible');
   await b.reply(retry, { error: 'UPSTREAM' }, 502);
-  const plan = requests(b, 'plan')[0];
+  const plan = requests(b, 'planningSnapshot')[0];
   assert.ok(plan);
   await b.reply(plan, { error: 'TEST' }, 422);
   await pending;
   assert.equal(b.run('placePoolHoursConflicts.size'), 0);
 });
 
-test('exact-time editor flags an invalid draft immediately and clears when corrected', async () => {
-  const b = await selected();
-  await b.reply(requests(b, 'hydrateOpeningHours')[0], response);
-  b.run('openPlacePoolConstraintSheet("app:synthetic-ueno")');
-  b.run('togglePoolConstraintDraftDate("9/20")');
-  b.run('togglePoolConstraintExpandedDay("9/20")');
-  b.run('setPoolConstraintDraftMode("exact")');
-  assert.equal(b.run('sheetRoot.innerHTML.includes("營業時間不符合")'), true);
-  b.run('pendingPoolConstraint.timeWheel = { hour: "17", minute: "30" }; setPoolConstraintDraftMode("exact")');
-  assert.equal(b.run('sheetRoot.innerHTML.includes("營業時間不符合")'), false);
-  b.run('pendingPoolConstraint.timeWheel = { hour: "23", minute: "45" }; setPoolConstraintDraftMode("exact")');
-  assert.equal(b.run('sheetRoot.innerHTML.includes("營業時間不符合")'), true);
+test('shared Place workspace uses full-visit hours and clears an illegal time when corrected',async()=>{
+ const b=await selected();await b.reply(requests(b,'hydrateOpeningHours')[0],response);
+ b.run('openPlacePoolConstraintSheet("app:synthetic-ueno")');
+ assert.match(b.sheet.innerHTML,/營業時間不符合/);
+ b.run('v3UI.workspace.time="17:30";v3RenderPlace()');assert.doesNotMatch(b.sheet.innerHTML,/營業時間不符合/);
+ b.run('v3UI.workspace.time="23:45";v3RenderPlace()');assert.match(b.sheet.innerHTML,/營業時間不符合/);
 });
 
 test('legal exact time proceeds after hydration; an added candidate during the barrier is rechecked', async () => {
@@ -222,13 +216,13 @@ test('legal exact time proceeds after hydration; an added candidate during the b
   const asakusaRecord = { ...record, placeId: 'google-asakusa' };
   await b.reply(requests(b, 'hydrateOpeningHours')[1], { ...response, regularOpeningPeriods: asakusaRecord });
   await planning;
-  assert.equal(requests(b, 'plan').length, 0);
+  assert.equal(requests(b, 'planningSnapshot').length, 0);
   assert.equal(b.run('placePoolHoursConflicts.size'), 1);
   b.run('applyPlacePoolConstraint("app:synthetic-asakusa", [{ dayKey: "9/20", mode: "exact", exactTime: "18:30" }])');
   assert.equal(b.run('placePoolHoursConflicts.size'), 0);
   const legal = b.run('requestPlacePoolPlan()');
-  assert.equal(requests(b, 'plan').length, 1);
-  await b.reply(requests(b, 'plan')[0], { error: 'TEST' }, 422);
+  assert.equal(requests(b, 'planningSnapshot').length, 1);
+  await b.reply(requests(b, 'planningSnapshot')[0], { error: 'TEST' }, 422);
   await legal;
 });
 
@@ -256,7 +250,7 @@ test('windows normalized for a stale Trip calendar are not trusted by the active
   await b.reply(requests(b, 'hydrateOpeningHours')[1], response);
   await planning;
   assert.equal(b.run('placePoolHoursConflicts.size'), 1);
-  assert.equal(requests(b, 'plan').length, 0);
+  assert.equal(requests(b, 'planningSnapshot').length, 0);
 });
 
 test('released no-warning bug: legacy Maps URL identity hydrates and renders its known conflict', async () => {
@@ -281,5 +275,5 @@ test('released no-warning bug: legacy Maps URL identity hydrates and renders its
   assert.match(b.app.innerHTML, /有 1 個地點/);
   assert.match(b.app.innerHTML, /data-pool-cta disabled/);
   await b.run('requestPlacePoolPlan()');
-  assert.equal(requests(b, 'plan').length, 0);
+  assert.equal(requests(b, 'planningSnapshot').length, 0);
 });

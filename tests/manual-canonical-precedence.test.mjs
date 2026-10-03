@@ -15,7 +15,7 @@ function section(start,end) {
   return app.slice(a,b);
 }
 function hydrationContext() {
-  const context=vm.createContext({TravelAreaAudit:audit,state:{},dateMeta:[],tripIsHydrated:()=>false,
+  const context=vm.createContext({v3Today:()=>'',TravelAreaAudit:audit,state:{},dateMeta:[],tripIsHydrated:()=>false,
     normalizedPlaceKind:p=>p.kind,withStoredTabelogLink:p=>p,buildDateMeta:()=>[],
     syncFlightItineraryItems:()=>{},resetUndoBaseline:()=>{},scheduleContainmentMigration:()=>{},scheduleTagBackfillMigration:()=>{}});
   vm.runInContext(section('const TRAVEL_AREA_RESOLUTION_VERSION','function placeVoters')
@@ -104,7 +104,6 @@ test('ordinary automatic split/resolver behavior remains unchanged; R01 unresolv
   assert.equal(audit.reclassify(automatic,catalog).travelAreaKey,'harajuku');
   const result=resolveTravelArea({countryCode:'JP',originalAddressComponents:[
     {longText:'恵比寿西',types:['sublocality_level_2']},{longText:'渋谷区',types:['locality']} ]});
-  assert.equal(result.travelAreaResolved,false);
-  assert.equal(result.travelAreaKey,'');
-  assert.equal(result.travelAreaResolutionError,'AMBIGUOUS_EBISU_DAIKANYAMA');
+  assert.equal(result.travelAreaResolved,true);
+  assert.equal(result.travelAreaKey,'shibuya');
 });

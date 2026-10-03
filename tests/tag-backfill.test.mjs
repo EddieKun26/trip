@@ -6,7 +6,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const catalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8"));
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const section = (a, b) => source.slice(source.indexOf(a), source.indexOf(b, source.indexOf(a)));
 const json = (value) => JSON.parse(JSON.stringify(value));
 // vm.createContext objects live in a different realm; deepStrictEqual (what assert/strict's

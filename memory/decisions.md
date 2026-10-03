@@ -1,5 +1,14 @@
 # Decisions
 
+## Travel App V3 execution boundary — 2026-10-02
+
+- This task exclusively implements/tests/documents/commits/releases in `travel-app-v3` on `feat/travel-app-v3`, based on exactly `d286c15fe12658072ca6bc36c451d6992e832e45`; older checkouts remain untouched. Integrated V3 instructions supersede prior Planner model, navigation and presentation decisions where specified.
+- User owns all live App/browser UI interaction. Agent validation is source, deterministic tests and read-only release metadata. One Git-triggered production release is authorized only after the completed integrated Engineering Gate and fresh exact-baseline check.
+- User resolved the V3 hard stop: require one confirmed canonical area, using familiar broad travel areas (上野、原宿、新宿、代代木). Reliable structured neighborhood/locality evidence may resolve an existing broad area; no arbitrary proximity/name/category inference. Without a unique result, keep the candidate unpersisted until the user confirms an existing canonical area. Legacy automatic candidate sets remain readable, but new Google imports cannot persist unresolved geography.
+
+- V3 primary navigation is Map / Itinerary / Places; previous fourth Shopping-tab and fullscreen Selected-drawer presentation requirements are superseded. Shopping remains a private secondary entry.
+- External planner exchange is read-only and session-only until Apply. Names/P labels are data; canonical Place facts and server context hash own identity. Proposed places require explicit Google selection before binding; unchanged legacy geography remains preservable, while new direct/URL-only Google imports need one confirmed catalog area. Ebisunishi with structured Shibuya locality may use broad Shibuya; raw Ebisunishi alone still needs confirmation. Added canonical Yoyogi has no invented boundary geometry.
+
 ## Phase 2A.6 — Production evidence and hours-only eligibility (2026-09-22)
 
 - Multiple automated Gate passes did not establish production acceptance. Earlier current-selection and legacy URL findings were fixture-proven defects, not proof of the user's actual Google state. Initial logs at functional release 315cd49 were insufficient, so diagnostic-only dd178242 was deployed; USER alone performed the next smoke.

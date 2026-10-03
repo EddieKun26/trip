@@ -104,7 +104,7 @@ async function openDetails(b, resolved) {
   const pending = b.run("ensurePlaceDetails(state.places[0])");
   const request = detailRequests(b)[before];
   if (request) await b.reply(request, request.url === '/api/places' ? { places: [resolved] }
-    : resolved?.error ? { error: resolved.error } : { status: resolved.regularOpeningPeriods?.status, regularOpeningPeriods: resolved.regularOpeningPeriods }, resolved?.error ? 502 : 200);
+    : resolved?.error ? { error: resolved.error } : { status: resolved.regularOpeningPeriods?.status, regularOpeningPeriods: resolved.regularOpeningPeriods, openingWindows: { "9/20": [], "9/21": [[540,1080]], "9/22": [], "9/23": [] }, windowCalendar: {startDate:b.state.startDate,endDate:b.state.endDate} }, resolved?.error ? 502 : 200);
   await pending;
   return detailRequests(b).length - before;
 }
@@ -140,7 +140,11 @@ test("completed fetch state (known or unavailable) bound to the same placeId is 
     const b = await boot(trip([place("shinjuku", { photosLoaded: true, regularOpeningPeriods: RECORD("google-shinjuku", status) })]));
     assert.equal(await openDetails(b, {}), 0, status);
     b.run("openPlaceSheet(placeDetailKey(state.places[0]))");
-    assert.equal(detailRequests(b).length, 0, status);
+    assert.equal(detailRequests(b).length, status==='known'?1:0, status);
+    if(status==='known'){
+      const r=detailRequests(b)[0];await b.reply(r,{status,regularOpeningPeriods:RECORD("google-shinjuku"),openingWindows:{"9/20":[]},windowCalendar:{startDate:b.state.startDate,endDate:b.state.endDate}});
+      b.run('closeSheet();openPlaceSheet(placeDetailKey(state.places[0]))');assert.equal(detailRequests(b).length,1,'cached date windows reused');
+    }
   }
 });
 

@@ -1,3 +1,4 @@
+import {installV3Detail} from './helpers/v3-detail-fixture.mjs';
 import { tagOptionsNode } from "./helpers/tag-options-node.mjs";
 import AreaTags from "../lib/area-tags.js";
 import PlanningGeography from "../lib/planning-geography.js";
@@ -6,7 +7,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 const functionSource = (name) => {
@@ -103,6 +104,7 @@ function harness({ existing = null, extraState = {} } = {}) {
   vm.runInContext(editorCore + detailCore
     + `\nasync function submitEditor(event) { ${submit} }\nfunction dismissSheet(event) { ${dismissSnippet} }`, context);
   const session = context.bindPlaceEditor(form, existing, {});
+  installV3Detail(context);
   return { context, form, session, requests, renderCalls, sheetRoot, state,
     reply(index, place = good) { requests[index].resolve({ ok: true, json: async () => ({ places: [place] }) }); },
     save() { return context.submitEditor({ target: form, preventDefault() {} }); },

@@ -6,7 +6,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const catalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8"));
-const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const appSource = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const json = (value) => JSON.parse(JSON.stringify(value));
 
 // Real production coordinates (places-snapshot export) so containment is proven against the
@@ -31,7 +31,7 @@ test("withdrawn rules propose zero writes with the complete shipped dependency o
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const scripts = [...html.matchAll(/src="\.\/(lib\/[^"?]+)(?:\?[^" ]+)?"/g)].map(match => match[1]);
   assert.deepEqual(scripts, ["lib/travel-area-audit.js", "lib/area-tags.js", "lib/canonical-travel-catalog.js", "lib/planning-geography.js",
-    "lib/canonical-travel-manifest.js", "lib/canonical-travel-migration.js"]);
+    "lib/canonical-travel-manifest.js", "lib/canonical-travel-migration.js", "lib/trip-workspace.js"]);
   for (const script of scripts) vm.runInContext(readFileSync(new URL("../" + script, import.meta.url), "utf8"), context);
   assert.equal(typeof context.TravelAreaAudit.contains, "function");
   const places = json([HANAKAWADO, KAMINARIMON, JINNAN]);

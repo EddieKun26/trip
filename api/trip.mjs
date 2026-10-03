@@ -1,18 +1,12 @@
+import { planningSnapshot, importPlanText } from "../lib/external-planner.mjs";
 import areaTags from "../lib/area-tags.js";
 import PlanningGeography from "../lib/planning-geography.js";
 import areaAudit from "../lib/travel-area-audit.js";
-import { enrichApplyPreview, reconstructPlan } from "../lib/ai-trip-planner-apply.mjs";
+import { reconstructPlan } from "../lib/ai-trip-planner-apply.mjs";
 import {
   PlannerError,
-  buildPlannerContext,
-  buildPlannerPreview,
-  callPlannerModel,
-  checkPlannerFeasibility,
-  plannerDailyLimit,
-  plannerModelConfig,
   plannerOpeningWindows,
   plannerTripDays,
-  runPlanner,
 } from "../lib/ai-trip-planner.mjs";
 import { readFileSync } from "node:fs";
 let areaCatalog = null;
@@ -25,19 +19,13 @@ import { resolveStructuredOpeningPeriods, structuredHoursPlaceId } from "../lib/
 import { overlayOpeningHours, readOpeningHoursSidecars, writeOpeningHoursSidecar } from "../lib/opening-hours-sidecar.mjs";
 
 const LEGACY_TRIP_KEY = "tokyo-family-trip:v1";
-/* The AI Planner action makes up to PLANNER_MAX_MODEL_CALLS model calls, so this route declares its
- * duration explicitly like the other AI routes, which also makes it independent of any project-level
- * default. This project has no framework, so the authoritative setting is the matching vercel.json
- * functions entry (kept in sync by a test); the export documents the intent at the call site.
- * 150s comfortably covers two sequential PLANNER_MODEL_TIMEOUT_MS calls plus preprocessing,
- * validation and the response, and is well inside the platform's 300s ceiling for this plan. */
+// Metadata hydration and atomic itinerary writes use the existing route. No model calls.
 export const maxDuration = 150;
 
 const DEFAULT_TRIP_ID = "tokyo-family-2026";
 const TRIP_PREFIX = "tokyo-family-trip:trip:";
 const INVITE_PREFIX = "tokyo-family-trip:invite:";
 const SESSION_PREFIX = "tokyo-family-trip:session:";
-const PLANNER_LIMIT_PREFIX = "tokyo-family-trip:ai-planner:";
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
@@ -268,85 +256,16 @@ function cleanTrip(input, previous, member) {
   };
 }
 
-// Same per-member daily counter pattern as the other AI endpoints; only reached right before
-// the first model call, after every configuration, revision and constraint preflight passed.
-async function enforceDailyPlannerLimit(memberId, limit) {
-  const day = new Date().toISOString().slice(0, 10);
-  const key = `${PLANNER_LIMIT_PREFIX}${memberId}:${day}`;
-  const count = Number(await redisCommand(["INCR", key])) || 0;
-  if (count === 1) await redisCommand(["EXPIRE", key, 86400]);
-  return count <= limit;
-}
-
-/* POST { action: "plan" }: read-only AI Planner Preview over the server-loaded canonical Trip.
- * The client sends only expectedRevision plus selected Place refs and their dateOptions. This
- * path never writes the Trip, its revision, its itinerary or undo state.
- * Every exit logs one "ai-planner" line of stable codes and counters — outcome, error code,
- * elapsed ms, model calls, repair attempted, first-pass validity — so a production failure is
- * diagnosable by category and repair frequency is monitorable. It never logs Trip content, Place
- * names, dateOptions, prompts, model output, refusal text or the credential. */
-async function planTrip(request, response, trip, member) {
-  const started = Date.now();
-  let modelCalls = 0;
-  const finish = (outcome, status, payload, extra = {}) => {
-    console.info("ai-planner", { outcome, code: outcome === "success" ? "OK" : String(payload.error || ""), status, ms: Date.now() - started, modelCalls, ...extra });
-    return sendJson(response, status, payload);
-  };
-  const config = plannerModelConfig();
-  if (!config) return finish("not_configured", 503, { error: "PLANNER_MODEL_NOT_CONFIGURED" });
-  const dailyLimit = plannerDailyLimit();
-  if (!dailyLimit) return finish("not_configured", 503, { error: "PLANNER_QUOTA_NOT_CONFIGURED" });
-  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) return finish("not_configured", 503, { error: "AI_PLANNER_NOT_CONFIGURED" });
-  const body = request.body && typeof request.body === "object" ? request.body : {};
-  const expectedRevision = Number(body.expectedRevision);
-  if (body.expectedRevision === undefined || body.expectedRevision === null || !Number.isFinite(expectedRevision) || !Array.isArray(body.selected)) {
-    return finish("bad_request", 400, { error: "INVALID_PLANNER_REQUEST" });
-  }
-  const revision = Number(trip.revision) || 0;
-  if (expectedRevision !== revision) return finish("stale", 409, { error: "TRIP_STALE", revision });
-  try {
-    const places = (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog));
-    const context = buildPlannerContext({ trip, places, selected: body.selected });
-    const feasibility = checkPlannerFeasibility(context);
-    if (!feasibility.feasible) {
-      const details = feasibility.reason === "OPENING_HOURS_CONFLICT" ? context.candidates.filter(c => feasibility.placeKeys.includes(c.key)).flatMap(c =>
-        c.dateOptions.map(option => ({ name: c.name, dayKey: option.dayKey, startTime: option.exactTime || "", openingWindows: (c.openingWindows?.[option.dayKey] || []).map(w => `${String(Math.floor(w.startMinute / 60)).padStart(2, "0")}:${String(w.startMinute % 60).padStart(2, "0")}–${String(Math.floor(w.endMinute / 60)).padStart(2, "0")}:${String(w.endMinute % 60).padStart(2, "0")}`) }))) : [];
-      return finish("preflight_rejected", 422, { error: "PLANNER_CONSTRAINTS_INFEASIBLE", reason: feasibility.reason, placeKeys: feasibility.placeKeys, ...(details.length ? { details } : {}) }, { reason: feasibility.reason });
-    }
-    if (!(await enforceDailyPlannerLimit(member.id, dailyLimit))) return finish("quota_exhausted", 429, { error: "DAILY_PLANNER_LIMIT" });
-    const result = await runPlanner(context, ({ repair }) => {
-      modelCalls += 1;
-      return callPlannerModel({ apiKey, model: config.model, effort: config.effort, context, repair });
-    });
-    const attempts = { repaired: result.attempts.length > 1, firstPassValid: Boolean(result.attempts[0]?.hardValid) };
-    if (!result.ok) {
-      // Codes only: never the refusal text or plan content.
-      return finish("invalid_output", 422, { error: "PLANNER_INVALID_OUTPUT" }, { ...attempts, refused: Boolean(result.refused), codes: result.attempts.map(attempt => attempt.errors.map(entry => entry.code)) });
-    }
-    return finish("success", 200, {
-      preview: enrichApplyPreview(buildPlannerPreview(context, result.validation), trip),
-      planning: { modelCalls: result.attempts.length, repaired: result.attempts.length > 1 },
-    }, attempts);
-  } catch (error) {
-    if (!(error instanceof PlannerError)) throw error;
-    const detail = error.detail || {};
-    return finish(error.status >= 500 || error.status === 429 ? "upstream_failed" : "rejected", error.status, {
-      error: error.code,
-      ...(detail.reason ? { reason: detail.reason } : {}),
-      ...(Array.isArray(detail.refs) ? { placeKeys: detail.refs } : {}),
-    }, detail.reason ? { reason: detail.reason } : {});
-  }
-}
-
 export default async function tripHandler(request, response) {
   try {
     const tripId = requestedTripId(request);
     // Apply must never trigger legacy migration writes on a rejected request.
     const applying = request.method === "POST" && request.body?.action === "applyPlan";
+    const validating = request.method === "POST" && request.body?.action === "validatePlan";
+    const exchanging = request.method === "POST" && ["planningSnapshot", "importPlanText", "plan"].includes(request.body?.action);
     const hydrating = request.method === "POST" && request.body?.action === "hydrateOpeningHours";
     const atomicUndo = request.method === "PUT" && request.body?.requireAtomic === true;
-    const trip = applying || hydrating || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
+    const trip = applying || validating || exchanging || hydrating || atomicUndo ? await readJson(`${TRIP_PREFIX}${tripId}`) : await readTrip(tripId);
     if (!trip) return sendJson(response, 404, { error: "TRIP_NOT_FOUND" });
     const member = await authenticatedMember(request);
     const isMember = Boolean(member?.id && trip.members?.[member.id]);
@@ -409,11 +328,12 @@ export default async function tripHandler(request, response) {
       return sendJson(response, 200, { ...trip, places: (trip.places || []).map(place => areaAudit.reclassify(PlanningGeography.normalizePlace(place), areaCatalog)) });
     }
 
-    if (applying) {
+    if (applying || validating) {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
       try {
         const effectiveTrip = overlayOpeningHours(trip, await readOpeningHoursSidecars(trip.places || [], redisCommand));
         const candidate = reconstructPlan(effectiveTrip, request.body);
+        if (validating) return sendJson(response, 200, { valid: true });
         // Apply validates against effective hours, but persists exactly the original Places.
         candidate.places = trip.places;
         // A narrowed race window is insufficient here. Never fall back to GET + SET.
@@ -444,7 +364,11 @@ export default async function tripHandler(request, response) {
       }
       // Validate the incoming geography before legacy/tag cleaning and any Redis write.
       const input = { ...request.body, places: Array.isArray(request.body?.places)
-        ? request.body.places.slice(0, 250).map(place => PlanningGeography.normalizePlace(place)) : [] };
+        ? request.body.places.slice(0, 250).map(place => {
+          const identity = structuredHoursPlaceId(place);
+          const matches = (trip.places || []).filter(old => placeDetailKey(old) === placeDetailKey(place) && structuredHoursPlaceId(old) === identity);
+          return PlanningGeography.assertPlaceAreaWrite(place, matches.length === 1 ? areaAudit.reclassify(PlanningGeography.normalizePlace(matches[0]), areaCatalog) : null, Boolean(identity));
+        }) : [] };
       const updated = cleanTrip(input, trip, member);
       const key = `${TRIP_PREFIX}${trip.id}`;
       const payload = JSON.stringify(updated);
@@ -462,9 +386,18 @@ export default async function tripHandler(request, response) {
       return sendJson(response, 200, { ...updated, writeMode: result.writeMode });
     }
 
-    if (request.method === "POST" && request.body?.action === "plan") {
+    if (request.method === "POST" && ["planningSnapshot", "importPlanText", "plan"].includes(request.body?.action)) {
       if (!isMember) return sendJson(response, member ? 403 : 401, { error: "AUTH_REQUIRED" });
-      return planTrip(request, response, overlayOpeningHours(trip, await readOpeningHoursSidecars(trip.places || [], redisCommand)), member);
+      if (request.body.action === "plan") return sendJson(response, 410, { error: "BUILT_IN_PLANNER_REMOVED" });
+      try {
+        const effectiveTrip = overlayOpeningHours(trip, await readOpeningHoursSidecars(trip.places || [], redisCommand));
+        if (request.body.action === "importPlanText") return sendJson(response, 200, importPlanText(effectiveTrip, request.body));
+        const { snapshot, document } = planningSnapshot(effectiveTrip, request.body);
+        return sendJson(response, 200, { snapshot, document });
+      } catch (error) {
+        if (!(error instanceof PlannerError)) throw error;
+        return sendJson(response, error.status, { error: error.code, detail: error.detail, reason: error.detail?.reason, placeKeys: error.detail?.placeKeys });
+      }
     }
 
     response.setHeader("Allow", "GET, PUT, POST");

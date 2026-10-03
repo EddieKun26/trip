@@ -5,30 +5,23 @@ import vm from "node:vm";
 import PlanningGeography from "../lib/planning-geography.js";
 import audit from "../lib/travel-area-audit.js";
 import {
-  PLANNER_MAX_MODEL_CALLS,
   PlannerError,
   buildPlannerContext,
   buildPlannerPreview,
-  callPlannerModel,
   checkPlannerFeasibility,
   normalizePlannerDateOptions,
   placeDetailKey,
   normalizeGoogleMapsUrl,
   normalizedPlaceKind,
-  plannerDailyLimit,
   plannerEligiblePlaces,
-  plannerModelConfig,
-  plannerModelInput,
-  plannerRequestPayload,
   plannerTripDays,
-  runPlanner,
 } from "../lib/ai-trip-planner.mjs";
-import { PLANNER_DAILY_CAPACITY, PLANNER_PERIOD_RANGES, plannerOutputSchema, plannerRepairInstruction, plannerSystemInstruction } from "../lib/ai-trip-planner-schema.mjs";
+import { PLANNER_DAILY_CAPACITY, PLANNER_PERIOD_RANGES } from "../lib/ai-trip-planner-schema.mjs";
 import { planQualityMetrics, timeInPeriod, validatePlannerPlan, windowsOverlap } from "../lib/ai-trip-planner-validator.mjs";
 import { key, plannerFixtures, plannerPlace, plannerTrip, tokyoPlaces } from "./fixtures/ai-planner-fixtures.mjs";
 import { mockValidPlan, responsesPayload } from "./helpers/ai-planner-mock.mjs";
 
-const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const appSource = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const appSection = (start, end) => {
   const a = appSource.indexOf(start), b = appSource.indexOf(end, a + start.length);
   assert.ok(a >= 0 && b > a, start);
@@ -89,13 +82,6 @@ test("six preferred period boundaries are inclusive and deterministic", () => {
   assert.equal(timeInPeriod("9:30", "morning"), false);
 });
 
-test("model config requires AI_PLANNER_MODEL, never falls back, and fails closed on unknown effort", () => {
-  assert.equal(plannerModelConfig({ OPENAI_MODEL: "gpt-5.6-luna" }), null);
-  assert.equal(plannerModelConfig({ AI_PLANNER_MODEL: "  " }), null);
-  assert.deepEqual(plannerModelConfig({ AI_PLANNER_MODEL: "gpt-5.6-terra" }), { model: "gpt-5.6-terra", effort: "high" });
-  assert.deepEqual(plannerModelConfig({ AI_PLANNER_MODEL: "m", AI_PLANNER_REASONING_EFFORT: "Medium" }), { model: "m", effort: "medium" });
-  assert.equal(plannerModelConfig({ AI_PLANNER_MODEL: "m", AI_PLANNER_REASONING_EFFORT: "ultra" }), null);
-});
 
 test("candidate refs are opaque, stable in canonical Place order, selected→HARD and unselected→SOFT; lodging never a candidate", () => {
   const trip = plannerTrip();
@@ -108,8 +94,7 @@ test("candidate refs are opaque, stable in canonical Place order, selected→HAR
   assert.deepEqual(first.candidates.filter((c) => c.required).map((c) => c.key), [key("sensoji"), key("gyoen")]);
   assert.ok(first.candidates.filter((c) => !c.required).every((c) => c.dateOptions.length === 0));
   assert.ok(!first.candidates.some((c) => c.kind === "lodging"));
-  const input = JSON.stringify(plannerModelInput(first));
-  for (const forbidden of ["app:fixture", "google-fixture", "fixture-", "Synthetic fixture address"]) assert.ok(!input.includes(forbidden), forbidden);
+
 });
 
 test("client refs are validated against canonical eligible Places, never client names; stale/ambiguous/duplicate refs fail", () => {
@@ -180,11 +165,8 @@ test("existing itinerary is locked context: scheduled Places leave the pool, cap
   const ctx = context(fixture("E").trip, fixture("E").selected);
   assert.ok(!ctx.candidates.some((c) => ["淺草寺", "上野恩賜公園", "東京國立博物館", "明治神宮"].includes(c.name)));
   assert.deepEqual([...ctx.capacityByDay], [["9/22", 2], ["9/23", 4], ["9/24", 5]]);
-  const input = plannerModelInput(ctx);
-  assert.deepEqual(input.days[0].existingItems.map((item) => [item.order, item.time, item.type, item.name]),
-    [[1, "10:00", "attraction", "淺草寺"], [2, "13:00", "attraction", "上野恩賜公園"], [3, "15:00", "attraction", "東京國立博物館"]]);
-  assert.deepEqual(input.days[2].existingItems.map((item) => [item.type, item.name, item.time]), [["flight", "回程 NRT→KHH", "17:50"]]);
-  assert.equal(input.days[0].existingItems[0].area, "上野・淺草・秋葉原");
+  assert.deepEqual(ctx.existingByDay.get('9/22').map(i=>[i.position,i.time,i.kind,i.name]),[[0,'10:00','attraction','淺草寺'],[1,'13:00','attraction','上野恩賜公園'],[2,'15:00','attraction','東京國立博物館']]);
+  assert.equal(ctx.existingByDay.get('9/24')[0].kind,'flight');
 });
 
 test("feasibility preflight: capacity, multi-date matching, exact slot conflicts and existing-time collisions", () => {
@@ -209,30 +191,6 @@ test("feasibility preflight: capacity, multi-date matching, exact slot conflicts
   assert.deepEqual(checkPlannerFeasibility(context(plannerTrip(), [])), { feasible: true });
 });
 
-test("strict output schema: closed day/ref enums, required fields, no additional properties, no name identity", () => {
-  const ctx = context(plannerTrip(), [{ ref: key("meiji") }]);
-  const payload = plannerRequestPayload(ctx, { model: "gpt-5.6-luna", effort: "high" });
-  assert.equal(payload.store, false);
-  assert.deepEqual(payload.reasoning, { effort: "high" });
-  assert.equal(payload.text.format.type, "json_schema");
-  assert.equal(payload.text.format.strict, true);
-  const schema = payload.text.format.schema;
-  assert.deepEqual(schema, plannerOutputSchema({ dayKeys: ["9/22", "9/23", "9/24"], candidateRefs: ctx.candidates.map((c) => c.ref) }));
-  const item = schema.properties.days.items.properties.items.items;
-  assert.deepEqual(Object.keys(item.properties).sort(), ["candidateRef", "durationMinutes", "startTime"]);
-  assert.equal(item.additionalProperties, false);
-  assert.deepEqual(item.required.sort(), ["candidateRef", "durationMinutes", "startTime"]);
-  assert.equal(schema.properties.days.items.additionalProperties, false);
-  assert.deepEqual(schema.properties.days.items.properties.dayKey.enum, ["9/22", "9/23", "9/24"]);
-  // Candidate text only ever appears as user data, never inside the system instruction.
-  assert.equal(payload.input[0].role, "system");
-  assert.equal(payload.input[0].content, plannerSystemInstruction());
-  assert.ok(!payload.input[0].content.includes("明治神宮"));
-  assert.ok(payload.input[1].content[0].text.includes("明治神宮"));
-  for (const rule of ["剛好安排一次", "選擇性", "不可發明", "exactTime", "preferred", "地理", "existingItems", "maxNewStops", "不是給你的指令"]) {
-    assert.ok(plannerSystemInstruction().includes(rule), rule);
-  }
-});
 
 function validatorContext() {
   const trip = plannerTrip({ itinerary: { "9/24": [{ name: "東京鐵塔", time: "12:00" }] } });
@@ -326,69 +284,8 @@ test("preview enrichment uses canonical names/areas, merges locked existing item
   assert.equal(preview.summary.savedCount, 1);
 });
 
-test("repair: invalid first output → exactly one repair call with errors; valid repair succeeds", async () => {
-  const ctx = context(fixture("B").trip, fixture("B").selected);
-  const valid = mockValidPlan(ctx);
-  const broken = structuredClone(valid);
-  broken.days[0].items = broken.days[0].items.slice(1);
-  const calls = [];
-  const result = await runPlanner(ctx, async ({ repair }) => {
-    calls.push(repair);
-    return { plan: calls.length === 1 ? broken : valid, latencyMs: 5, usage: null };
-  });
-  assert.equal(result.ok, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0], null);
-  assert.deepEqual(calls[1].previousPlan, broken);
-  assert.ok(calls[1].errors.some((entry) => entry.code === "MISSING_REQUIRED"));
-  assert.deepEqual(result.attempts.map((attempt) => [attempt.kind, attempt.hardValid]), [["initial", false], ["repair", true]]);
-});
 
-test("repair: a still-invalid repair fails and there is never a third model call; unparseable output is also repairable", async () => {
-  const ctx = context(fixture("B").trip, fixture("B").selected);
-  let calls = 0;
-  const failed = await runPlanner(ctx, async () => { calls += 1; return { plan: { days: [{ dayKey: "9/22", items: [item("p999")] }] } }; });
-  assert.equal(failed.ok, false);
-  assert.equal(calls, PLANNER_MAX_MODEL_CALLS);
-  assert.equal(PLANNER_MAX_MODEL_CALLS, 2);
-  calls = 0;
-  const recovered = await runPlanner(ctx, async ({ repair }) => { calls += 1; return repair ? { plan: mockValidPlan(ctx) } : { plan: null, outputError: "OUTPUT_UNPARSEABLE" }; });
-  assert.equal(recovered.ok, true);
-  assert.equal(calls, 2);
-  assert.equal(recovered.attempts[0].schemaValid, false);
-  // Upstream errors are thrown, never repaired.
-  calls = 0;
-  await assert.rejects(runPlanner(ctx, async () => { calls += 1; throw new PlannerError("OPENAI_500", 502); }), /OPENAI_500/);
-  assert.equal(calls, 1);
-});
 
-test("callPlannerModel sends store:false strict json_schema with explicit effort and parses output, incomplete, refusal and HTTP errors", async () => {
-  const ctx = context(fixture("A").trip, []);
-  const requests = [];
-  const reply = (payload, status = 200) => async (url, options) => { requests.push({ url, body: JSON.parse(options.body) }); return new Response(JSON.stringify(payload), { status }); };
-  const plan = mockValidPlan(ctx);
-  let result = await callPlannerModel({ apiKey: "k", model: "gpt-5.6-luna", effort: "high", context: ctx, fetchImpl: reply(responsesPayload(plan)) });
-  assert.deepEqual(result.plan, plan);
-  assert.equal(result.usage.output_tokens, 800);
-  assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
-  assert.equal(requests[0].body.store, false);
-  assert.equal(requests[0].body.model, "gpt-5.6-luna");
-  assert.deepEqual(requests[0].body.reasoning, { effort: "high" });
-  assert.equal(requests[0].body.text.format.strict, true);
-  result = await callPlannerModel({ apiKey: "k", model: "m", effort: "high", context: ctx, repair: { previousPlan: plan, errors: [{ code: "MISSING_REQUIRED" }] }, fetchImpl: reply(responsesPayload(plan)) });
-  assert.equal(requests[1].body.input.length, 4);
-  assert.ok(requests[1].body.input[3].content[0].text.includes("MISSING_REQUIRED"));
-  result = await callPlannerModel({ apiKey: "k", model: "m", effort: "high", context: ctx, fetchImpl: reply(responsesPayload("", { status: "incomplete" })) });
-  assert.equal(result.outputError, "OUTPUT_INCOMPLETE");
-  result = await callPlannerModel({ apiKey: "k", model: "m", effort: "high", context: ctx, fetchImpl: reply({ output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }] }) });
-  assert.equal(result.outputError, "OUTPUT_REFUSED");
-  result = await callPlannerModel({ apiKey: "k", model: "m", effort: "high", context: ctx, fetchImpl: reply(responsesPayload("not json")) });
-  assert.equal(result.outputError, "OUTPUT_UNPARSEABLE");
-  await assert.rejects(callPlannerModel({ apiKey: "k", model: "m", effort: "high", context: ctx, fetchImpl: reply({ error: { type: "rate_limit_exceeded" } }, 429) }),
-    (error) => error.code === "OPENAI_429_RATE_LIMIT_EXCEEDED" && error.status === 429);
-  await assert.rejects(callPlannerModel({ apiKey: "k", model: "m", effort: "high", context: ctx, fetchImpl: async () => { throw new Error("network"); } }),
-    (error) => error.code === "PLANNER_UPSTREAM_FAILED" && error.status === 502);
-});
 
 test("quality metrics: inclusion, exact/allowed compliance, preference adherence, density and haversine cohesion", () => {
   const C = fixture("C");
@@ -412,14 +309,6 @@ test("quality metrics: inclusion, exact/allowed compliance, preference adherence
 
 // --- Phase 2A.1 hardening ----------------------------------------------------------------------
 
-test("AI_PLANNER_DAILY_LIMIT: default 20, positive integer override, anything else fails closed", () => {
-  assert.equal(plannerDailyLimit({}), 20);
-  assert.equal(plannerDailyLimit({ AI_PLANNER_DAILY_LIMIT: "10" }), 10);
-  assert.equal(plannerDailyLimit({ AI_PLANNER_DAILY_LIMIT: " 35 " }), 35);
-  for (const invalid of ["0", "-1", "1.5", "abc", "", "  ", "1e3", "010", "NaN", "Infinity", "20abc"]) {
-    assert.equal(plannerDailyLimit({ AI_PLANNER_DAILY_LIMIT: invalid }), null, JSON.stringify(invalid));
-  }
-});
 
 test("duration must be an integer 30–240 in 15-minute steps", () => {
   const { ctx, meiji, omoide, sensoji } = validatorContext();
@@ -469,7 +358,6 @@ test("existing items: a trusted stored duration forms a window; start-time-only 
   assert.equal(ctx.existingByDay.get("9/22")[0].durationMinutes, 120);
   assert.equal(ctx.existingByDay.get("9/23")[0].durationMinutes, null);
   assert.equal(ctx.existingByDay.get("9/23")[1].durationMinutes, null);
-  assert.equal(plannerModelInput(ctx).days[1].existingItems[0].durationMinutes, null);
   const meiji = refOf(ctx, "meiji");
   let result = validatePlannerPlan({ days: [{ dayKey: "9/22", items: [item(meiji, "11:00", 60)] }] }, ctx);
   assert.deepEqual(codes(result), ["EXISTING_TIME_OVERLAP"]);
@@ -490,83 +378,7 @@ test("existing items: a trusted stored duration forms a window; start-time-only 
 test("preferred periods stay soft after hardening: a miss is valid with a warning and never triggers repair", async () => {
   const { ctx, meiji, omoide } = validatorContext();
   const plan = { days: [{ dayKey: "9/22", items: [item(omoide, "12:00", 60), item(meiji, "15:00", 60)] }] };
-  let calls = 0;
-  const result = await runPlanner(ctx, async () => { calls += 1; return { plan }; });
+  const result = validatePlannerPlan(plan, ctx);
   assert.equal(result.ok, true);
-  assert.equal(calls, 1);
-  assert.deepEqual(result.validation.warnings.map((w) => w.code), ["PREFERENCE_MISS"]);
-});
-
-test("repair policy: hard-invalid, schema-invalid, unparseable and incomplete each get exactly one repair; refusal and upstream errors get none", async () => {
-  const ctx = context(fixture("B").trip, fixture("B").selected);
-  const valid = mockValidPlan(ctx);
-  for (const [label, first] of [
-    ["hard invalid", { plan: { days: [{ dayKey: "9/22", items: [item("p999")] }] } }],
-    ["schema invalid item", { plan: { days: [{ dayKey: "9/22", items: [{ ref: "p001" }] }] } }],
-    ["schema invalid top-level", { plan: { itinerary: [] } }],
-    ["unparseable", { plan: null, outputError: "OUTPUT_UNPARSEABLE" }],
-    ["incomplete", { plan: null, outputError: "OUTPUT_INCOMPLETE" }],
-  ]) {
-    let calls = 0;
-    const result = await runPlanner(ctx, async ({ repair }) => { calls += 1; return repair ? { plan: valid } : first; });
-    assert.equal(result.ok, true, label);
-    assert.equal(calls, 2, label);
-    assert.equal(result.attempts[0].hardValid, false, label);
-    assert.equal(result.attempts[1].kind, "repair", label);
-  }
-  let calls = 0;
-  const refused = await runPlanner(ctx, async () => { calls += 1; return { plan: null, outputError: "OUTPUT_REFUSED" }; });
-  assert.equal(refused.ok, false);
-  assert.equal(refused.refused, true);
-  assert.equal(calls, 1);
-  for (const code of ["OPENAI_429_RATE_LIMIT_EXCEEDED", "OPENAI_500_SERVER_ERROR", "OPENAI_503", "PLANNER_UPSTREAM_FAILED"]) {
-    calls = 0;
-    await assert.rejects(runPlanner(ctx, async () => { calls += 1; throw new PlannerError(code, code.includes("429") ? 429 : 502); }), (error) => error.code === code);
-    assert.equal(calls, 1, code);
-  }
-  // Every repairable failure on both calls still stops at two calls.
-  for (const failure of [{ plan: null, outputError: "OUTPUT_INCOMPLETE" }, { plan: { days: [] } }, { plan: null, outputError: "OUTPUT_UNPARSEABLE" }]) {
-    calls = 0;
-    const failed = await runPlanner(ctx, async () => { calls += 1; return failure; });
-    assert.equal(failed.ok, false);
-    assert.equal(calls, 2);
-  }
-  calls = 0;
-  const repairRefused = await runPlanner(ctx, async ({ repair }) => { calls += 1; return repair ? { plan: null, outputError: "OUTPUT_REFUSED" } : { plan: { days: [] } }; });
-  assert.equal(repairRefused.ok, false);
-  assert.equal(repairRefused.refused, true);
-  assert.equal(calls, 2);
-});
-
-test("system instruction states the 15-minute duration step and the no-overlap rule", () => {
-  const instruction = plannerSystemInstruction();
-  assert.ok(instruction.includes("15 的倍數"));
-  assert.ok(instruction.includes("時間區間不可重疊"));
-  assert.ok(instruction.includes("剛好接續可以"));
-});
-
-test("model-facing daily count is only a hard maximum, never a target; quality semantics are guidance, not new rules", () => {
-  const ctx = context(fixture("E").trip, fixture("E").selected);
-  const input = plannerModelInput(ctx);
-  assert.equal(PLANNER_DAILY_CAPACITY, 5);
-  assert.equal(input.maxPlacesPerDay, 5);
-  assert.deepEqual(input.days.map((day) => day.maxNewStops), [2, 4, 5]);
-  // Internal capacity semantics are unchanged; only the model-facing name/meaning changed.
-  assert.deepEqual([...ctx.capacityByDay], [["9/22", 2], ["9/23", 4], ["9/24", 5]]);
-  assert.doesNotMatch(JSON.stringify(input), /pace|target|capacityForNewStops/i);
-  const instruction = plannerSystemInstruction();
-  for (const removed of ["標準步調", "約 5 個地點", "targetPlacesPerFullDay"]) assert.ok(!instruction.includes(removed), removed);
-  // No replacement numeric density target of any kind (e.g. "3 個地點", "3–4 個地點").
-  assert.doesNotMatch(instruction, /[0-9０-９一二三四五六]\s*(?:[-–~～至到]\s*[0-9０-９一二三四五六]\s*)?個(?:地點|景點|站)/);
-  for (const phrase of [
-    "只是上限，不是目標", "沒用完的名額", "不要因為還有名額或時段空著就加入地點", // capacity is not a target
-    "不是待辦清單", "不安排也是正確的規劃決定", // soft saved Places
-    "地理上集中的區塊", "避免不必要的折返", "連貫的半日或一日行程", // geography (guidance only)
-    "不要假設移動不花時間", "同一場所、同一建築或同一園區", // transitions (no km→minutes rule)
-    "時間錨點與地理錨點", "絕不可移動、修改或取代", // locked anchors
-    "航班日的可靠度比行程密度更重要", // flight days
-    "不是指定時間", "絕不可為了符合偏好時段而違反任何硬性規則", // preferred period stays soft, exact stays hard
-  ]) assert.ok(instruction.includes(phrase), phrase);
-  assert.ok(plannerRepairInstruction().includes("不需要為了補回被移除或調整的地點而加入其他選擇性地點"));
-  assert.equal(PLANNER_MAX_MODEL_CALLS, 2);
+  assert.deepEqual(result.warnings.map((w) => w.code), ["PREFERENCE_MISS"]);
 });

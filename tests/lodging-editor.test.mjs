@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 const functionSource = (name) => {
   const start = source.search(new RegExp(`(?:async )?function ${name}\\(`));
@@ -427,6 +427,7 @@ test("source whitelist merges into lodging candidates without changing Google id
     placeId: "wrong", name: "wrong", formattedAddress: "wrong", latitude: 1, longitude: 2, photos: [{ name: "wrong" }], sourceUrl: "wrong" };
   const result = h.context.socialGroupsToImports({ lodgingDraft: draft, groups: [{ id: "stay", extracted: { category: "lodging" }, candidates: [google, { ...google, placeId: "other", recommended: false }] }] });
   const candidate = result.imports[0];
+  Object.assign(candidate, PlanningGeography.manualAreaFields("shinjuku"));
   for (const key of ["placeId", "name", "formattedAddress", "latitude", "longitude", "sourceUrl", "photos"]) assert.deepEqual(candidate[key], google[key]);
   for (const key of ["referenceUrl", "originalReferenceUrl", "sourceCanonicalUrl", "sourcePlatform", "sourceListingId", "sourceLodgingName", "sourceReadStatus", "sourceImageUrl"]) assert.equal(candidate[key], draft[key]);
   assert.equal(candidate.customPhotoDataUrl, draft.sourceImageDataUrl); assert.equal(candidate.photoOrigin, "lodging_source");
@@ -442,7 +443,7 @@ test("source whitelist merges into lodging candidates without changing Google id
       "rating", "ratingCount", "phone", "openingHours", "description", "addressComponents",
       "addressComponentsOriginal", "countryCode", "addressProvider", "locationApproximate", "coordinateFallback", "coordinateLocation"],
   });
-  vm.runInContext(functionSource("importCandidateIdentity"), h.context);
+  vm.runInContext(functionSource("detailGooglePlaceId") + functionSource("plannerHoursGooglePlaceId") + functionSource("importCandidateIdentity"), h.context);
   vm.runInContext(functionSource("finalizeCandidateForBatchAdd"), h.context);
   vm.runInContext(`async function submitImport(event) { ${section('if (event.target.id === "import-places-form")', 'if (event.target.id === "add-area-form")')} }`, h.context);
   await h.context.submitImport({ target: { id: "import-places-form" }, preventDefault() {} });

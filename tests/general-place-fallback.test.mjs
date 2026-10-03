@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 function harness() {
   const opened = [], html = [], requests = [];

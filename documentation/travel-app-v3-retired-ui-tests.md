@@ -1,0 +1,45 @@
+# V3 retired UI assertion ledger
+
+These assertions describe removed UI surfaces. See travel-app-v3-engineering-gate.md for replacement behavior tests and retained data protection coverage. Tests of paid model/config/quota execution were retired separately with that feature.
+
+- ui-logic: day map follows itinerary order and represents flights with the relevant airport
+- ui-logic: all-date route map keeps daily ordering and assigns different route colors
+- ui-logic: day route markers keep place mark and votes with a separate order badge
+- ui-logic: map type filter uses the same attraction restaurant lodging and shopping groups as the list
+- ui-logic: map has a toggleable fullscreen workspace with a left filter and place list
+- ui-logic: day map renders flight legs as red dashed route segments
+- ui-logic: day route lines terminate at pins and transport legend stays off the map
+- places-filters: map dropdowns and adjacent location/fullscreen controls exist in both layouts
+- places-filters: fullscreen reuses the shared dropdowns and mode switches retain filter selections
+- V3 shared workspace replaces: Place Pool lists Places absent from every itinerary day, including lodging, and excludes scheduled Places
+- V3 shared workspace replaces: 主要地區 filter uses Planning Geography sections and cards never show Canonical Area
+- V3 shared workspace replaces: 最想去 filter counts a Place with at least one vote and never changes votes
+- V3 shared workspace replaces: toggle, close and Escape drive the fullscreen workspace with aria-expanded; filter clicks change view state only
+- V3 shared workspace replaces: the entry point and workspace title read 行程規劃, not the old 地點池 copy
+- V3 shared workspace replaces: desktop: a static two-column layout — Selected column left, candidates column right
+- V3 shared workspace replaces: mobile: the main workspace shows only filters + candidates; Selected becomes a right-side drawer
+- V3 shared workspace replaces: the old docked side-panel and bottom-sheet layouts no longer apply to the workspace
+- V3 shared workspace replaces: click/tap toggles Place Pool selection with aria-pressed, and the Place never leaves the main list
+- V3 shared workspace replaces: all Places selected: the main list still shows every one of them, never an empty state
+- V3 shared workspace replaces: empty-state copy distinguishes "nothing matches the filter" from "nothing left to plan at all", and never claims the old copy
+- V3 shared workspace replaces: when every Place is already scheduled, the main list shows "目前沒有可規劃的地點", never the old copy
+- V3 shared workspace replaces: filters narrow only the main list; the Selected Summary stays fully visible regardless of the current filter
+- V3 shared workspace replaces: the Selected column never auto-collapses, even past 6 or 7 selected Places; it scrolls independently instead
+- V3 shared workspace replaces: desktop drag from the dedicated handle uses the shared add helper and 加入地點 contract; the Place leaves the pool and any stale selection/constraint is pruned
+- V3 shared workspace replaces: unselected cards never expose a date control; a selected card does, defaulting to 指定日期
+- V3 shared workspace replaces: the Selected row exposes no manual direct-add action (removed: it duplicated 指定日期); the underlying 直接加入行程 helper chain still works for any other caller
+- V3 shared workspace replaces: same-name Places fail closed: neither is listed, selectable, addable or constraint-editable, and invalid dates are refused
+- V3 shared workspace replaces: sticky CTA shows the correct copy and selecting Places performs zero mutation, persistence or network
+- V3 shared workspace replaces: existing itinerary entry points keep their behavior
+- V3 shared workspace replaces: no AI, network or API surface is added by the Place Pool
+- V3 shared workspace replaces: the mobile Selected drawer handle is fixed at the right-center of the viewport and always visible, including at 0 selected
+- V3 shared workspace replaces: the drawer opens from the right, the handle follows its left edge, and the chevron flips direction
+- V3 shared workspace replaces: drawer rows show name + date summary only, never tags, geography, a restaurant category, or a manual-add action
+- V3 shared workspace replaces: the same summary formatter is used by the main-list card, the desktop Selected column, and the mobile drawer
+- V3 shared workspace replaces: the date dialog is a centered modal titled 指定日期, showing the place name, every trip day unchecked by default, and never the old 規劃限制 copy
+- V3 shared workspace replaces: checking a date reveals its 不指定時間 time-summary row; clicking it expands the mode/period/time editor
+- V3 shared workspace replaces: unchecking a date removes it from the draft entirely, including any time rule it carried
+- V3 shared workspace replaces: confirming the date dialog commits the draft dateOptions with zero network/persist
+- V3 shared workspace replaces: Escape cancels the date dialog and discards the draft, like backdrop/×/取消
+- V3 shared workspace replaces: the desktop Selected column exposes no manual direct-add action, only the unselect checkmark and the 指定日期 row
+- V3 shared workspace replaces: unselecting from the Selected Summary still works, and the 指定日期 summary is still clickable, after removing the direct-add action

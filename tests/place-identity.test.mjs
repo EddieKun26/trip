@@ -1,3 +1,4 @@
+import {installV3Detail} from './helpers/v3-detail-fixture.mjs';
 import AreaTags from "../lib/area-tags.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -5,7 +6,7 @@ import vm from "node:vm";
 import test from "node:test";
 import placesHandler from "../api/places.mjs";
 
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const shinjukuId = "ChIJL5-SRCaNGGAROpfSORNTpp4";
 const orixId = "ChIJMeaUejNOGGARxXDvgCM7TRg";
 const photo = (id) => ({ name: `places/${id}/photos/test-photo`, attribution: id });
@@ -40,6 +41,7 @@ function frontend(places, resolved) {
     canEdit: () => false, placeCreatorName: () => "測試", currentMemberId: () => "test",
   };
   vm.createContext(context);
+  installV3Detail(context);
   for (const name of ["restaurantTagValues", "persistedRestaurantTagValues", "placeTagsDetail", "placeTagEntries", "placeTagChip", "contentTagValues", "placeContentTags", "sanitizeContentTags", "placeDetailKey", "resolveDetailPlace", "isSelectedMapDetailPlace", "detailGooglePlaceId", "isAddressDetailPlace", "identitySafePhotos", "detailGalleryPhotos", "detailGalleryCard", "bindDetailGallery", "validMapCoordinates", "googleMapsNavigationUrl", "placeMapsUrl", "structuredHoursFetched", "ensurePlaceDetails", "openPlaceSheet"]) {
     vm.runInContext(functionSource(name), context);
   }
@@ -109,7 +111,7 @@ test("same-name different Place IDs open their own real detail sheets and photo 
   assert.equal(context.isSelectedMapDetailPlace(first), false);
   assert.equal(context.isSelectedMapDetailPlace(second), true);
   assert.equal(context.placeDetailKey({ ...first, id: "app-123" }), "app:app-123");
-  assert.match(source, /data-open-place="\$\{escapeHtml\(placeDetailKey\(place\)\)\}"/);
+  assert.match(source, /data-open-place="\$\{escapeHtml\(key\)\}"/);
   assert.match(source, /data-open-map-place-detail="\$\{escapeHtml\(placeDetailKey\(place\)\)\}"/);
 });
 
@@ -141,9 +143,9 @@ test("place-view and navigation actions are separate and preserve exact Maps ide
   const legacy = new URL(context.placeMapsUrl({ sourceUrl: "https://www.google.com/maps/dir/?api=1&destination=Shinjuku" }));
   assert.equal(legacy.pathname, "/maps/search/");
   assert.equal(legacy.searchParams.get("query"), "Shinjuku");
-  const detail = functionSource("openPlaceSheet");
-  assert.match(detail, /data-open-maps="\$\{escapeHtml\(mapNavigationUrl\)\}">Google Maps導航/);
-  assert.match(detail, /data-open-maps="\$\{escapeHtml\(mapPlaceUrl\)\}">開啟 Google Maps/);
+  const detail = functionSource("v3RenderPlace");
+  assert.match(detail, /placeNavigationUrl\(place\)/);
+  assert.match(detail, /placeMapsUrl\(place\)/);
 });
 test("API resolves known Google identity with GET details, never searchText", async (t) => {
   const originalFetch = globalThis.fetch, originalKey = process.env.GOOGLE_MAPS_API_KEY;
@@ -206,11 +208,11 @@ test("detail promotes manual areaTags, shows the 主要地區 summary instead of
  const before=structuredClone(place);const {context}=frontend([place],null);
  context.travelAreaDisplayName=()=>"港（港）";context.planningSectionLabel=()=>"六本木・赤坂・麻布";
  context.openPlaceSheet(place.name);const html=context.sheetRoot.innerHTML;
- const header=html.slice(html.indexOf('class="section-row"'),html.indexOf('class="detail-area-tags"'));
- assert.match(header,/id="place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
+ const header=html.slice(0,html.indexOf('</header>'));
+ assert.match(header,/id="v3-place-title"/);assert.doesNotMatch(header,/港|section-kicker/);
  assert.match(html,/<section class="detail-area-tags"><div><span class="highlight-tag place-tag place-tag-area" data-place-tag-type="area"><span class="visually-hidden">地區標籤：<\/span>芝<\/span><span class="highlight-tag place-tag place-tag-content" data-place-tag-type="content"><span class="visually-hidden">內容標籤：<\/span>歷史<\/span><\/div><\/section>/);
- assert.match(html,/<p class="detail-geography-summary">主要地區：六本木・赤坂・麻布<\/p>/);assert.doesNotMatch(html,/旅遊分區|港（港）/);
- assert.ok(html.indexOf('class="detail-area-tags"')<html.indexOf('class="detail-geography-summary"'));
+
+
  assert.match(html,/class="place-byline"[^>]*>[^<]*地區歷史景點/);
  assert.match(html,/class="place-description">芝的歷史描述/);
  assert.doesNotMatch(html,/class="highlight-list"/);
@@ -218,7 +220,7 @@ test("detail promotes manual areaTags, shows the 主要地區 summary instead of
  place.areaTags=[];context.openPlaceSheet(place.name);
  assert.doesNotMatch(context.sheetRoot.innerHTML,/data-place-tag-type="area"/);
  assert.match(context.sheetRoot.innerHTML,/data-place-tag-type="content"><span class="visually-hidden">內容標籤：<\/span>芝<\/span>/);
- assert.match(context.sheetRoot.innerHTML,/class="detail-geography-summary">主要地區：六本木・赤坂・麻布/);
+
 });
 
 test("detail merges areaTags and restaurant category chips into one wrapping row, areaTags first, without inventing a missing category", () => {

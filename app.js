@@ -228,7 +228,7 @@ const state = {
   ownerId: "",
   pendingInviteCode: sharedInviteCode,
   flights: [],
-  activeTab: "overview",
+  activeTab: "map",
   placesMode: "list",
   placeKind: "all", placeSectionFilter: "", areaTagFilter: "", areaTagComparison: null, restaurantTagFilter: "",
   selectedArea: "",
@@ -1519,7 +1519,7 @@ function applySharedTrip(payload) {
     for (const [placeId, record] of sessionOpeningHours) acceptOpeningHours(placeId, record, state.tripId);
   }
   syncFlightItineraryItems();
-  if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = dateMeta[0]?.[0] || "";
+  if (!dateMeta.some(([date]) => date === state.selectedDate)) state.selectedDate = v3Today();
   resetUndoBaseline({ clear: true });
   scheduleCanonicalAreaMigration();
   return true;
@@ -1963,7 +1963,7 @@ function tripIsHydrated() {
 }
 
 function safeMainTab(value) {
-  return ["overview", "places", "itinerary", "shopping"].includes(value) ? value : "overview";
+  return ["map", "overview", "places", "itinerary", "shopping"].includes(value) ? value : "map";
 }
 
 function saveUiPreference() {
@@ -2206,7 +2206,7 @@ async function loadSharedTrip({ quiet = false, force = false, hydrating = false 
     const payload = result.payload;
     if (payload?.id !== tripId || !Array.isArray(payload.places)) throw new Error("INVALID_TRIP_PAYLOAD");
     if (!force && (Number(payload.revision) || 0) <= state.sharedRevision) return "ready";
-    if (!force && state.activeTab === "places" && state.placesMode === "map" && Date.now() < mapInteractionUntil) return "ready";
+    if (!force && (state.activeTab === "map" || (state.activeTab === "places" && state.placesMode === "map")) && Date.now() < mapInteractionUntil) return "ready";
     if (applySharedTrip(payload)) {
       if (hydrating) {
         restoreUiPreference();
@@ -2238,6 +2238,7 @@ async function setTab(tab) {
     shoppingSelectedIds.clear();
   }
   state.activeTab = tab;
+  if (tab === "places") state.placesMode = "list";
   syncTabBarState();
   render();
   if (tab === "shopping" && canManageShopping() && !state.shoppingLoaded) {
@@ -2345,7 +2346,7 @@ function overviewPlanningSummary() {
   const transportProgress = pairs.length ? (pairs.length - missingTransport) / pairs.length : 0;
   const readiness = Math.round((flightProgress * 20) + (lodgingProgress * 20) + (itineraryProgress * 40) + (transportProgress * 20));
   const actions = [];
-  if (!state.flights.length) actions.push({ icon: "✈", title: "加入航班資料", detail: "讓去回程自動出現在每日行程", action: "flight" });
+  if (!state.flights.length) actions.push({ icon: "✈", title: "加入航班資料", detail: "讓去回程自動出現在行程", action: "flight" });
   if (!lodgingCount) actions.push({ icon: "◇", title: "住宿尚未決定", detail: "加入住宿後可直接比較景點距離", action: "lodging" });
   if (!scheduledPlaces.length) actions.push({ icon: "□", title: "開始安排每日行程", detail: "從收藏地點挑選第一天行程", action: "itinerary" });
   if (unplannedFavorites.length) actions.push({ icon: "★", title: `${unplannedFavorites.length} 個推薦地點尚未安排`, detail: "優先處理旅伴已投票的地點", action: "favorites" });
@@ -3015,63 +3016,7 @@ function applyPlacesFilterChange(filter, value) {
   return true;
 }
 
-function placesScreen() {
-  if (state.placesMode === "map") return mapScreen();
-
-  const filters = placesFilterModel(state.places, state);
-  const visiblePlaces = filters.visible.filter(matchesMapFilters);
-  const travelAreaKeys = [...new Set(visiblePlaces.map(planningSectionKey))];
-  const groups = travelAreaKeys
-    .map((regionKey) => {
-      const rows = visiblePlaces
-        .filter((place) => planningSectionKey(place) === regionKey)
-        .map((place) => {
-          const voters = placeVoters(place.name);
-          const active = voters.includes(currentMemberId());
-          return `
-            <div class="swipe-row ${canEdit() ? "" : "readonly"}">
-              ${canEdit() ? `<button class="swipe-delete" type="button" data-request-delete-place="${escapeHtml(place.name)}" aria-label="刪除${escapeHtml(place.name)}">刪除</button>` : ""}
-              <article class="place-row swipe-surface" ${canEdit() ? `data-swipe-item="place:${escapeHtml(place.name)}"` : ""}>
-                <button class="place-thumb" style="--swatch:${place.swatch}" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">${escapeHtml(place.mark)}</button>
-                <button class="place-copy place-copy-button" type="button" data-open-place="${escapeHtml(placeDetailKey(place))}">
-                  <strong>${escapeHtml(place.name)}</strong>
-                  ${placeTagsList(place)}
-                  <span>${escapeHtml(place.category)} · ${escapeHtml(placeCreatorName(place))}新增</span>
-                  <span class="vote-names">${escapeHtml(voterSummary(place.name))}</span>
-                </button>
-                <button class="reaction-button ${active ? "active" : ""}" type="button" aria-pressed="${active}" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"} aria-label="${canEdit() ? (active ? "取消我的最想去" : "標記我最想去") : "訪客無法投票"}">
-                  <span aria-hidden="true">${active ? "★" : "☆"}</span>
-                  <b>${voters.length}</b>
-                </button>
-              </article>
-            </div>`;
-        })
-        .join("");
-      const representative = visiblePlaces.find((place) => planningSectionKey(place) === regionKey);
-      const areaLabel = planningSectionLabel(representative);
-      const retryAction = canEdit() && visiblePlaces.some((place) => planningSectionKey(place) === regionKey && !isTravelAreaResolutionCurrent(place))
-        ? `<button class="travel-area-retry" type="button" data-retry-travel-area="${escapeHtml(regionKey)}">重新辨識</button>`
-        : "";
-      return `
-        <section class="place-group">
-          <div class="group-title-row"><h2 class="group-title">⌖ ${escapeHtml(areaLabel)}</h2>${retryAction}</div>
-          <div class="place-list">${rows}</div>
-        </section>`;
-    })
-    .join("");
-
-  return `
-    <section class="screen">
-      <header class="title-row">
-        <div><h1>收藏地點</h1><p class="meta">${visiblePlaces.length} 個${state.placeKind === "all" ? "地點" : kindLabel(state.placeKind)}</p></div>
-        ${canEdit() ? undoButtonMarkup() : `<span class="readonly-badge">訪客唯讀</span>`}
-      </header>
-      ${placesSegment("list")}
-      ${placesFilterDropdowns(filters)}
-      ${groups || `<div class="empty-state"><div><b>${state.places.length ? "沒有符合篩選的地點" : "還沒有收藏地點"}</b><span>${state.places.length ? "試試其他地區或餐飲類型。" : "新增第一個想一起討論的景點。"}</span></div></div>`}
-      ${canEdit() ? `<div class="list-footer"><button class="primary-button" type="button" data-add-place>＋　新增地點</button></div>` : ""}
-    </section>`;
-}
+function placesScreen() { return v3LibraryMarkup(); }
 
 function kindLabel(kind) {
   return { attraction: "景點", restaurant: "餐廳", lodging: "住宿", shopping: "購物" }[kind] || "地點";
@@ -3285,27 +3230,7 @@ function airportMapNodes(item) {
   });
 }
 
-function filteredMapPlaces() {
-  ensureItineraryItemIds();
-  const allProjectedPlaces = projectPlaces(state.places);
-  if (state.mapView !== "day") return allProjectedPlaces.filter(matchesMapFilters);
-  const placesByName = new Map(allProjectedPlaces.map((place) => [place.name, place]));
-  const dates = state.mapDate === "all" ? dateMeta.map(([date]) => date) : [state.mapDate];
-  return dates.flatMap((date, dayIndex) =>
-    (state.itinerary[date] || [])
-      .flatMap((item) => item.type === "flight"
-        ? airportMapNodes(item).map((place) => ({ item, place }))
-        : [{ item, place: placesByName.get(item.name) }])
-      .filter(({ place }) => place && ((place.isAirport && !state.placeSectionFilter && !state.areaTagFilter) || matchesMapFilters(place)))
-      .map(({ item, place }, index) => ({
-        ...place,
-        itineraryItemId: itineraryItemKey(item),
-        dayOrder: index + 1,
-        routeDate: date,
-        routeColor: routeColorForDate(date, dayIndex),
-      }))
-  );
-}
+function filteredMapPlaces() { return v3MapPlaces(); }
 
 const dayRouteColors = ["#c8452d", "#3f7193", "#7b5a91", "#4f835f", "#bf7b2b", "#9b4d66", "#567f83"];
 
@@ -3381,133 +3306,9 @@ function googleSegmentIcons(segment, style) {
   }];
 }
 
-function offsetOverlappingMapPins(places) {
-  if (state.mapView === "day") return places.map((place) => ({ ...place, pinOffsetX: 0, pinOffsetY: 0 }));
-  return places.map((place) => {
-    const peers = places.filter((candidate) =>
-      Math.abs((candidate.x ?? 0) - (place.x ?? 0)) < 7 &&
-      Math.abs((candidate.y ?? 0) - (place.y ?? 0)) < 7,
-    );
-    if (peers.length < 2) return { ...place, pinOffsetX: 0, pinOffsetY: 0 };
-    const peerIndex = peers.findIndex((candidate) =>
-      candidate.name === place.name && candidate.routeDate === place.routeDate,
-    );
-    const offsetIndex = peerIndex - (peers.length - 1) / 2;
-    return {
-      ...place,
-      pinOffsetX: offsetIndex * 29,
-      pinOffsetY: Math.abs(offsetIndex) % 2 ? -7 : 0,
-    };
-  });
-}
+function offsetOverlappingMapPins(places) { return places.map(place => ({ ...place, pinOffsetX: 0, pinOffsetY: 0 })); }
 
-function mapScreen() {
-  const filterModel = placesFilterModel(state.places, state);
-  // List and both map layouts render the same dropdowns over the same client-side state.
-  const placeFilters = placesFilterDropdowns(filterModel, { idPrefix: mapFullscreen ? "map-drawer" : "map" });
-  const projectedPlaces = filteredMapPlaces();
-  const kindPlaces = state.places.filter(matchesMapFilters);
-  const unlocatedCount = kindPlaces.length - projectPlaces(kindPlaces).length;
-  const dateOptions = state.mapView === "planning"
-    ? `<option>規劃地圖不套用日期</option>`
-    : [
-        `<option value="all" ${state.mapDate === "all" ? "selected" : ""}>所有日期</option>`,
-        ...dateMeta.map(
-          ([date, weekday]) => `<option value="${date}" ${state.mapDate === date ? "selected" : ""}>${date} ${weekday}</option>`,
-        ),
-      ].join("");
-  const dayLegend = state.mapDate === "all"
-    ? mapRouteGroups(projectedPlaces).map(({ date, color }) => `<span><i style="background:${color}"></i>${escapeHtml(date)}</span>`).join("") || `<span>尚無已排路線</span>`
-    : `<span class="day-route-legend"><i style="background:${routeColorForDate(state.mapDate)}"></i>數字為時間順序，連線表示下一站</span>`;
-  const flightLegend = state.mapView === "day" && projectedPlaces.some((place) => place.isAirport)
-    ? `<span class="flight-route-legend"><i></i>紅色虛線為航班</span>`
-    : "";
-  const mapTitle = state.mapView === "planning"
-    ? "規劃地圖"
-    : state.mapDate === "all" ? "所有日期路線" : `${state.mapDate} 當日地圖`;
-  const mapPurposeTabs = `
-    <div class="map-purpose-tabs" aria-label="地圖用途">
-      <button class="${state.mapView === "planning" ? "active" : ""}" type="button" data-map-view="planning"><strong>規劃地圖</strong><span>全部候選</span></button>
-      <button class="${state.mapView === "day" ? "active" : ""}" type="button" data-map-view="day"><strong>當日地圖</strong><span>拜訪順序</span></button>
-    </div>`;
-  const mapFilters = `
-    <div class="map-filters" aria-label="地圖篩選">
-      <label class="${state.mapView === "planning" ? "map-date-disabled" : ""}"><span>日期</span><select data-map-date ${state.mapView === "planning" ? "disabled" : ""}>${dateOptions}</select></label>
-      <label><span>想去程度</span><select data-map-preference>
-        <option value="all" ${state.mapPreference === "all" ? "selected" : ""}>全部</option>
-        <option value="group" ${state.mapPreference === "group" ? "selected" : ""}>2 人以上</option>
-        <option value="mine" ${state.mapPreference === "mine" ? "selected" : ""}>我已標記</option>
-        <option value="none" ${state.mapPreference === "none" ? "selected" : ""}>尚未推薦</option>
-      </select></label>
-    </div>`;
-  const fullscreenIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>`;
-  const fullscreenButton = `<button class="map-fullscreen-button" type="button" data-toggle-map-fullscreen aria-pressed="${mapFullscreen}" aria-label="${mapFullscreen ? "離開全螢幕地圖" : "開啟全螢幕地圖"}">${fullscreenIcon}<span>${mapFullscreen ? "離開全圖" : "全螢幕"}</span></button>`;
-  const mapLegend = `
-    <div class="map-legend" aria-label="圖釘狀態">
-      ${state.mapView === "day" ? `${dayLegend}${flightLegend}` : `<span><i class="candidate"></i>候選</span><span><i class="favorite"></i>2+ 推薦</span><span><i class="scheduled"></i>已排行程</span><span><i class="lodging"></i>住宿</span>`}
-    </div>`;
-  const mapActions = `<div class="map-operation-actions">
-      ${state.mapView === "planning" ? `
-        <button class="map-live-location-toggle ${liveLocationEnabled ? "active" : ""} ${liveLocationEnabled && !liveLocationPosition ? "locating" : ""}" type="button" role="switch" aria-checked="${liveLocationEnabled}" data-toggle-live-location>
-          <span class="map-live-location-icon" aria-hidden="true">⌖</span>
-          <b data-live-location-label>${liveLocationLabel()}</b>
-        </button>` : ""}
-      ${fullscreenButton}
-    </div>`;
-  const sidebarPlaces = projectedPlaces.length
-    ? projectedPlaces.map((place) => `
-        <button class="map-sidebar-place ${isSelectedMapDetailPlace(place) ? "active" : ""}" type="button" data-focus-map-place="${escapeHtml(placeDetailKey(place))}">
-          <i style="--place-swatch:${escapeHtml(place.swatch || mapPinColor(placeMapStatus(place)))}">${escapeHtml(place.mark || place.name.slice(0, 1))}</i>
-          <span><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(planningSectionLabel(place))} · ${escapeHtml(kindLabel(place.kind))}</small></span>
-        </button>`).join("")
-    : `<div class="map-sidebar-empty">目前沒有符合篩選的地點</div>`;
-  const selectedPreviewPlace = projectedPlaces.find(isSelectedMapDetailPlace);
-  const mapCanvas = `
-    <div class="map-canvas" data-map-host>
-      <div id="interactive-map" class="google-map" aria-label="互動地圖，可用單指拖曳與雙指縮放"><div class="map-loading">載入互動地圖…</div></div>
-      <div class="map-gesture-note">單指拖曳 · 雙指縮放</div>
-      ${unlocatedCount ? `<div class="map-coordinate-note">${unlocatedCount} 個地點待取得座標</div>` : ""}
-      ${!projectedPlaces.length ? `<div class="map-empty"><strong>沒有符合條件的地點</strong><span>${state.mapView === "day" ? "選取的日期尚未安排，或目前篩選太嚴格。" : "調整類型或想去程度後再看看。"}</span></div>` : ""}
-      <div class="map-place-preview-dock" data-map-preview-dock ${selectedPreviewPlace ? "" : "hidden"}>${selectedPreviewPlace ? mapPlacePreviewMarkup(selectedPreviewPlace) : ""}</div>
-    </div>`;
-
-  if (mapFullscreen) {
-    return `
-      <section class="screen map-screen is-fullscreen ${mapSidebarOpen ? "sidebar-open" : "sidebar-closed"}">
-        <aside id="map-drawer" class="map-fullscreen-sidebar" aria-label="地圖功能與地點篩選" ${mapSidebarOpen ? "" : "inert"}>
-          <div class="map-sidebar-heading"><div><p class="section-kicker">全圖瀏覽</p><h2>${mapTitle}</h2><span>顯示 ${projectedPlaces.length} 個地點</span></div></div>
-          ${mapPurposeTabs}
-          ${placeFilters}
-          ${mapFilters}
-          ${mapLegend}
-          ${mapActions}
-          <div class="map-sidebar-section map-sidebar-results"><div class="map-sidebar-result-title"><h3>地點</h3><span>${projectedPlaces.length} 筆</span></div>${sidebarPlaces}</div>
-        </aside>
-        <button class="map-drawer-handle" type="button" data-toggle-map-sidebar aria-controls="map-drawer" aria-expanded="${mapSidebarOpen}" aria-label="${mapSidebarOpen ? "收合側選單" : "展開側選單"}"><span aria-hidden="true">${mapSidebarOpen ? "‹" : "›"}</span></button>
-        <div class="map-fullscreen-stage">
-          <div class="map-fullscreen-floating-actions">
-            ${fullscreenButton}
-          </div>
-          ${mapCanvas}
-        </div>
-      </section>`;
-  }
-
-  return `
-    <section class="screen map-screen">
-      <header class="title-row map-toolbar">
-        <div><h1>${mapTitle}</h1><p class="meta">顯示 ${projectedPlaces.length} 個地點</p></div>
-        <div class="map-toolbar-actions">${undoButtonMarkup()}</div>
-      </header>
-      <div style="margin-top:14px">${placesSegment("map")}</div>
-      ${mapPurposeTabs}
-      ${mapFilters}
-      ${placeFilters}
-      ${mapLegend}
-      ${mapActions}
-      ${mapCanvas}
-    </section>`;
-}
+function mapScreen() { return v3MapMarkup(); }
 
 function syncMapDrawerHandle() {
   const handle = document.querySelector(".map-drawer-handle");
@@ -3671,7 +3472,6 @@ function handleLiveLocationError(error) {
 }
 
 function startLiveLocation() {
-  if (state.mapView !== "planning") return;
   if (!window.isSecureContext || !navigator.geolocation) {
     return showToast("此瀏覽器無法使用即時定位");
   }
@@ -3691,6 +3491,7 @@ function startLiveLocation() {
       liveLocationError = "";
       syncLiveLocationLayers({ center: !liveLocationHasCentered });
       updateLiveLocationControl();
+      v3MapContextChanged();
     },
     handleLiveLocationError,
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
@@ -3747,6 +3548,8 @@ function updateMapPlacePreview(place) {
   }
   document.querySelectorAll("[data-map-place-marker]").forEach((marker) => marker.classList.toggle("selected", marker.dataset.mapPlaceMarker === state.selectedMapPlace));
   document.querySelectorAll("[data-focus-map-place]").forEach((button) => button.classList.toggle("active", button.dataset.focusMapPlace === state.selectedMapPlaceKey));
+  document.querySelectorAll("[data-v3-place-key]").forEach(node => node.classList.toggle("is-focused", node.dataset.v3PlaceKey === state.selectedMapPlaceKey));
+  v3UI.refreshPins?.();
   if (place) focusActiveMapOnPlace(place);
 }
 
@@ -3923,162 +3726,8 @@ function emptyMapViewport() {
   return lastMapViewport?.tripId === state.tripId ? lastMapViewport : { latitude: 35.6762, longitude: 139.6503, zoom: 11 };
 }
 
-function renderGoogleInteractiveMap(host, places) {
-  clearLiveLocationLayers();
-  activeLeafletMap?.remove();
-  activeLeafletMap = null;
-  host.innerHTML = "";
-  const center = places.length
-    ? {
-        lat: places.reduce((sum, place) => sum + place.latitude, 0) / places.length,
-        lng: places.reduce((sum, place) => sum + place.longitude, 0) / places.length,
-      }
-    : { lat: emptyMapViewport().latitude, lng: emptyMapViewport().longitude };
-  const map = new google.maps.Map(host, {
-    center,
-    zoom: places.length ? (places.length === 1 ? 14 : 11) : emptyMapViewport().zoom,
-    gestureHandling: "greedy",
-    mapTypeId: "roadmap",
-    mapTypeControl: true,
-    fullscreenControl: false,
-    streetViewControl: false,
-  });
-  activeGoogleMap = map;
-  void renderAreaBoundary(map, "google");
-  map.addListener("click", () => updateMapPlacePreview(null));
-  map.addListener("dragstart", () => { mapInteractionUntil = Date.now() + 5000; });
-  map.addListener("zoom_changed", () => { mapInteractionUntil = Date.now() + 3000; });
-  const bounds = new google.maps.LatLngBounds();
-  if (state.mapView === "day") {
-    mapRouteSegments(places).forEach((segment) => {
-      const style = mapSegmentStyle(segment);
-      new google.maps.Polyline({
-        map,
-        path: segment.places.map((place) => ({ lat: place.latitude, lng: place.longitude })),
-        geodesic: true,
-        strokeColor: style.color,
-        strokeOpacity: style.dash ? 0 : style.opacity,
-        strokeWeight: 4,
-        icons: googleSegmentIcons(segment, style),
-      });
-      if (segment.transport) {
-        const [from, to] = segment.places;
-        const marker = new google.maps.Marker({
-          map,
-          position: { lat: (from.latitude + to.latitude) / 2, lng: (from.longitude + to.longitude) / 2 },
-          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: "#fffaf2", fillOpacity: 1, strokeColor: style.color, strokeWeight: 2 },
-          label: { text: transportModeMeta(segment.transport.mode).icon, fontSize: "14px" },
-          title: `${transportModeMeta(segment.transport.mode).label} · 開啟 Google Maps 路線`,
-        });
-        marker.addListener("click", () => {
-          const url = transportDirectionsUrl(segment.transport);
-          if (url) openGoogleMaps(url);
-        });
-      }
-    });
-  }
-  class TripPlaceOverlay extends google.maps.OverlayView {
-    constructor(place) {
-      super();
-      this.place = place;
-      this.position = new google.maps.LatLng(place.latitude, place.longitude);
-    }
-
-    onAdd() {
-      this.element = document.createElement("div");
-      this.element.className = "google-html-marker";
-      this.element.innerHTML = markerHtml(this.place);
-      this.element.querySelector("button")?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openMapNode(this.place);
-      });
-      this.getPanes().overlayMouseTarget.appendChild(this.element);
-    }
-
-    draw() {
-      const point = this.getProjection().fromLatLngToDivPixel(this.position);
-      if (!point || !this.element) return;
-      this.element.style.left = `${point.x + (this.place.pinOffsetX || 0)}px`;
-      this.element.style.top = `${point.y + (this.place.pinOffsetY || 0)}px`;
-    }
-
-    onRemove() {
-      this.element?.remove();
-      this.element = null;
-    }
-  }
-
-  offsetOverlappingMapPins(places).forEach((place) => {
-    const position = { lat: place.latitude, lng: place.longitude };
-    bounds.extend(position);
-    new TripPlaceOverlay(place).setMap(map);
-  });
-  if (places.length > 1) map.fitBounds(bounds, 42);
-  const selectedPlace = places.find(isSelectedMapDetailPlace);
-  if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
-  syncLiveLocationLayers({ center: liveLocationEnabled && !state.placeSectionFilter && places.length > 0 });
-}
-
-function renderLeafletInteractiveMap(host, places) {
-  if (!window.L) throw new Error("LEAFLET_NOT_AVAILABLE");
-  clearLiveLocationLayers();
-  activeGoogleMap = null;
-  activeLeafletMap?.remove();
-  host.innerHTML = "";
-  activeLeafletMap = L.map(host, {
-    dragging: true,
-    touchZoom: true,
-    scrollWheelZoom: true,
-    tap: true,
-    zoomControl: true,
-  });
-  void renderAreaBoundary(activeLeafletMap, "leaflet");
-  activeLeafletMap.on("movestart zoomstart", () => { mapInteractionUntil = Date.now() + 5000; });
-  activeLeafletMap.on("moveend zoomend", () => { mapInteractionUntil = Date.now() + 1800; });
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "© OpenStreetMap",
-  }).addTo(activeLeafletMap);
-  const bounds = [];
-  if (state.mapView === "day") {
-    mapRouteSegments(places).forEach((segment) => {
-      const style = mapSegmentStyle(segment);
-      L.polyline(segment.places.map((place) => [place.latitude, place.longitude]), {
-        color: style.color,
-        opacity: style.opacity,
-        weight: 4,
-        dashArray: style.dash || undefined,
-      }).addTo(activeLeafletMap);
-      if (segment.transport) {
-        const [from, to] = segment.places;
-        const midpoint = [(from.latitude + to.latitude) / 2, (from.longitude + to.longitude) / 2];
-        L.marker(midpoint, {
-          icon: L.divIcon({ className: "transport-div-icon", html: mapSegmentIconMarkup(segment), iconSize: [34, 34], iconAnchor: [17, 17] }),
-          title: `${transportModeMeta(segment.transport.mode).label} · 開啟 Google Maps 路線`,
-        }).addTo(activeLeafletMap);
-      }
-    });
-  }
-  offsetOverlappingMapPins(places).forEach((place) => {
-    const point = [place.latitude, place.longitude];
-    bounds.push(point);
-    const icon = L.divIcon({
-      className: "trip-div-icon",
-      html: markerHtml(place),
-      iconSize: [54, 36],
-      iconAnchor: [27 - (place.pinOffsetX || 0), 36 - (place.pinOffsetY || 0)],
-    });
-    L.marker(point, { icon, title: place.name, bubblingMouseEvents: false })
-      .addTo(activeLeafletMap)
-      .on("click", () => openMapNode(place));
-  });
-  if (bounds.length > 1) activeLeafletMap.fitBounds(bounds, { padding: [42, 42] });
-  else activeLeafletMap.setView(bounds[0] || [emptyMapViewport().latitude, emptyMapViewport().longitude], bounds.length ? 14 : emptyMapViewport().zoom);
-  activeLeafletMap.on("click", () => updateMapPlacePreview(null));
-  const selectedPlace = places.find(isSelectedMapDetailPlace);
-  if (selectedPlace) window.setTimeout(() => focusActiveMapOnPlace(selectedPlace), 0);
-  syncLiveLocationLayers({ center: liveLocationEnabled && !state.placeSectionFilter && places.length > 0 });
-}
+function renderGoogleInteractiveMap(host, places) { return v3GoogleMap(host, places); }
+function renderLeafletInteractiveMap(host, places) { return v3LeafletMap(host, places); }
 
 async function ensureMapCoordinates() {
   const missing = state.places.filter((place) =>
@@ -5538,12 +5187,11 @@ function itineraryScreen() {
             ${canEdit()
               ? `<button class="time-button" type="button" data-edit-time="${escapeHtml(item.name)}" aria-label="修改${escapeHtml(item.name)}時間">${escapeHtml(item.time)}</button>`
               : `<span class="time-button readonly-time">${escapeHtml(item.time)}</span>`}
-            <button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
+            <div class="v3-timeline-place"><button class="place-copy place-copy-button timeline-place-details" type="button" data-open-place="${escapeHtml(item.name)}">
               <strong>${escapeHtml(item.name)}</strong>
               ${Number.isInteger(item.durationMinutes) && item.durationMinutes > 0 ? `<span class="duration-line">停留 ${item.durationMinutes} 分鐘</span>` : ""}
-              <span class="opening-line"><b>營業</b>${formatOpeningHoursForDay(place?.openingHours, selectedWeekday)}</span>
-              <span class="phone-line"><b>電話</b>${escapeHtml(place?.phone || "待 Google Maps 同步")}</span>
-            </button>
+              <span class="v3-timeline-hours">${place ? escapeHtml(v3Hours(place,state.selectedDate,item.time,item.durationMinutes || 30).label) : ""}</span>
+            </button>${place ? `<button class="v3-map-action" type="button" data-v3-show-map="${escapeHtml(placeDetailKey(place))}" aria-label="在地圖查看${escapeHtml(place.name)}">⌖ 在地圖查看</button>` : ""}</div>
             ${canEdit() ? `<button
               class="drag-handle"
               type="button"
@@ -5568,10 +5216,10 @@ function itineraryScreen() {
   return `
     <section class="screen">
       <header class="title-row">
-        <div><h1>每日行程</h1><p class="meta">先排區域，再調整時間</p></div>
+        <div><h1>每日行程</h1><p class="meta">今天，照自己的步調走</p></div>
         ${state.isGuest ? "" : `<div class="header-actions">${undoButtonMarkup()}${shareButtonMarkup()}</div>`}
       </header>
-      ${placePool ? `<div class="itinerary-pool-bar">${placePoolToggleMarkup(placePool)}</div>` : ""}
+      ${placePool ? `<div class="itinerary-pool-bar"><button class="secondary-button" data-v3-external type="button">外部 AI 規劃</button><button class="text-button" data-tab="places" type="button">從地點開始安排</button></div>` : ""}
       <div class="date-strip">${dates}</div>
       <div class="day-area">
         <h2><span class="day-area-name">⌖ ${escapeHtml(area)}</span>${dayCountLabel ? `<small class="day-count">${escapeHtml(dayCountLabel)}</small>` : ""}</h2>
@@ -5582,7 +5230,7 @@ function itineraryScreen() {
           ? `<div class="timeline" data-pool-drop-date="${escapeHtml(state.selectedDate)}">${rows}</div>${transportReviewMarkup(state.selectedDate)}`
           : `<div class="empty-state" data-pool-drop-date="${escapeHtml(state.selectedDate)}"><div><b>這天還沒有地點</b><span>從地圖選取同區景點，加入這一天。</span></div></div>`
       }
-      ${canEdit() ? `<button class="outline-button" type="button" data-open-itinerary-places>＋　加入地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
+      ${canEdit() ? `<button class="outline-button" type="button" data-tab="places">＋　安排一個地點</button>` : `<div class="guest-readonly-note">訪客可查看行程；登入後才能調整時間、順序與景點。</div>`}
       ${placePool ? placePoolMarkup(placePool) : ""}
     </section>`;
 }
@@ -5603,7 +5251,7 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
   clearAreaBoundary();
   const previousScrollTop = app.scrollTop;
   syncTabBarState();
-  const mapIsActive = Boolean(state.tripId && state.activeTab === "places" && state.placesMode === "map");
+  const mapIsActive = Boolean(state.tripId && (v3Desktop() && ["map","places","itinerary"].includes(state.activeTab) || (state.activeTab === "map" || (state.activeTab === "places" && state.placesMode === "map"))));
   if (!mapIsActive) mapFullscreen = false;
   document.body.classList.toggle("map-fullscreen-open", mapIsActive && mapFullscreen);
   // Anchor-based, not raw scrollTop: selecting/filtering/constraint changes reshuffle these lists
@@ -5611,6 +5259,8 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
   const poolCandidateAnchor = capturePlacePoolAnchor("[data-place-pool-list]");
   const poolSelectedAnchor = capturePlacePoolAnchor("[data-place-pool-selected-list]");
   if (!state.tripId) app.innerHTML = state.isGuest ? emptyGuestScreen() : emptyTripsScreen();
+  else if (v3Desktop() && ["map", "places", "itinerary"].includes(state.activeTab)) app.innerHTML = v3DesktopScreen();
+  else if (state.activeTab === "map") app.innerHTML = mapScreen();
   else if (state.activeTab === "overview") app.innerHTML = overviewScreen();
   else if (state.activeTab === "places") app.innerHTML = placesScreen();
   else if (state.activeTab === "itinerary") app.innerHTML = itineraryScreen();
@@ -5622,8 +5272,8 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
     restorePlacePoolAnchor(poolCandidateAnchor);
     restorePlacePoolAnchor(poolSelectedAnchor);
   }
-  if (state.activeTab === "places" && state.placesMode === "map") {
-    if (state.mapView !== "planning" && liveLocationEnabled) stopLiveLocation();
+  if (mapIsActive) {
+
     window.requestAnimationFrame(() => initializeInteractiveMap({ filterOnly }));
   } else {
     if (liveLocationEnabled) stopLiveLocation();
@@ -5753,107 +5403,7 @@ function bindDetailGallery(gallery, place, allowRefresh = true) {
   if (identitySafePhotos(place).length < (place.customPhotoDataUrl ? 2 : 3)) refresh();
 }
 
-function openPlaceSheet(name, { refreshDetails = true } = {}) {
-  const place = resolveDetailPlace(name);
-  if (!place) return;
-  const reference = placeReferenceMeta(place);
-  const mapNavigationUrl = placeNavigationUrl(place);
-  const mapPlaceUrl = placeMapsUrl(place);
-  const tabelogUrl = safeTabelogUrl(place.tabelogUrl);
-  const tabelogWebUrl = tabelogMultilingualWebUrl(tabelogUrl);
-  const tabelogLink = tabelogAppLink(tabelogUrl);
-  const deleteLabel = place.kind === "lodging"
-    ? "刪除這間住宿"
-    : place.kind === "restaurant"
-      ? "刪除這間餐廳"
-      : place.kind === "shopping"
-        ? "刪除這間商店"
-        : "刪除這個景點";
-  const voters = placeVoters(place.name);
-  const hasMyVote = voters.includes(currentMemberId());
-  const voterChips = voters.length
-    ? voters
-        .map(
-          (memberId) => `
-            <span class="voter-chip">
-              ${avatarMarkup(memberId, true)}
-              ${escapeHtml(memberName(memberId))}
-            </span>`,
-        )
-        .join("")
-    : `<span class="meta">還沒有人標記，成為第一個吧</span>`;
-  const gallery = detailGalleryPhotos(place).slice(0, 3).map((photo, index) => detailGalleryCard(place, photo, index, mapPlaceUrl)).join("");
-  sheetRoot.innerHTML = `
-    <div class="modal-backdrop" data-dismiss-sheet>
-      <section class="modal-sheet place-detail-sheet" data-detail-place="${escapeHtml(placeDetailKey(place))}" role="dialog" aria-modal="true" aria-labelledby="place-title">
-        <div class="section-row">
-          <div><h2 id="place-title">${escapeHtml(place.name)}</h2></div>
-          <div class="place-detail-header-actions">
-            ${canEdit() ? `<button class="text-button" type="button" data-edit-place="${escapeHtml(place.name)}" aria-label="編輯地點">編輯</button>` : ""}
-            <button class="icon-button" type="button" data-close-sheet aria-label="關閉地點詳情">×</button>
-          </div>
-        </div>
-        ${placeTagsDetail(place)}
-        <p class="detail-geography-summary">主要地區：${escapeHtml(planningSectionLabel(place))}</p>
-        <p class="place-byline">${escapeHtml(place.fullName || place.name)} · ${escapeHtml(place.category)}</p>
-        <div class="detail-gallery" aria-label="${escapeHtml(place.name)}照片預覽">${gallery}</div>
-        <div class="gallery-caption">
-          <span>${place.customPhotoDataUrl ? (place.photoOrigin === "lodging_source" ? "使用原住宿頁照片" : "包含你自行加入的照片") : place.photos?.length ? "Google Maps 景點照片" : "尚未加入地點照片"}</span>
-          <button type="button" data-open-maps="${escapeHtml(mapNavigationUrl)}">Google Maps導航 ↗</button>
-        </div>
-        ${place.formattedAddress ? `<div class="place-address-card"><small>完整地址</small><strong>${escapeHtml(place.formattedAddress)}</strong></div>` : ""}
-        <p class="place-description">${escapeHtml(place.description)}</p>
-        ${reference ? `<button class="source-reference-button" type="button" data-open-reference="${escapeHtml(reference.url)}">查看原始 ${escapeHtml(reference.platform)} 連結 ↗</button>` : ""}
-        <section class="place-contact-grid${tabelogLink ? " has-tabelog-action" : ""}" aria-label="營業資訊">
-          <div class="place-contact-item hours-contact-item">
-            <small>營業時間</small>
-            <strong>${formatOpeningHours(place.openingHours)}</strong>
-            <span>Google Maps 參考，出發前請再次確認</span>
-          </div>
-          <div class="place-contact-item phone-contact-item">
-            <small>電話</small>
-            ${
-              place.phone && !place.phone.startsWith("待")
-                ? `<a href="tel:${escapeHtml(place.phone.replaceAll("-", ""))}">${escapeHtml(place.phone)}</a>`
-                : `<strong>${escapeHtml(place.phone || "待 Google Maps 同步")}</strong>`
-            }
-          </div>
-          ${tabelogLink && tabelogWebUrl ? `<a class="tabelog-reservation-button" href="${escapeHtml(tabelogLink)}" rel="noopener"><span>Tabelog預約</span><b aria-hidden="true">↗</b></a>` : ""}
-        </section>
-        <form class="place-note-card" id="place-note-form" data-place-name="${escapeHtml(place.name)}">
-          <div class="section-row"><div><small>共同註記</small><strong>旅伴都看得到</strong></div>${canEdit() ? `<button type="submit">儲存註記</button>` : ""}</div>
-          ${canEdit()
-            ? `<textarea name="note" maxlength="800" placeholder="例如：要預約、想買的品項、集合方式…">${escapeHtml(place.note || "")}</textarea>`
-            : `<p>${escapeHtml(place.note || "尚未加入註記")}</p>`}
-        </form>
-        <section class="detail-plan-row" aria-label="行程安排">
-          <div>
-            <small>行程安排</small>
-            <strong class="${placeAssignments(place.name).length ? "scheduled" : ""}">${escapeHtml(placeScheduleLabel(place.name))}</strong>
-          </div>
-          ${canEdit() ? `<button class="secondary-button" type="button" data-add-place-date="${escapeHtml(place.name)}">＋ 加入某一天</button>` : `<span class="readonly-badge">訪客唯讀</span>`}
-        </section>
-        <section class="vote-panel" aria-label="最想去投票">
-          <div class="section-row">
-            <div><strong>最想去</strong><span>${voters.length} 人標記</span></div>
-          </div>
-          <div class="voter-list">${voterChips}</div>
-        </section>
-        ${
-          Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
-            ? `<p class="meta detail-coordinate">由 ${escapeHtml(placeCreatorName(place))}新增 · 座標 ${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}</p>`
-            : `<p class="meta">此自訂地點尚未取得座標</p>`
-        }
-        <div class="modal-actions">
-          <button class="secondary-button ${hasMyVote ? "voted" : ""}" type="button" aria-pressed="${hasMyVote}" ${canEdit() ? `data-vote="${escapeHtml(place.name)}"` : "data-guest-action"}>${canEdit() ? (hasMyVote ? "★ 這我想去！" : "☆ 這我還好") : "訪客無法投票"}</button>
-          <button class="primary-button" type="button" data-open-maps="${escapeHtml(mapPlaceUrl)}">開啟 Google Maps</button>
-        </div>
-        ${canEdit() ? `<button class="place-detail-delete-button" type="button" data-request-delete-place="${escapeHtml(place.name)}">${deleteLabel}</button>` : ""}
-      </section>
-    </div>`;
-  bindDetailGallery(sheetRoot.querySelector?.(".detail-gallery"), place);
-  if (refreshDetails) ensurePlaceDetails(place);
-}
+function openPlaceSheet(name, options = {}) { return v3OpenPlace(resolveDetailPlace(name), options); }
 
 // Structured opening hours (Planner data) are fetched once per Google identity: a stored
 // known/unavailable record bound to this placeId means the fetch already completed.
@@ -6729,7 +6279,8 @@ function importCanBeAdded(place) {
     && place?.recognition !== "unresolved"
     && !place?.candidateGroupSkipped
     && place.selected === true
-    && !importAlreadyExists(place);
+    && !importAlreadyExists(place)
+    && (!plannerHoursGooglePlaceId(place) || PlanningGeography.isImportAreaReady(finalizeCandidateForBatchAdd(place)));
 }
 
 function importCandidateSelectionMode(placeOrGroup) {
@@ -7792,7 +7343,7 @@ function importPreviewMarkup(entries) {
       const previewable = place.isSocialCandidate || validMapCoordinates(Number(place.latitude), Number(place.longitude)) || Boolean(place.formattedAddress);
       const committedTags = placeTagsList(candidateDraftStore.get(importCandidateIdentity(place)) || place);
       const copy = previewable
-        ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${committedTags}${socialMeta}</button>`
+        ? `<button class="import-place-copy import-candidate-copy" type="button" data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}" aria-label="查看 ${escapeHtml(place.name)} 詳細資料"><strong>${escapeHtml(place.name)}</strong>${committedTags}${socialMeta}${plannerHoursGooglePlaceId(place) && !PlanningGeography.isImportAreaReady(candidateDraftStore.get(importCandidateIdentity(place)) || place) ? `<span class="v3-error">請先確認大區：開啟地點後選擇「編輯」</span>` : ""}</button>`
         : `<div class="import-place-copy"><strong>${escapeHtml(place.name)}</strong>${committedTags}${socialMeta}</div>`;
       const previewTarget = previewable
         ? ` data-preview-import-candidate="${escapeHtml(importCandidateIdentity(place))}"`
@@ -8775,26 +8326,7 @@ function openDateSheet(regionKey) {
     </div>`;
 }
 
-function openAddPlaceDateSheet(name, { poolKey = "" } = {}) {
-  const place = state.places.find((item) => item.name === name);
-  if (!place) return;
-  const options = dateMeta
-    .map(([date, weekday]) => `<option value="${date}" ${date === state.selectedDate ? "selected" : ""}>${date} ${weekday}</option>`)
-    .join("");
-  const assignments = placeAssignments(name);
-  sheetRoot.innerHTML = `
-    <div class="modal-backdrop" data-dismiss-sheet>
-      <form class="modal-sheet" id="add-place-day-form" data-place-name="${escapeHtml(name)}"${poolKey ? ` data-add-source="place-pool" data-place-key="${escapeHtml(poolKey)}"` : ""}>
-        <div class="section-row">
-          <div><p class="section-kicker">${escapeHtml(planningSectionLabel(place))}</p><h2>${poolKey ? "加入行程" : "加入某一天"}</h2></div>
-          <button class="icon-button" type="button" data-close-sheet>×</button>
-        </div>
-        <p><strong>${escapeHtml(name)}</strong>${poolKey ? "會加在當天行程最後（回程航班之前），之後可再調整時間與順序。" : assignments.length ? `目前已排：${escapeHtml(placeScheduleLabel(name))}` : "目前尚未安排。"}</p>
-        <div class="field"><label for="place-trip-date">選擇日期</label><select id="place-trip-date" name="date">${options}</select></div>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-sheet>取消</button><button class="primary-button" type="submit">確認加入</button></div>
-      </form>
-    </div>`;
-}
+function openAddPlaceDateSheet(name) { return openPlaceSheet(name); }
 
 function timeWheelOptions(count) {
   return Array.from({ length: count }, (_, value) => {
@@ -9029,6 +8561,8 @@ function placePoolPlanningConstraints() {
 }
 
 function clearPlacePoolConstraint(key) {
+  v3UI.durations.delete(key);
+  if(v3UI.workspace?.key===key)v3UI.workspace.options=[];
   placePoolPlanningConstraints().delete(key);
   placePoolHoursConflicts.delete(key);
 }
@@ -9086,6 +8620,8 @@ function placePoolPlannerState() {
 }
 
 function resetPlacePoolPlanner() {
+  if(placePoolPlanner.tripId!==state.tripId){v3UI.durations.clear();v3UI.workspace=null;v3UI.filter="saved";}
+  v3UI.exchangeBusy = false; v3UI.exchange = null; v3UI.exchangeError = null; v3UI.text = ""; v3UI.resolve = null;
   Object.assign(placePoolPlanner, { tripId: state.tripId, status: "idle", preview: null, draft: null, draftDirty: false, discardApproved: false, error: null, snapshot: null, editScrollTop: 0 });
   placePoolPlanner.sequence += 1;
 }
@@ -9101,114 +8637,16 @@ function placePoolPlannerSnapshot() {
     context: tripContextVersion,
     memberId: currentMemberId(),
     expectedRevision: state.sharedRevision,
-    selected: placePoolSelectedEntries().map((entry) => ({ ref: entry.key, name: entry.place.name, dateOptions: cloneValue(placePoolConstraintFor(entry.key)) })),
+    selected: placePoolSelectedEntries().map((entry) => ({ ref: entry.key, dateOptions: cloneValue(placePoolConstraintFor(entry.key)), ...(v3UI.durations.has(entry.key) ? {durationMinutes:v3UI.durations.get(entry.key)} : {}) })),
   };
 }
 
-async function postPlacePoolPlan(snapshot) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PLACE_POOL_PLANNER_TIMEOUT_MS);
-  try {
-    const response = await fetch(`/api/trip?id=${encodeURIComponent(snapshot.tripId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-      body: JSON.stringify({
-        action: "plan",
-        expectedRevision: snapshot.expectedRevision,
-        selected: snapshot.selected.map(({ ref, dateOptions }) => ({ ref, dateOptions })),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    return { status: response.status, ok: response.ok, payload };
-  } catch {
-    return { status: 0, ok: false, payload: {} };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function placePoolPlannerErrorMessage(result, snapshot) {
-  const payload = result.payload || {};
-  const code = String(payload.error || "");
-  const names = snapshot.selected.filter((entry) => (payload.placeKeys || []).includes(entry.ref)).map((entry) => `「${entry.name}」`).join("、");
-  if (code === "TRIP_STALE") return "行程內容已更新，請重新整理後再規劃。";
-  if (code === "PLANNER_MODEL_NOT_CONFIGURED" || code === "AI_PLANNER_NOT_CONFIGURED" || code === "PLANNER_QUOTA_NOT_CONFIGURED") return "AI 行程規劃尚未啟用，請稍後再試。";
-  if (code === "NO_PLANNING_CANDIDATES") return "目前沒有可規劃的地點，請先儲存想去的地方。";
-  if (code === "INVALID_PLANNER_CONSTRAINTS") return "指定日期的設定有誤，請重新確認後再規劃。";
-  if (code === "INVALID_PLANNER_PLACE_REF") return "部分已選地點已變更，請重新整理後再規劃。";
-  if (code === "PLANNER_LODGING_SELECTED") return `住宿${names}不會由 AI 排入行程，請先取消選取。`;
-  if (code === "PLANNER_CONSTRAINTS_INFEASIBLE") {
-    if (payload.reason === "OPENING_HOURS_CONFLICT") {
-      return `${names || "部分地點"}在目前選擇的日期或指定時間沒有可用的營業時段，請調整日期或時間條件後再規劃。`;
-    }
-    return payload.reason === "EXACT_TIME_CONFLICT"
-      ? `${names || "部分地點"}的指定時間互相衝突或與既有行程同時間，請調整後再規劃。`
-      : `${names || "部分地點"}指定的日期已排滿（每天最多 5 個地點），請多勾選幾天或減少指定地點。`;
-  }
-  if (code === "PLANNER_INVALID_OUTPUT") return "AI 這次沒有排出符合條件的行程，請再試一次。";
-  if (code === "DAILY_PLANNER_LIMIT") return "今天的 AI 規劃次數已達上限，請明天再試。";
-  if (result.status === 429) return "AI 服務目前忙碌，請稍後再試。";
-  return "AI 規劃暫時無法完成，請稍後再試。";
-}
+function placePoolPlannerErrorMessage(result) { return v3ErrorText(result.payload); }
 
 // One active planning request at most. The CTA plans from a fresh snapshot of the current
 // selection; 重新規劃 replays the Preview's own snapshot so later edits can never leak in.
 let plannerHoursStartBusy = false;
-async function requestPlacePoolPlan({ regenerate = false } = {}) {
-  const planner = placePoolPlannerState();
-  if (plannerHoursStartBusy || ["loading", "applying"].includes(planner.status)) return;
-  plannerHoursStartBusy = true;
-  const planningTripId = state.tripId;
-  let resolved = true;
-  try {
-    if (placePoolSelectedEntries().some(plannerHoursNeedsResolution)) resolved = await ensureSelectedPlannerHoursResolved();
-    else refreshPlacePoolHoursConflicts();
-  } finally { plannerHoursStartBusy = false; }
-  if (!resolved || state.tripId !== planningTripId || !state.placePool.open) return;
-  if (placePoolHoursConflicts.size) {
-    render({ preserveScroll: true, filterOnly: true });
-    return;
-  }
-  if (regenerate && !confirmPlannerDiscard(() => requestPlacePoolPlan({ regenerate: true }))) return;
-  if (!canEdit()) return guestOnlyMessage();
-  if (regenerate && !planner.snapshot) return;
-  if (!regenerate && !placePoolSelectedEntries().length && !placePoolPlannerCandidateCount(getFilteredPlacePool())) {
-    return showToast("目前沒有可規劃的地點，請先儲存想去的地方。");
-  }
-  if (sharedSaveTimer || sharedSyncBusy) return showToast("行程正在同步，請稍候再規劃。");
-  const snapshot = regenerate ? planner.snapshot : placePoolPlannerSnapshot();
-  const sequence = ++planner.sequence;
-  if (!planner.preview) {
-    const list = document.querySelector("[data-place-pool-list]");
-    planner.editScrollTop = list ? list.scrollTop : 0;
-  }
-  Object.assign(planner, { status: "loading", snapshot, error: null });
-  if (regenerate) Object.assign(planner, { draft: null, draftDirty: false });
-  render({ preserveScroll: true, filterOnly: true });
-  const result = await postPlacePoolPlan(snapshot);
-  const current = () => placePoolPlanner.sequence === sequence && placePoolPlanner.tripId === snapshot.tripId && state.tripId === snapshot.tripId
-    && tripContextVersion === snapshot.context && currentMemberId() === snapshot.memberId && state.placePool.open;
-  if (!current()) return;
-  if (result.status === 401) {
-    resetPlacePoolPlanner();
-    expireAppSession();
-    return showToast("登入已過期，請重新輸入暱稱與 PIN");
-  }
-  if (result.ok && result.payload?.preview?.tripId === snapshot.tripId && Array.isArray(result.payload.preview.days)) {
-    Object.assign(planner, { status: "preview", preview: result.payload.preview, draft: cloneValue(result.payload.preview), draftDirty: false });
-    render({ preserveScroll: true, filterOnly: true });
-    const previewList = document.querySelector("[data-place-pool-preview]");
-    if (previewList) previewList.scrollTop = 0;
-    return;
-  }
-  planner.status = planner.preview ? "preview" : "idle";
-  if (!planner.preview) planner.snapshot = null;
-  render({ preserveScroll: true, filterOnly: true });
-  planner.error = { ...result.payload, message: placePoolPlannerErrorMessage(result, snapshot) };
-  render({ preserveScroll: true, filterOnly: true });
-}
+async function requestPlacePoolPlan(options = {}) { return v3CreateExchange(options); }
 
 let pendingPlannerDiscard = null;
 function confirmPlannerDiscard(action) {
@@ -9305,6 +8743,7 @@ function reorderPlannerDraft(ref, targetRef) {
 async function applyPlannerDraft() {
   const planner = placePoolPlannerState();
   if (!canEdit() || planner.status !== "preview" || !planner.draft) return;
+  if (planner.draft.days.some(day => day.items.some(item => item.unresolved))) { planner.error = { error: "UNRESOLVED_PLACE", message: "請先確認所有新地點，或從草稿移除。" }; render({ preserveScroll: true, filterOnly: true }); return; }
   if (sharedSyncBusy || sharedSaveTimer) {
     planner.error = { message: "行程正在同步，請稍後再套用。" };
     render({ preserveScroll: true, filterOnly: true });
@@ -9622,8 +9061,8 @@ function placePoolCtaMarkup(pool) {
   const checkingHours = selectedPlannerHoursPending();
   const conflicts = placePoolHoursConflicts.size;
   const available = count > 0 || placePoolPlannerCandidateCount(pool) > 0;
-  const label = loading ? "正在規劃行程…" : checkingHours ? "正在確認營業時間…" : count > 0 ? `用已選 ${count} 個地點規劃` : "AI 幫我規劃行程";
-  const hint = checkingHours ? "正在讀取已選地點的營業時間" : conflicts ? `有 ${conflicts} 個地點的指定日期或時間不符合營業時間，請先調整。` : selectedPlannerHoursFailed() ? "部分地點的營業時間暫時無法確認，規劃時不會將其營業時間作為硬性限制。" : loading ? "AI 正在安排，可能需要一點時間" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
+  const label = loading ? "正在整理規劃說明…" : checkingHours ? "正在確認營業時間…" : count > 0 ? `產生規劃說明 · ${count} 個必去` : "產生外部 AI 規劃說明";
+  const hint = checkingHours ? "正在讀取已選地點的營業時間" : conflicts ? `有 ${conflicts} 個地點的指定日期或時間不符合營業時間，請先調整。` : selectedPlannerHoursFailed() ? "部分地點的營業時間暫時無法確認，規劃時不會將其營業時間作為硬性限制。" : loading ? "正在整理規劃說明" : available ? "會先產生預覽，不會變更目前行程" : "目前沒有可規劃的地點";
   const enabled = available && !loading && !checkingHours && !conflicts;
   return `
           <div class="place-pool-cta">
@@ -9644,8 +9083,8 @@ function placePoolPreviewItemMarkup(item) {
   const duration = item.durationMinutes;
   const currentDay = placePoolPlanner.draft?.days.find(day => day.items.includes(item))?.dayKey;
   return `<li class="place-pool-preview-item planner-draft-item" data-draft-ref="${ref}">
-    <div class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><span class="place-pool-preview-badge">${fixed ? "固定項目" : existing ? "原有行程" : "AI 規劃"}</span>
-    <div class="planner-draft-fields"><label>開始時間<button class="time-button" type="button" aria-label="修改${escapeHtml(item.name)}草稿時間 ${time}" data-draft-time="${ref}"${disabled}>${time || "--:--"}</button></label>
+    <div class="place-pool-preview-copy"><strong>${escapeHtml(item.name)}</strong><span class="place-pool-preview-badge">${fixed ? "固定項目" : existing ? "原有行程" : item.unresolved ? "尚未加入地點清單" : "草稿地點"}</span>
+    ${item.unresolved ? `<button class="secondary-button" type="button" data-v3-resolve="${ref}">確認地點／加入地點</button>` : ""}${!existing && !fixed ? `<button class="text-button" type="button" data-v3-remove="${ref}">移除</button>` : ""}<div class="planner-draft-fields"><label>開始時間<button class="time-button" type="button" aria-label="修改${escapeHtml(item.name)}草稿時間 ${time}" data-draft-time="${ref}"${disabled}>${time || "--:--"}</button></label>
     <label>${duration == null ? "停留時間未設定" : `停留 ${escapeHtml(duration)} 分鐘`}<input type="number" inputmode="numeric" min="${existing ? 1 : 30}" max="${existing ? 1440 : 240}" step="${existing ? 1 : 15}" value="${duration ?? ""}" placeholder="未設定" data-draft-duration="${ref}"${disabled}></label>
     <label class="planner-draft-date">日期<select data-draft-day="${ref}"${disabled}>${(placePoolPlanner.draft?.days || []).map(day => `<option value="${escapeHtml(day.dayKey)}"${day.dayKey === currentDay ? " selected" : ""}>${escapeHtml(day.dayKey)}</option>`).join("")}</select></label></div></div>
     ${`<button class="drag-handle planner-draft-handle" type="button" data-draft-drag="${ref}" aria-label="拖曳調整${escapeHtml(item.name)}順序"${busy ? " disabled" : ""}>☰</button>`}</li>`;
@@ -9659,11 +9098,11 @@ function placePoolPreviewMarkup(planner) {
   return `<div class="place-pool" id="place-pool-panel"${state.placePool.open ? "" : " hidden"}>
     <div class="place-pool-workspace is-preview" role="dialog" aria-modal="true" aria-labelledby="place-pool-title">
     <div class="place-pool-head"><button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉行程規劃"${busy ? " disabled" : ""}>×</button>
-    <div class="place-pool-head-copy"><h2 id="place-pool-title">AI 行程預覽</h2><p>${planner.draftDirty ? "已手動修改・尚未套用" : "可調整行程，確認後再套用"}</p></div></div>
+    <div class="place-pool-head-copy"><h2 id="place-pool-title">行程草稿</h2><p>${planner.draftDirty ? "已手動修改・尚未套用" : "可調整行程，確認後再套用"}</p></div></div>
     <div class="place-pool-preview" data-place-pool-preview><p class="place-pool-preview-banner" role="note">修改只保留在此草稿，按下「套用此行程」才會儲存。</p>${plannerErrorCard()}<ol class="place-pool-preview-days">${days}</ol></div>
     <div class="place-pool-cta place-pool-preview-actions planner-draft-actions">
-    <button class="place-pool-cta-button" type="button" data-pool-apply${busy || !planner.draft ? " disabled" : ""}${applying ? ' aria-busy="true"' : ""}>${applying ? "正在套用…" : "套用此行程"}</button>
-    <button class="secondary-button" type="button" data-pool-preview-regenerate${busy ? " disabled" : ""}>${loading ? "正在重新規劃…" : "重新規劃"}</button>
+    <button class="place-pool-cta-button" type="button" data-pool-apply${busy || !planner.draft || preview.days.some(day => day.items.some(item => item.unresolved)) ? " disabled" : ""}${applying ? ' aria-busy="true"' : ""}>${applying ? "正在套用…" : "套用此行程"}</button>
+    <button class="secondary-button" type="button" data-pool-preview-regenerate${busy ? " disabled" : ""}>${loading ? "正在產生說明…" : "重新產生規劃說明"}</button>
     <button class="place-pool-preview-back" type="button" data-pool-preview-back${busy ? " disabled" : ""}>修改規劃條件</button></div></div></div>`;
 }
 
@@ -9672,45 +9111,10 @@ function placePoolPreviewMarkup(planner) {
 // Selected drawer on narrow viewports (CSS only, same markup — see placePoolSelectedColumnMarkup).
 function placePoolMarkup(rawPool) {
   const planner = placePoolPlannerState();
-  if (planner.preview) return placePoolPreviewMarkup(planner);
-  refreshPlacePoolHoursConflicts();
-  const filters = state.placePool;
-  const docked = placePoolDocked();
-  const pool = placePoolViewModel(rawPool);
-  const field = (filter, label, selected, options) => `<div class="places-filter-field"><label for="place-pool-filter-${filter}">${label}</label><select id="place-pool-filter-${filter}" data-place-pool-filter="${filter}">${options.map(([value, name]) => `<option value="${escapeHtml(value)}"${value === selected ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></div>`;
-  const selectedKeySet = new Set(pool.selectedEntries.map((entry) => entry.key));
-  const rows = pool.mainEntries.map((entry) => placePoolCardMarkup(entry, { docked, selected: selectedKeySet.has(entry.key) })).join("");
-  const selectedCount = pool.selectedEntries.length;
-  // Zero rows means either "nothing matches the current filter" (still eligible Places exist) or
-  // "nothing left to plan at all" — never "everything is selected", since selection never removes
-  // a Place from this list.
-  const emptyMessage = pool.total ? "目前篩選條件下沒有地點" : "目前沒有可規劃的地點";
-  return `
-      <div class="place-pool" id="place-pool-panel"${filters.open ? "" : " hidden"}>
-        <div class="place-pool-workspace${placePoolDrawerIsOpen() ? " is-drawer-open" : ""}" role="dialog" aria-modal="true" aria-labelledby="place-pool-title">
-          <div class="place-pool-head">
-            <button class="icon-button place-pool-close" type="button" data-close-place-pool aria-label="關閉行程規劃">×</button>
-            <div class="place-pool-head-copy"><h2 id="place-pool-title">行程規劃</h2><p>已選 ${selectedCount} 個</p></div>
-          </div>
-          <div class="place-pool-layout">
-            ${placePoolSelectedColumnMarkup(pool)}
-            <div class="place-pool-drawer-backdrop" data-pool-drawer-backdrop aria-hidden="true"></div>
-            <section class="place-pool-candidates-column" aria-label="全部可規劃地點">
-              ${plannerErrorCard()}
-              <div class="places-filter-bar place-pool-filters" role="group" aria-label="行程規劃篩選">
-                ${field("section", "主要地區", filters.section, [["", "全部"], ...pool.sections])}
-                ${field("kind", "地點類型", filters.kind, pool.kinds)}
-                <button class="place-pool-favorite-filter" type="button" data-place-pool-favorite aria-pressed="${filters.favoriteOnly}">★ 最想去</button>
-              </div>
-              <p class="place-pool-hint" id="place-pool-hint">${docked ? "點選地點加入已選清單；拖曳「⠿」可直接加入某一天" : "點選地點加入已選清單；已選地點可指定日期"}</p>
-              ${rows ? `<ul class="place-pool-list" data-place-pool-list>${rows}</ul>` : `<div class="place-pool-empty">${emptyMessage}</div>`}
-              ${pool.ambiguousCount ? `<p class="place-pool-note">${pool.ambiguousCount} 個同名地點無法在行程規劃中選取</p>` : ""}
-            </section>
-          </div>
-          ${placePoolMobileHandleMarkup(selectedCount)}
-          ${placePoolCtaMarkup(pool)}
-        </div>
-      </div>`;
+  if (!state.placePool.open) return '';
+  if (planner.draft) return placePoolPreviewMarkup(planner);
+  if (v3UI.exchange) return v3ExchangeMarkup();
+  return '<div class="place-pool v3-planning"><section class="place-pool-workspace" role="dialog" aria-modal="true" aria-label="規劃行程"><header><h2>安排想去的地方</h2><button type="button" data-close-place-pool aria-label="關閉規劃">×</button></header><p>已選 ' + placePoolSelectedEntries().length + ' 個必去地點。點開地點可直接安排日期與時間。</p><div class="v3-planning-places">' + rawPool.entries.map(e => v3LibraryRow(e.place)).join('') + '</div>' + plannerErrorCard() + placePoolCtaMarkup(placePoolViewModel(rawPool)) + '</section></div>';
 }
 
 function setPlacePoolOpen(open) {
@@ -9740,7 +9144,7 @@ function setPlacePoolOpen(open) {
     if (list) list.scrollTop = session.hasOpened ? session.savedScrollTop : 0;
     session.hasOpened = true;
   }
-  window.requestAnimationFrame(() => document.querySelector(open ? "#place-pool-panel .place-pool-close" : "[data-toggle-place-pool]")?.focus());
+  window.requestAnimationFrame(() => document.querySelector(open ? ".place-pool [data-close-place-pool]" : "[data-toggle-place-pool]")?.focus());
 }
 
 function openPlacePoolAddSheet(placeKey) {
@@ -9846,16 +9250,7 @@ function placePoolConstraintDialogMarkup(place, pending) {
     </div>`;
 }
 
-function openPlacePoolConstraintSheet(key) {
-  const place = state.places.find((candidate) => placeDetailKey(candidate) === key);
-  if (!place || !getUnscheduledPlaces().entries.some((entry) => entry.key === key) || !placePoolSelectedKeys().has(key)) {
-    render({ preserveScroll: true });
-    return showToast("這個地點已不在行程規劃中");
-  }
-  const dates = new Map(placePoolConstraintFor(key).map((option) => [option.dayKey, { mode: option.mode, preferredPeriods: [...option.preferredPeriods], exactTime: option.exactTime }]));
-  pendingPoolConstraint = { key, dates, expandedDayKey: null, timeWheel: { hour: "09", minute: "00" } };
-  sheetRoot.innerHTML = placePoolConstraintDialogMarkup(place, pendingPoolConstraint);
-}
+function openPlacePoolConstraintSheet(key) { return openPlaceSheet(key); }
 
 function rerenderPoolConstraintDialog() {
   if (!pendingPoolConstraint) return;
@@ -10041,6 +9436,9 @@ function openReorderSheet(key) {
 }
 
 function closeSheet() {
+  const returnFocus = v3UI.workspace?.returnFocus;
+  v3UI.workspace = null; v3UI.resolve = null;
+  if (returnFocus?.isConnected) returnFocus.focus?.();
   pendingTimePicker = null;
   pendingPoolConstraint = null;
   pendingFlightTicketFile = null;
@@ -10067,6 +9465,7 @@ let poolDrawerDrag = null;
 let suppressPoolDrawerClick = false;
 
 document.addEventListener("click", async (event) => {
+  if (v3HandleClick(event)) return;
   if (event.target.closest("[data-retry-startup]")) return startApp();
   if (event.target.closest("[data-retry-shopping]")) return loadShopping({ force: true });
   if (event.target.closest("[data-guest-action]")) return guestOnlyMessage();
@@ -10831,7 +10230,7 @@ document.addEventListener("click", async (event) => {
   }
 
   const editTime = event.target.closest("[data-edit-time]");
-  if (editTime) return canEdit() ? openTimeWheel(editTime.dataset.editTime) : guestOnlyMessage();
+  if (editTime) { return canEdit() ? openPlaceSheet(editTime.dataset.editTime) : guestOnlyMessage(); }
 
   const wheelOption = event.target.closest("[data-wheel-value]");
   if (wheelOption) {
@@ -11087,6 +10486,7 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 document.addEventListener("change", async (event) => {
+  if (v3HandleChange(event)) return;
   if (event.target.matches('input[name="restaurantTags"]')) {
     syncRestaurantTagEditor(event.target.form);
     return;
@@ -11217,6 +10617,7 @@ document.addEventListener("change", async (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-v3-plan-text]")) { v3UI.text = event.target.value; return; }
   if (event.target.matches("[data-flight-native-control]")) syncFlightDateTimeDisplay(event.target);
 
   const flightForm = event.target.closest("#flight-form");
@@ -11402,6 +10803,7 @@ document.addEventListener("contextmenu", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (v3HandleKey(event)) return;
   if (event.key !== "Escape") return;
   if (sheetRoot.querySelector("[data-shopping-image-preview-root]")) {
     event.preventDefault();
@@ -12014,7 +11416,8 @@ document.addEventListener("submit", async (event) => {
         ...place,
         kind: requestedKind === "auto" ? (place.kind || inferPlaceKind(place.category)) : requestedKind,
       }, state.destination));
-    if (!additions.length) return showToast("沒有可新增的地點");
+    if (!additions.length) return showToast("請先確認地點與所屬大區，再加入地點清單");
+    if (additions.some(place => plannerHoursGooglePlaceId(place) && !PlanningGeography.isImportAreaReady(place))) return showToast("請先確認每個地點所屬大區");
     if (state.places.filter((place) => place.customPhotoDataUrl).length + additions.filter((place) => place.customPhotoDataUrl).length > 12) {
       return showToast("每趟旅程最多保存 12 張自訂地點照片，請減少選取或先移除既有照片");
     }

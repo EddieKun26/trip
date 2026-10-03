@@ -1,5 +1,12 @@
 # Project state
 
+## Travel App V3 — Engineering Gate PASS; user acceptance pending (2026-10-03)
+
+- Isolated travel-app-v3 / feat/travel-app-v3, exact baseline d286c15fe12658072ca6bc36c451d6992e832e45. Overrides normal source/mirror workflow; older checkouts untouched.
+- Map-first three-view workspace, canonical broad-area grouping/import integrity, shared Place/scheduling, timeline, external PLAN-TEXT-V1 snapshot/parser and explicit new-place resolution implemented. Built-in planner model/config/quota runtime removed; unrelated shopping/social AI retained.
+- Full deterministic regression: 897/897, zero failures/skips. Syntax, diff, API-12, migration/geometry/atomic-validator preservation and added-content heuristic credential checks PASS. See documentation/travel-app-v3-engineering-gate.md for evidence and retired-test mapping.
+- One release authorized after fresh exact-baseline check, by normal Git main push only. Exact release metadata is recorded in memory/travel-app-v3-release.json locally after verification. No live App/UI interaction or production data repair performed. USER_UI_SMOKE_REQUIRED=YES; engineering PASS is not user acceptance.
+
 ## Phase 2A.6 — Production-truth stabilization: engineering PASS, user acceptance pending (2026-09-22)
 
 - Authoritative worktree `planner-hours-coverage`, branch `feat/planner-hours-coverage`; starting functional production `315cd49d6c6164933bbdf2dbb2d270379fd03693`, diagnostic/release baseline `dd178242407d74cd88e78010e0de7addd9b49ae4`, diagnostic deployment `dpl_CbbZUerjmVqzJ8NcK3jeZVh2JitM`.

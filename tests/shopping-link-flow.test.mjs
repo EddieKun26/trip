@@ -4,7 +4,7 @@ import vm from "node:vm";
 import { readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const app = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const section = (from, to) => app.slice(app.indexOf(from), app.indexOf(to, app.indexOf(from)));
 const reference = "https://www.threads.com/share/GhWXu9wLy/";
 const recognized = { details: { brand: "品牌", name: "餅乾", benefits: "", price: 0, currency: "", categoryId: "daily" }, confidence: 0.9, annotation: { summary: "待確認", productImages: [] } };

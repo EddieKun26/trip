@@ -11,7 +11,7 @@ import test from "node:test";
 // flow. These tests exercise the real app.js functions (extracted by name/section, same technique
 // as tests/lodging-editor.test.mjs and tests/maps-text-import.test.mjs), never a reimplementation.
 
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const source = ["../lib/canonical-travel-catalog.js", "../lib/planning-geography.js", "../lib/trip-workspace.js", "../workspace-v3.js", "../app.js"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const stylesSource = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const catalog = JSON.parse(readFileSync(new URL("../data/area-geometry/travel-area-boundaries.json", import.meta.url), "utf8"));
 
@@ -123,6 +123,7 @@ function makeContext({ pendingPlaceImports = [], candidateDraftStore = new Map()
     + functionSource("importCandidateSelectionMode")
     + functionSource("samePlaceIdentity")
     + functionSource("importAlreadyExists")
+    + functionSource("detailGooglePlaceId") + functionSource("plannerHoursGooglePlaceId")
     + functionSource("importCanBeAdded")
     + functionSource("samePendingImportIdentity")
     + functionSource("submittablePlaceImports")
@@ -313,7 +314,7 @@ test("K. multi-candidate isolation: editing A never leaks into B", async () => {
 });
 
 test("L. batch add only includes checked candidates", () => {
-  const a = candidate({ placeId: "place-a", name: "候選 A", selected: true });
+  const a = candidate({ placeId: "place-a", name: "候選 A", selected: true, ...PlanningGeography.manualAreaFields("ueno") });
   const b = candidate({ placeId: "place-b", name: "候選 B", candidateGroupId: "social-1-2", candidateRank: 2, selected: false });
   const { context } = makeContext({ pendingPlaceImports: [a, b] });
   const additions = context.submittablePlaceImports();
