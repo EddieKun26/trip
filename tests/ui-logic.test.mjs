@@ -320,8 +320,8 @@ test("overview titles stay complete and undo is available across pages and eligi
   assert.match(appSource, /每日行程[\s\S]*undoButtonMarkup\(\)/);
 });
 
-test("place list keeps only the bottom add action and fully masks swipe deletion", () => {
-  const placesSection = sourceSection("function v3LibraryMarkup", "function v3MapPlaces");
+test("place list promotes its single header add action and fully masks swipe deletion", () => {
+  const placesSection = sourceSection("function v3Header", "function v3LibraryRow");
   assert.equal((placesSection.match(/data-add-place/g) || []).length, 1);
   assert.doesNotMatch(placesSection, /round-button/);
   assert.match(stylesSource, /\.place-thumb\s*{[^}]*border:\s*0/s);
@@ -1048,7 +1048,7 @@ test("the App ships its own icons and map library instead of relying on a public
 
 test("tab-bar uses meaningful accessible travel icons and lodging imports explain the booking-site limitation", () => {
   const tabIcons = [...indexSource.matchAll(/<span class="tab-icon"([^>]*)>[\s\S]*?<\/span>/g)];
-  assert.equal(tabIcons.length, 3);
+  assert.equal(tabIcons.length, 5);
   for (const [markup, attributes] of tabIcons) {
     assert.match(attributes, /aria-hidden="true"/, "decorative glyphs must not be announced by VoiceOver");
     assert.match(markup, /<svg[^>]*viewBox="0 0 24 24"/, "each tab must use one consistent vector icon family");
@@ -1139,9 +1139,9 @@ test("place import placeholder is neutral", () => {
   assert.match(section, /Google Maps、Agoda、Booking\.com、Trip\.com、Airbnb 或社群連結/);
 });
 
-test("shopping is a fourth private tab with categories reusable tags and completion state", () => {
-  assert.match(appSource, /data-tab="shopping"/);
-  assert.match(readFileSync(new URL("../workspace-v3.css",import.meta.url),"utf8"), /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+test("shopping is a directly accessible private tab with categories reusable tags and completion state", () => {
+  assert.match(indexSource, /data-tab="shopping"/);
+  assert.match(readFileSync(new URL("../workspace-v3.css",import.meta.url),"utf8"), /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
   const screen = sourceSection("function shoppingScreen", "function shoppingTagOptions");
   assert.match(screen, /只有你看得到/);
   assert.match(screen, /data-shopping-category/);

@@ -1,11 +1,19 @@
-# Todo
+### Layout refresh — current task (2026-10-03)
+
+- [x] Audit crowding and function access using installed Product Design workflow.
+- [x] Implement in canonical prototype; preserve data identities, atomic scheduling, hours conflicts, Undo and private Shopping.
+- [x] Full 905/905 regression; syntax and focused usability checks.
+- [ ] Sync validated files and publish Git/main; verify exact-commit production READY and public alias.
+- [ ] User device-level visual acceptance (agent UI automation remains disallowed).
+
+ Todo
 
 ## Travel App V3 — current task
 
 - [x] User confirmed one canonical area at import; familiar broad areas are sufficient.
 - [x] Implement integrated V3 milestones A–E in `travel-app-v3` only, including client/server fail-closed ingestion, map marker accuracy, shared Place Workspace, timeline, external PLAN-TEXT-V1, and zero built-in Planner model/quota operations.
 - [x] Complete deterministic focused and full regression, syntax/diff/API-12/migration/secret/artifact/staged-tree audits. No live UI automation.
-- [ ] Fresh fetch; require original baseline; one normal fast-forward main release; verify Git/main/exact commit/production/READY metadata.
+- [x] Fresh exact-baseline check; one fast-forward main release d562072; Vercel Git/main/exact commit/production/READY and alias verified. See travel-app-v3-release.json (local post-release receipt).
 - [ ] One final user production acceptance. No interim UI review/deployment.
 
 ## Phase 2A.6 — Production-truth stabilization (2026-09-22)

@@ -26,7 +26,7 @@
 - Flight city fields should be narrower than airport fields so full airport names remain visible, and all date/time values must be centered both horizontally and vertically.
 - Keep Overview flight rows compact, place outbound/return at the far left, and show passenger notes with larger vertically centered text.
 - Flight ticket photos should prefill fields after recognition but must not save without user confirmation.
-- Keep Shopping as a fourth bottom tab. Shopping lists are private per member and per trip even when Places and Itinerary are shared with travel companions.
+- Keep Shopping directly accessible in the permanent bottom navigation (the 2026-10-03 five-destination layout supersedes the earlier fourth-tab ordering). Shopping lists are private per member and per trip even when Places and Itinerary are shared with travel companions.
 - Shopping supports screenshot recognition, item photos, purchased checkmarks, default/custom categories, reusable recipient tags, and free-form notes.
 - Shopping items need an editable local price and currency. AI should prefill it only when visible in the screenshot, and estimates must keep mixed currencies explicit.
 - Manually added Shopping items should let the user choose a photo from the library or camera, preview it before saving, and replace or remove it later.
@@ -53,3 +53,12 @@
 - Japanese restaurant details should show a separate fixed-height orange `Tabelog預約` button with white text directly below, but not inside, the phone card. It must share exactly the same grid-column width as the phone card. The Tabelog URL should be attached when the restaurant is added; tapping should use the multilingual App's official HTTPS Universal Link so an installed App opens directly without an invalid-URL alert, while an unavailable App falls back to the corresponding Traditional Chinese website instead of a region-specific App Store. Never expose either the multilingual `tabelog-tourists` scheme or domestic `tabelog-v2` scheme as the button's direct URL.
 - Ship the web version first; build a test iOS app only after the web product matures.
 - For this travel-app project, deploy completed and validated changes directly to the public GitHub/Vercel production site without asking again each time; always return the latest public App link after deployment.
+
+
+## Layout priorities — 2026-10-03
+
+- The user prioritizes uncrowded allocation and intuitive function access. Five direct destinations: 旅程、地圖、行程、地點、採買.
+- Desktop tabs focus on their selected function; do not restore the forced three-pane layout.
+- Expose primary creation, saved-place search and canonical broad-area filtering above lists.
+- Place detail opens information first with votes and contact visible; one visible action enters scheduling. Preserve unsaved edits while switching panes.
+- Keep familiar broad areas such as 上野、原宿、新宿、代代木.

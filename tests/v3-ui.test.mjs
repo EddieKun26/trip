@@ -19,13 +19,13 @@ async function draft(b,data,{suggestion=true}={}){
   b.context.pasted=text;b.run('v3UI.text=pasted');const pending=b.run('v3ImportText()');await b.reply(reqs(b,'importPlanText').at(-1),importPlanText(data,{snapshot:s,text}));await pending;return b.run('placePoolPlanner.draft');
 }
 
-test('three-view workspace groups by canonical area, shares stable Place identity and desktop panels',async()=>{
+test('focused workspace groups by canonical area and shares stable Place identity',async()=>{
   const {b}=await setup();b.run('setTab("places")');assert.match(b.app.innerHTML,/data-v3-area="ueno"/);assert.match(b.app.innerHTML,/新宿餐廳/);
   const before=json(b.state.places);b.run('openPlaceSheet("app:synthetic-ueno",{refreshDetails:false})');assert.equal(b.run('v3UI.workspace.key'),'app:synthetic-ueno');
-  assert.match(b.sheet.innerHTML,/v3-place-workspace/);assert.match(b.sheet.innerHTML,/data-v3-schedule/);assert.match(b.sheet.innerHTML,/data-edit-place/);assert.match(b.sheet.innerHTML,/data-request-delete-place/);
+  assert.match(b.sheet.innerHTML,/v3-place-workspace/);assert.match(b.sheet.innerHTML,/data-v3-panel="schedule"/);assert.doesNotMatch(b.sheet.innerHTML,/data-v3-schedule>/);assert.match(b.sheet.innerHTML,/data-edit-place/);assert.match(b.sheet.innerHTML,/data-request-delete-place/);
   b.run('v3UI.workspace.time="13:15";openPlaceSheet("app:synthetic-ueno",{refreshDetails:false})');assert.equal(b.run('v3UI.workspace.time'),'13:15');
   b.run('closeSheet();setTab("map")');assert.match(b.app.innerHTML,/v3-map-sheet is-partial/);assert.match(b.app.innerHTML,/data-toggle-live-location/);assert.match(b.app.innerHTML,/data-v3-filter="nearby"/);
-  b.context.window.matchMedia=()=>({matches:true});b.run('render({filterOnly:true})');assert.match(b.app.innerHTML,/v3-desktop/);assert.match(b.app.innerHTML,/v3-timeline-column/);assert.match(b.app.innerHTML,/data-tab="shopping"/);
+  b.context.window.matchMedia=()=>({matches:true});b.run('render({filterOnly:true})');assert.match(b.app.innerHTML,/v3-map-layout/);assert.doesNotMatch(b.app.innerHTML,/v3-timeline-column|v3-library/);
   assert.deepEqual(json(b.state.places),before);
 });
 

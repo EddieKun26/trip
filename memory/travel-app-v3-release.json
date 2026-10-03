@@ -1,0 +1,36 @@
+{
+  "status": "TRAVEL_APP_V3_RELEASED_AWAITING_USER_ACCEPTANCE",
+  "verifiedAt": "2026-10-03T07:37:04.859Z",
+  "baseline": "d286c15fe12658072ca6bc36c451d6992e832e45",
+  "commit": "d5620726b16070ffa2a44b8a6c0af774ed4b808a",
+  "deploymentId": "dpl_Cc4MxjoXRbNfRiZPzzNTiCrwuWXv",
+  "project": {
+    "id": "prj_pUCCjevNI2aRMV0Vtd6tWgVqHO7n",
+    "name": "trip",
+    "framework": null
+  },
+  "source": "git",
+  "branch": "main",
+  "target": "production",
+  "readyState": "READY",
+  "url": "https://trip-eddie23.vercel.app",
+  "deploymentUrl": "https://trip-3c0z87xkf-eddie23.vercel.app",
+  "aliases": [
+    "trip-snowy-five.vercel.app",
+    "trip-eddie23.vercel.app",
+    "trip-git-main-eddie23.vercel.app"
+  ],
+  "engineeringGate": {
+    "tests": 897,
+    "passed": 897,
+    "failed": 0,
+    "skipped": 0,
+    "apiModules": 12
+  },
+  "releaseCount": 1,
+  "userUiSmokeRequired": true,
+  "userUiAcceptance": "pending",
+  "agentUiInteraction": false,
+  "productionDataRepair": false,
+  "note": "Local post-release receipt. No second deployment or post-release source change."
+}

@@ -2,10 +2,18 @@
 
 ## Travel App V3 — Engineering Gate PASS; user acceptance pending (2026-10-03)
 
+## Layout refresh — engineering PASS, release verification pending (2026-10-03)
+
+- User reports crowding and buried functions. Product Design source audit applied; five visible destinations and focused desktop pages replace the V3 three-pane layout.
+- Canonical source: travel-app/prototype/workspace-layout-refresh. Deployment mirror: trip-deploy-layout-refresh, based on origin/main d5620726b16070ffa2a44b8a6c0af774ed4b808a. Normal prototype → validated mirror → Git release workflow restored for this task. Existing dirty worktrees and AI家教 copies preserved.
+- Direct Add/search/broad-area filter and AI entry; detail information and scheduling separated; votes/contact visible; unsaved schedule/note drafts preserved; Shopping creation actions promoted; spacious supporting pages.
+- Full deterministic regression 905/905 with no failures/skips; syntax PASS. Eight new interaction regressions, including no-map initialization off Map and keyboard exclusion of closed disclosure controls. Backend/API-12/schema/migration/geometry contracts unchanged.
+- No live App/UI automation or production data writes. Device visual acceptance remains pending with user. See documentation/layout-refresh.md and post-release receipt memory/layout-refresh-release.json when available.
+
 - Isolated travel-app-v3 / feat/travel-app-v3, exact baseline d286c15fe12658072ca6bc36c451d6992e832e45. Overrides normal source/mirror workflow; older checkouts untouched.
 - Map-first three-view workspace, canonical broad-area grouping/import integrity, shared Place/scheduling, timeline, external PLAN-TEXT-V1 snapshot/parser and explicit new-place resolution implemented. Built-in planner model/config/quota runtime removed; unrelated shopping/social AI retained.
 - Full deterministic regression: 897/897, zero failures/skips. Syntax, diff, API-12, migration/geometry/atomic-validator preservation and added-content heuristic credential checks PASS. See documentation/travel-app-v3-engineering-gate.md for evidence and retired-test mapping.
-- One release authorized after fresh exact-baseline check, by normal Git main push only. Exact release metadata is recorded in memory/travel-app-v3-release.json locally after verification. No live App/UI interaction or production data repair performed. USER_UI_SMOKE_REQUIRED=YES; engineering PASS is not user acceptance.
+- Released once after fresh exact-baseline check, normal Git main push d5620726b16070ffa2a44b8a6c0af774ed4b808a. Vercel dpl_Cc4MxjoXRbNfRiZPzzNTiCrwuWXv is Git/main/production/READY with trip-eddie23.vercel.app alias. Exact metadata is in memory/travel-app-v3-release.json (local post-release receipt; no second deployment). No live App/UI interaction or production data repair performed. USER_UI_SMOKE_REQUIRED=YES; engineering PASS is not user acceptance.
 
 ## Phase 2A.6 — Production-truth stabilization: engineering PASS, user acceptance pending (2026-09-22)
 

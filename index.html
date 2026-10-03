@@ -15,8 +15,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="旅伴" />
     <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261003.1" />
-    <link rel="stylesheet" href="./workspace-v3.css?v=20261003.1" />
+    <link rel="stylesheet" href="./styles.css?v=20261003.2" />
+    <link rel="stylesheet" href="./workspace-v3.css?v=20261003.2" />
   </head>
   <body>
     <main class="stage">
@@ -24,6 +24,15 @@
         <div id="app" class="app"></div>
         <nav class="tab-bar" aria-label="主要導覽">
           <!-- Icons: Tabler Icons, MIT License. See vendor/tabler-icons/LICENSE. -->
+          <button class="tab" type="button" data-tab="overview">
+            <span class="tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                <path d="M6 8a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2l0 -10" />
+                <path d="M9 6v-1a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v1" />
+                <path d="M6 10h12M6 16h12M9 20v1M15 20v1" />
+              </svg>
+            </span><span class="tab-label">旅程</span>
+          </button>
           <button class="tab active" type="button" data-tab="map" aria-current="page">
             <span class="tab-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false">
@@ -50,6 +59,14 @@
             </span><span class="tab-label">地點</span>
           </button>
 
+          <button class="tab" type="button" data-tab="shopping">
+            <span class="tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                <path d="M6.331 8h11.339a2 2 0 0 1 1.977 2.304l-1.255 8.152a3 3 0 0 1 -2.966 2.544h-6.852a3 3 0 0 1 -2.965 -2.544l-1.255 -8.152A2 2 0 0 1 6.331 8" />
+                <path d="M9 11V6a3 3 0 0 1 6 0v5" />
+              </svg>
+            </span><span class="tab-label">採買</span>
+          </button>
         </nav>
         <div class="home-indicator" aria-hidden="true"></div>
       </section>
@@ -60,12 +77,12 @@
     <script src="./vendor/leaflet/leaflet.js"></script>
     <script src="./lib/travel-area-audit.js?v=20260913.1"></script>
     <script src="./lib/area-tags.js?v=20260913.1"></script>
-    <script src="./lib/canonical-travel-catalog.js?v=20261003.1"></script>
-    <script src="./lib/planning-geography.js?v=20261003.1"></script>
+    <script src="./lib/canonical-travel-catalog.js?v=20261003.2"></script>
+    <script src="./lib/planning-geography.js?v=20261003.2"></script>
     <script src="./lib/canonical-travel-manifest.js?v=20260913.1"></script>
     <script src="./lib/canonical-travel-migration.js?v=20260913.1"></script>
-    <script src="./lib/trip-workspace.js?v=20261003.1"></script>
-    <script src="./workspace-v3.js?v=20261003.1"></script>
-    <script src="./app.js?v=20261003.1"></script>
+    <script src="./lib/trip-workspace.js?v=20261003.2"></script>
+    <script src="./workspace-v3.js?v=20261003.2"></script>
+    <script src="./app.js?v=20261003.2"></script>
   </body>
 </html>

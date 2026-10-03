@@ -4247,6 +4247,9 @@ function shoppingScreen() {
         <div><p class="section-kicker">PRIVATE LIST</p><h1>採買清單</h1><p class="meta">${escapeHtml(state.tripTitle)} · 只有你看得到</p></div>
         <div class="header-actions">${shoppingUndoButtonMarkup()}<span class="shopping-private-pill" aria-label="私人清單">鎖 私人</span></div>
       </header>
+      ${canManageShopping() && !shoppingSelectionMode
+          ? `<div class="shopping-sticky-actions"><button type="button" data-import-shopping-link>貼連結辨識</button><button type="button" data-import-shopping-screenshot>截圖辨識</button><button type="button" data-add-shopping-item>手動新增</button></div>`
+          : ""}
       <section class="shopping-summary" aria-label="採買進度">
         <div><strong>${pending}</strong><span>待購買</span></div>
         <div><strong>${done}</strong><span>已完成</span></div>
@@ -4270,9 +4273,7 @@ function shoppingScreen() {
         : items.length
           ? `<div class="shopping-list">${items.map(shoppingItemMarkup).join("")}</div>`
           : `<div class="shopping-empty"><span>購</span><h2>${total ? "這個篩選沒有項目" : "還沒有採買項目"}</h2><p>${total ? "切換分類或購買狀態看看。" : "上傳推薦截圖，辨識後再確認加入；也可以手動新增。"}</p></div>`}
-      ${canManageShopping() && !shoppingSelectionMode
-          ? `<div class="shopping-sticky-actions"><button type="button" data-import-shopping-link>貼連結辨識</button><button type="button" data-import-shopping-screenshot>截圖辨識</button><button type="button" data-add-shopping-item>手動新增</button></div>`
-          : ""}
+
     </section>`;
 }
 
@@ -5251,7 +5252,7 @@ function render({ preserveScroll = false, filterOnly = false } = {}) {
   clearAreaBoundary();
   const previousScrollTop = app.scrollTop;
   syncTabBarState();
-  const mapIsActive = Boolean(state.tripId && (v3Desktop() && ["map","places","itinerary"].includes(state.activeTab) || (state.activeTab === "map" || (state.activeTab === "places" && state.placesMode === "map"))));
+  const mapIsActive = Boolean(state.tripId && state.activeTab === "map");
   if (!mapIsActive) mapFullscreen = false;
   document.body.classList.toggle("map-fullscreen-open", mapIsActive && mapFullscreen);
   // Anchor-based, not raw scrollTop: selecting/filtering/constraint changes reshuffle these lists
@@ -8326,7 +8327,7 @@ function openDateSheet(regionKey) {
     </div>`;
 }
 
-function openAddPlaceDateSheet(name) { return openPlaceSheet(name); }
+function openAddPlaceDateSheet(name) { return openPlaceSheet(name, { panel: "schedule" }); }
 
 function timeWheelOptions(count) {
   return Array.from({ length: count }, (_, value) => {
@@ -8620,7 +8621,7 @@ function placePoolPlannerState() {
 }
 
 function resetPlacePoolPlanner() {
-  if(placePoolPlanner.tripId!==state.tripId){v3UI.durations.clear();v3UI.workspace=null;v3UI.filter="saved";}
+  if(placePoolPlanner.tripId!==state.tripId){v3UI.durations.clear();v3UI.workspace=null;v3UI.filter="saved";v3UI.libraryQuery="";v3UI.libraryArea="";}
   v3UI.exchangeBusy = false; v3UI.exchange = null; v3UI.exchangeError = null; v3UI.text = ""; v3UI.resolve = null;
   Object.assign(placePoolPlanner, { tripId: state.tripId, status: "idle", preview: null, draft: null, draftDirty: false, discardApproved: false, error: null, snapshot: null, editScrollTop: 0 });
   placePoolPlanner.sequence += 1;
@@ -9250,7 +9251,7 @@ function placePoolConstraintDialogMarkup(place, pending) {
     </div>`;
 }
 
-function openPlacePoolConstraintSheet(key) { return openPlaceSheet(key); }
+function openPlacePoolConstraintSheet(key) { return openPlaceSheet(key, { panel: "schedule" }); }
 
 function rerenderPoolConstraintDialog() {
   if (!pendingPoolConstraint) return;
@@ -10230,7 +10231,7 @@ document.addEventListener("click", async (event) => {
   }
 
   const editTime = event.target.closest("[data-edit-time]");
-  if (editTime) { return canEdit() ? openPlaceSheet(editTime.dataset.editTime) : guestOnlyMessage(); }
+  if (editTime) { return canEdit() ? openPlaceSheet(editTime.dataset.editTime, { panel: "schedule" }) : guestOnlyMessage(); }
 
   const wheelOption = event.target.closest("[data-wheel-value]");
   if (wheelOption) {
@@ -10617,6 +10618,8 @@ document.addEventListener("change", async (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-v3-note]") && v3UI.workspace) { v3UI.workspace.note = event.target.value; return; }
+  if (event.target.matches("[data-v3-library-search]")) { v3LibrarySearch(event.target.value); return; }
   if (event.target.matches("[data-v3-plan-text]")) { v3UI.text = event.target.value; return; }
   if (event.target.matches("[data-flight-native-control]")) syncFlightDateTimeDisplay(event.target);
 
@@ -11181,6 +11184,7 @@ document.addEventListener("submit", async (event) => {
     const place = state.places.find((item) => item.name === event.target.dataset.placeName);
     if (!place) return showToast("找不到這個地點");
     place.note = String(new FormData(event.target).get("note") || "").trim().slice(0, 800);
+    if (v3UI.workspace?.key === placeDetailKey(place)) v3UI.workspace.note = place.note;
     persist();
     return showToast("景點註記已儲存");
   }

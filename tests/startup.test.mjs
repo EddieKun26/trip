@@ -40,7 +40,7 @@ function browser({ profile = member(), stored = {}, href = "https://trip.test/",
     frames.push({ html, id: state.tripId, memberId: state.profile?.id, title: state.tripTitle,
       tab: state.activeTab, status: state.hydrationStatus });
   } });
-  const tabs = ["map", "places", "itinerary"].map((tab) => ({ ...node(), dataset: { tab } }));
+  const tabs = ["overview", "map", "itinerary", "places", "shopping"].map((tab) => ({ ...node(), dataset: { tab } }));
   const location = new URL(href);
   const session = new Map();
   const localStorage = {
